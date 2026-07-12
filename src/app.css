@@ -1,0 +1,7 @@
+/* Placeholder until the M2 design system (src/ui/styles/) lands. */
+body {
+  margin: 0;
+  background: #0a0d1c;
+  color: #eceef4;
+  font-family: system-ui, sans-serif;
+}
