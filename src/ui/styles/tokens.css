@@ -1,0 +1,35 @@
+:root {
+  /* The void (page) — near-black indigo, never pure black */
+  --void: oklch(0.13 0.03 275); /* ≈ #0a0d1c */
+  --void-deep: oklch(0.1 0.025 280);
+
+  /* Glass panels */
+  --glass: oklch(0.8 0.02 260 / 0.05);
+  --glass-edge: oklch(0.85 0.03 260 / 0.16);
+  --glass-blur: 14px;
+  /* Opaque stand-in when backdrop-filter is unavailable */
+  --glass-fallback: oklch(0.17 0.03 272 / 0.92);
+
+  /* Ink */
+  --text: oklch(0.94 0.01 260);
+  --text-dim: oklch(0.68 0.02 260);
+
+  /* The trio (never all at full strength in one component) */
+  --ether: oklch(0.8 0.11 195); /* teal — primary accent, player, casts */
+  --arcana: oklch(0.72 0.15 300); /* violet — magic, DoT, secondary accent */
+  --ember: oklch(0.8 0.13 80); /* gold — currency & rewards ONLY */
+
+  /* Vitals */
+  --life: oklch(0.78 0.15 160); /* HP */
+  --wound: oklch(0.68 0.17 25); /* damage, enemy swing */
+
+  --radius: 14px;
+  --radius-sm: 8px;
+
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 140ms;
+  --dur: 260ms;
+
+  --font-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+  --font-ui: 'Inter Variable', system-ui, -apple-system, sans-serif;
+}
