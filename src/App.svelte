@@ -1,46 +1,57 @@
 <script lang="ts">
-  import type { AbilityId } from './engine'
+  import { onMount } from 'svelte'
   import ActionBar from './ui/components/ActionBar.svelte'
   import Background from './ui/components/Background.svelte'
   import CombatantCard from './ui/components/CombatantCard.svelte'
-  import CombatLog, { type LogEntry } from './ui/components/CombatLog.svelte'
+  import CombatLog from './ui/components/CombatLog.svelte'
   import Sidebar from './ui/components/Sidebar.svelte'
   import TopBar from './ui/components/TopBar.svelte'
+  import { Game } from './ui/game.svelte'
 
-  // M2: static mock data for the shell review. M3 replaces this with the live store.
-  const kills = 12
-  const gold = 120
-  const player = { hp: 72, maxHp: 100, alive: true, respawnIn: 0 }
-  const enemy = { hp: 44, maxHp: 80, alive: true, respawnIn: 0 }
-  const swingProgress = 0.62
-  const dot = { abilityId: 'ignite' as const, remainingTicks: 84 }
-  const cast = { abilityId: 'fireball' as const, progress: 0.58, remainingTicks: 21 }
-  const cooldowns: Record<AbilityId, number> = { fireball: 0, ignite: 96, renew: 0 }
-  const usable: Record<AbilityId, boolean> = { fireball: false, ignite: false, renew: false }
-  const pressedKeys = new Set<string>()
-  const entries: LogEntry[] = [
-    { id: 1, time: '0.0s', text: 'A Cave Golem lumbers out of the dark.', tone: 'info' },
-    { id: 2, time: '1.2s', text: 'Ignite sears the Cave Golem.', tone: 'arcana' },
-    { id: 3, time: '2.2s', text: 'Ignite burns the Cave Golem for 4.', tone: 'arcana' },
-    { id: 4, time: '2.6s', text: 'Fireball hits the Cave Golem for 21.', tone: 'player' },
-    { id: 5, time: '3.4s', text: 'Cave Golem hits you for 7.', tone: 'enemy' },
-    { id: 6, time: '4.1s', text: 'Renew restores 23 health.', tone: 'heal' },
-    { id: 7, time: '5.8s', text: 'Cave Golem dies. +10 gold.', tone: 'gold' },
-  ]
+  const game = new Game()
+
+  onMount(() => {
+    game.start()
+    return () => game.stop()
+  })
+
+  const playerFloats = $derived(game.floats.filter((f) => f.side === 'player'))
+  const enemyFloats = $derived(game.floats.filter((f) => f.side === 'enemy'))
 </script>
 
 <Background />
 <div class="app">
   <Sidebar />
   <main class="main">
-    <TopBar {kills} {gold} />
+    <TopBar kills={game.snap.kills} gold={game.snap.gold} />
     <section class="arena" aria-label="Combatants">
-      <CombatantCard side="player" name="Hero" combatant={player} />
-      <CombatantCard side="enemy" name="Cave Golem" combatant={enemy} {swingProgress} {dot} />
+      <CombatantCard
+        side="player"
+        name="Hero"
+        combatant={game.snap.player}
+        floats={playerFloats}
+        impact={game.impacts.player}
+        bloom={game.bloom}
+      />
+      <CombatantCard
+        side="enemy"
+        name="Cave Golem"
+        combatant={game.snap.enemy}
+        swingProgress={game.snap.swingProgress}
+        dot={game.snap.dot}
+        floats={enemyFloats}
+        impact={game.impacts.enemy}
+      />
     </section>
-    <CombatLog {entries} />
+    <CombatLog entries={game.log} />
     <div class="foot">
-      <ActionBar {cast} {cooldowns} {usable} {pressedKeys} />
+      <ActionBar
+        cast={game.snap.cast}
+        cooldowns={game.snap.cooldowns}
+        usable={game.usable}
+        pressedKeys={game.pressed}
+        onactivate={(id) => game.use(id)}
+      />
     </div>
   </main>
 </div>
@@ -59,6 +70,7 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
+    min-height: 100dvh;
   }
 
   .arena {

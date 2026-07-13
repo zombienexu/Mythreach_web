@@ -17,16 +17,23 @@
     pressedKeys: ReadonlySet<string>
     onactivate?: (id: AbilityId) => void
   } = $props()
+
+  // Keep the last cast visible while the slot fades out.
+  let lastCast: CastSnapshot | null = $state(null)
+  $effect(() => {
+    if (cast !== null) lastCast = cast
+  })
+  const shown = $derived(cast ?? lastCast)
 </script>
 
 <div class="action-area">
   <!-- space is always reserved; only opacity changes, so the bar never reflows -->
   <div class="cast-slot" class:active={cast !== null} aria-hidden={cast === null}>
     <div class="cast-head">
-      <span class="cast-name">{cast ? ABILITIES[cast.abilityId].name : ' '}</span>
-      <span class="cast-time num">{cast ? `${ticksToSeconds(cast.remainingTicks)}s` : ' '}</span>
+      <span class="cast-name">{shown ? ABILITIES[shown.abilityId].name : ' '}</span>
+      <span class="cast-time num">{shown ? `${ticksToSeconds(shown.remainingTicks)}s` : ' '}</span>
     </div>
-    <Bar value={cast?.progress ?? 0} max={1} kind="cast" height={12} label="Cast progress" />
+    <Bar value={shown?.progress ?? 0} max={1} kind="cast" height={12} label="Cast progress" />
   </div>
 
   <div class="buttons" role="toolbar" aria-label="Abilities">
