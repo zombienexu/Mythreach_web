@@ -44,6 +44,14 @@
   $effect(() => {
     if (bloom > 0) pulse('bloomed')
   })
+
+  // Respawn: fade-up from the void.
+  let wasAlive: boolean | null = null
+  $effect(() => {
+    const alive = combatant.alive
+    if (alive && wasAlive === false) pulse('reborn')
+    wasAlive = alive
+  })
 </script>
 
 <article class="glass card {side}" class:dead={!combatant.alive} bind:this={el}>
@@ -197,8 +205,23 @@
   }
 
   .dead {
-    filter: saturate(0.15) brightness(0.72);
-    transform: scale(0.985);
+    filter: saturate(0.12) brightness(0.66);
+    transform: scale(0.97) translateY(3px);
+  }
+
+  :global(.card.reborn) {
+    animation: fade-up 420ms ease-out;
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0.3;
+      transform: scale(0.97) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
   }
 
   .veil {
@@ -210,7 +233,8 @@
     align-items: center;
     justify-content: center;
     gap: 2px;
-    background: oklch(0.1 0.025 280 / 0.55);
+    background: oklch(0.1 0.025 280 / 0.72);
+    backdrop-filter: blur(2.5px);
   }
 
   .veil-word {
@@ -319,7 +343,8 @@
   @media (prefers-reduced-motion: reduce) {
     .float,
     :global(.card.hit),
-    :global(.card.bloomed) {
+    :global(.card.bloomed),
+    :global(.card.reborn) {
       animation: none;
     }
 

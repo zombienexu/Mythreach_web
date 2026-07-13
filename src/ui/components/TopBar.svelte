@@ -16,7 +16,9 @@
         <circle cx="5.9" cy="7.2" r="1.1" fill="currentColor" />
         <circle cx="10.1" cy="7.2" r="1.1" fill="currentColor" />
       </svg>
-      <span class="num">{kills}</span>
+      {#key kills}
+        <span class="num pop">{kills}</span>
+      {/key}
       <span class="label">kills</span>
     </div>
     <div class="stat gold" title="Gold">
@@ -30,7 +32,9 @@
         />
         <path d="M8 4.6 10.8 8 8 11.4 5.2 8Z" fill="currentColor" opacity="0.55" />
       </svg>
-      <span class="num">{gold}</span>
+      {#key gold}
+        <span class="num pop">{gold}</span>
+      {/key}
       <span class="label">gold</span>
     </div>
   </div>
@@ -73,6 +77,26 @@
   .num {
     font-weight: 620;
     font-size: 15px;
+  }
+
+  .pop {
+    display: inline-block;
+    animation: stat-pop 340ms var(--ease-spring);
+  }
+
+  @keyframes stat-pop {
+    from {
+      transform: scale(1.35);
+    }
+    to {
+      transform: scale(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pop {
+      animation: none;
+    }
   }
 
   .label {

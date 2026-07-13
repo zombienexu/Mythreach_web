@@ -33,7 +33,7 @@
   onclick={() => onactivate?.()}
   aria-label="{def.name} (key {def.key})"
   aria-keyshortcuts={def.key}
-  disabled={!usable && cooldown === 0 && !casting}
+  aria-disabled={!usable}
 >
   <span class="icon"><AbilityIcon id={def.id} /></span>
   <span class="key num">{def.key}</span>
@@ -59,6 +59,10 @@
       transform var(--dur-fast) var(--ease-spring),
       border-color var(--dur-fast) ease,
       box-shadow var(--dur-fast) ease;
+  }
+
+  .ability.unusable {
+    cursor: default;
   }
 
   .ability:hover:not(.unusable) {
