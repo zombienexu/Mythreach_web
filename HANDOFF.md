@@ -2,24 +2,24 @@
 
 > **You are a fresh Claude Code session.** This file is everything you need to
 > pick up the project exactly where it stands. Read it, run the checkpoint
-> commands, and you're oriented. (`WEB_PIVOT_PLAN.md` is the original build
-> brief this repo was built from — background reading only; this file
-> supersedes it as the entry point.)
+> commands, and you're oriented. (`WEB_PIVOT_PLAN.md` is the original v0 build
+> brief — background reading only; the README covers the concept.)
 
 ## What this is, and where it stands
 
-Mythreach Web is the **v0 combat prototype** of an idle/incremental RPG
-("idle when you're away, an RPG when you're here" — see README for the full
-concept). One encounter (Hero vs. Cave Golem), three abilities (Fireball /
-Ignite / Renew), kill→gold→respawn loop, in a bespoke "Arcane Observatory"
-glass-and-void visual identity.
+Mythreach Web is an idle/incremental RPG ("idle when you're away, an RPG when
+you're here"). **v1 — "The Sundered Reaches" — is complete**: a five-zone
+single-player campaign with 7 abilities (mana/GCD/spell-queue/crits/interrupts),
+25 enemies with mechanics (enrage, interruptible hardcasts, venom DoTs), 5
+bosses, XP/levels 1–15, generated loot in 4 rarities across 5 slots, 6 talents,
+15 achievements, auto-battle, localStorage saves, offline fast-forward (up to
+8 h of real simulation), synthesized sound, and five dashboard views
+(Combat / Character / Talents / Atlas / Chronicle).
 
-**Status: v0 is complete and frozen.** All six planned milestones (M0–M5) are
-built, verified, and committed; the repo is pushed to
-`github.com/zombienexu/Mythreach_web` (branch `master`). There is no
-in-flight work and no known bug. Whatever you do next is *new* scope the user
-asks for — do not invent features unprompted, and do not touch the frozen v0
-rules without an explicit request.
+v0 (one golem, three abilities) was milestones M0–M5; v1 replaced its rules
+wholesale — the v0 "frozen rules" are obsolete. Balance is pinned by
+`tests/balance.test.ts` instead: an auto-played campaign must clear in
+0.6–3 h with <20 deaths, first boss inside 15 min with ≤2 deaths.
 
 ## Environment (read this first — it's non-obvious)
 
@@ -30,10 +30,8 @@ rules without an explicit request.
   export PATH="$HOME/.local/node/node-v24.18.0-linux-x64/bin:$PATH"
   ```
 
-  The user was asked to add this to `~/.zshrc`; check with `which node`
-  before assuming. Do **not** try `curl | bash` installers or editing
-  `~/.zshrc` yourself — the permission classifier blocks both (learned the
-  hard way). Official tarballs from nodejs.org download fine.
+  Check with `which node` first. Do **not** try `curl | bash` installers or
+  editing `~/.zshrc` yourself — the permission classifier blocks both.
 - **Playwright chromium is already installed** (`~/.cache/ms-playwright`).
   If a fresh machine: `npx playwright install chromium`.
 - Platform: Ubuntu, zsh, no sudo assumed.
@@ -41,111 +39,136 @@ rules without an explicit request.
 ## The contract (keep these green at all times)
 
 ```sh
-npm test        # 42 Vitest cases — the behavioral spec, written before the engine
+npm test        # 86 Vitest cases — rules, content envelope, campaign balance
 npm run check   # svelte-check + tsc, strict, 0 errors 0 warnings
 ```
 
-Two hard rules beyond the scripts:
+Hard rules beyond the scripts:
 
 1. **Engine purity.** `src/engine/` must never import DOM, Svelte, or
    `window`. Verify: `grep -rnE "document|window|svelte" src/engine/` → empty.
-2. **Integer ticks.** The engine runs at 20 ticks/s (50 ms); every duration
-   is an exact tick count. Milliseconds exist only in `src/ui/loop.ts`.
-   Never accumulate floats in game logic.
+2. **Integer ticks.** 20 ticks/s (50 ms); every duration is an exact tick
+   count. Milliseconds exist only in `src/ui/loop.ts` and save timestamps.
+3. **Events are the only one-shot channel.** UI effects (floats, log, shake,
+   sfx) derive from `CombatEvent`s, never from snapshot diffs.
+4. **Content-independent tests.** Rule tests inject custom content packs
+   (`tests/helpers.ts` → `testContent()`); only `balance.test.ts` and a few
+   smoke tests touch live content numbers.
 
-## Frozen v0 rules (the tests pin all of this)
+## Core rules quick-reference (tests pin the details)
 
-- Hero 100 HP. Cave Golem 80 HP, swings every 44 ticks for 5–9 (uniform int).
-- Fireball: 50-tick cast, 16–24 damage. Ignite: instant, 160-tick CD, DoT
-  4 dmg × 6 ticks at 20-tick intervals. Renew: 36-tick cast, 100-tick CD,
-  heals 18–26 clamped.
-- One cast at a time, no queueing/GCD. Offensive abilities need a living
-  enemy to *start*; if the enemy dies mid-cast the cast completes but
-  **fizzles**. Cooldowns start at *resolve*.
-- Kill: +1 kill, +10 gold, DoTs cleared, respawn at +60 ticks. Player death:
-  cast cancelled, DoTs cleared, enemy idles, revive at +60 ticks with a fresh
-  full-HP enemy. Damage event precedes death event on a killing blow.
+- GCD 24 ticks, triggered by every ability except off-GCD Counterspell.
+  Presses during cast/GCD **queue** (replacing any queued spell); the queue
+  fires the tick both clear, drops if the target dies.
+- Mana spends at cast *resolve*; fizzles (target died mid-cast) refund.
+  Cooldowns always start at resolve. Regen every 20 ticks, spirit-scaled;
+  +7% max HP/s heal while no enemy is on the field.
+- Crits ×7/4. Combustion: +25% fire / +20% crit for 240 ticks. Barrier
+  absorbs before HP (damage events carry `absorbed`). Ignite snapshots
+  power/combustion at apply.
+- Enemy hardcast: first cast at cooldown/2 after spawn, swings pause while
+  casting, interrupt restarts the full cooldown. Enrage: once, at hpPct,
+  swingMult/dmgMult. Venom: applies a Dot to the player on a timer.
+- Kill → xp/gold/drop rolls → possible level-ups (full restore, unlock
+  spells at 2/4/6/8/11) → boss-ready at 10 zone kills → boss kill unlocks
+  the next zone; final boss sets `completed`. Player death (100-tick
+  respawn) despawns the enemy; bosses must be re-challenged.
+- Saves: `mythreach-save-v1` in localStorage, written every 5 s + on
+  hide/unload. Offline: elapsed > 60 s → `fastForward(min(elapsed, 8h))`
+  with auto-battle forced on; never challenges bosses.
 
 ## Architecture map
 
 ```
-src/engine/          pure TS simulation (portable, will outlive the UI)
-  types.ts           AbilityId/Side/EncounterConfig/CombatSnapshot, DEFAULT_CONFIG, tick constants
-  events.ts          CombatEvent discriminated union — the UI's only one-shot channel
-  abilities.ts       the three abilities as plain typed data; engine interprets
-  combatant.ts       HP pool w/ clamp rules      dot.ts  DoT instance w/ refresh
-  rng.ts             mulberry32 + rollInt (seeded in tests, Math.random in game)
-  engine.ts          CombatEngine: tick() → CombatEvent[], useAbility(), canUse(), snapshot()
-  index.ts           barrel
+src/engine/            pure TS simulation
+  types.ts             ids, constants (GCD_TICKS…), snapshots, SaveData
+  events.ts            CombatEvent union — the UI's only one-shot channel
+  abilities.ts         7 abilities + effects as data
+  content/             enemies.ts zones.ts items.ts talents.ts achievements.ts
+  progression.ts       xp curve, deriveStats(level, talents, gear), talent points
+  playerUnit.ts        hero combat-side state (cast/queue/gcd/cds/buffs/venom)
+  enemyUnit.ts         one spawned enemy (swing/cast/enrage/venom timers, ignite)
+  sim.ts               GameSim — THE game: tick order, kill flow, zones/bosses,
+                       auto-battle rotation, serialize/deserialize, fastForward
+  combatant.ts dot.ts rng.ts   small units (HP pool, DoT instance, mulberry32+helpers)
 
 src/ui/
-  loop.ts            rAF + accumulator; steps engine per 50 ms; catch-up clamped to 2 s/frame
-  game.svelte.ts     Game store (runes class): drains events ONCE per tick into
-                     log entries, float numbers, impact/bloom counters; keydown 1/2/3
-  format.ts          ticksToSeconds
-  styles/tokens.css  the design tokens — single source of truth, don't fork values
-  styles/base.css    @font-face (public/fonts), reset, .glass panel, reduced-motion kill-switch
-  components/        Background, Sidebar, TopBar, Bar, CombatantCard, CombatLog,
-                     ActionBar, AbilityButton, icons/AbilityIcon, portraits/*
+  loop.ts              rAF accumulator (unchanged from v0)
+  game.svelte.ts       Game store: boot/load/offline, event fan-out, autosave,
+                       floats/log/impacts, banner/toast/victory, keys 1-7 + A
+  sfx.ts               synthesized WebAudio cues, mute-aware, gesture-unlocked
+  format.ts            ticksToSeconds/Clock/Duration, stat & rarity labels
+  styles/tokens.css    design tokens incl. mana/xp/shield/rarity colors
+  components/          PlayerCard EnemyCard FloatLayer ActionBar AbilityButton
+                       Bar CombatLog Sidebar TopBar ItemTile Modal OfflineModal
+                       VictoryModal LevelUpBanner Toast Background
+                       portraits/HeroPortrait portraits/EnemyPortrait(parametric)
+                       icons/AbilityIcon (7 glyphs)
+  views/               CombatView CharacterView TalentsView AtlasView ChronicleView
 
-tests/               the contract; helpers.ts has makeEngine(overrides, seed) + advance()
-tools/shots.mjs      npm run shots — builds, boots preview, plays keys 2→1→3, writes docs/shot-{1,2,3}.png
+tests/                 helpers.ts (testContent/makeSim/advance…) + 11 spec files
+tools/shots.mjs        npm run shots — README screenshots (fresh fight, boss, bags)
 ```
 
-Data flow: `loop` ticks engine → `Game.onEvent()` fans events into UI state →
-components render from `game.snap` (fresh `snapshot()` published only on
-frames where ≥1 tick ran). **Never derive one-shot effects from snapshot
-diffs** — that double-fires; events are the only trigger for
-splashes/log/shake.
+Data flow: `loop` ticks sim → `Game` drains events once per tick → snapshots
+publish per frame (combat) / on-dirty (progress) → views render. Player
+intents (`use/travel/challengeBoss/equip/sell/spendTalent/respec`) call sim
+methods directly and force-publish.
 
 ## Design identity — "Arcane Observatory" (don't drift)
 
-Luminous glass panes over a living void; deep, translucent, lit from within.
-Everything is tokened in `tokens.css`: `--ether` (teal: player/casts),
-`--arcana` (violet: DoT/magic), `--ember` (gold — **currency ONLY**),
-`--life`/`--wound` vitals, glass + edge vars. Principles that shipped and
-must survive edits: gradient-fill bars with a trailing bright "loss" layer;
-ether→arcana cast bar (the signature element); conic-gradient cooldown wipes;
-spring-pop damage floats; hit-shake/heal-bloom via one-shot `pulse()` classes
-in `CombatantCard`; Fraunces for display type, Inter elsewhere, tabular nums
-on every number; full `prefers-reduced-motion` support; conditional UI
-reserves space and fades opacity (cast slot) — **never reflow the action bar**.
+Everything from v0 still applies: tokens in `tokens.css` are the single
+source of truth; ether=player/casts, arcana=magic/XP, ember=rewards ONLY;
+life/wound vitals; glass panels; gradient bars with trailing loss layer;
+ether→arcana cast bar; conic cooldown wipes (fainter for GCD); spring-pop
+floats (crits bigger, absorbs shield-blue); one-shot `pulse()` classes for
+shake/bloom; Fraunces display / Inter UI, tabular nums everywhere; reserved
+space over reflow (cast slot, buff chips row); full reduced-motion support.
+New in v1: rarity color tokens (only ever mean rarity), parametric enemy
+portraits (8 families, hue-tinted, eyes flare on enrage), zone hue accents,
+enemy hardcast bar reads as *danger* (orange) vs the player's ether cast.
 
 Fonts are self-hosted in `public/fonts/` and preloaded from `index.html` —
-keep them out of Vite's hashed pipeline or the preload links break.
+keep them out of Vite's hashed pipeline.
 
-## Verification workflow that worked well
+## Verification workflow that works
 
-- Unit level: `npm test` (add exact-tick boundary cases for any new rule —
-  "damage at tick 44, none at 43").
-- App level: short throwaway Playwright drivers (boot vite dev server via JS
-  API with `port: 0`, `page.keyboard.press`, read `.log li .text` /
-  `.hp` / `.stat.gold .num`, screenshot to the scratchpad, view the PNG).
-  `tools/shots.mjs` is the committed template for this pattern. Note: scripts
-  must live inside the repo or `import 'playwright'` won't resolve.
-- Perf/size: `npm run build` prints gzip sizes — JS budget is **< 80 KB**
-  (currently ~23 KB).
+- `npm test` for rules; add exact-tick boundary cases for any new rule.
+- Balance: tweak content → run `tests/balance.test.ts`; for tuning detail,
+  write a temporary diag test that plays campaigns and writes a report file
+  (see git history for the pattern), then delete it.
+- App level: throwaway Playwright drivers **inside the repo** (vite JS API,
+  `port: 0`, `page.addInitScript` to inject a `mythreach-save-v1` blob for
+  mid/late-game states, screenshot to scratchpad, view the PNG).
+  `tools/shots.mjs` is the committed example of all of this.
+- Perf/size: `npm run build` — JS budget **< 80 KB** gzip (currently ~45 KB).
 
 ## Known quirks & gotchas
 
-- Svelte 5: reading a `$state` prop during component init trips the
-  `state_referenced_locally` warning — track previous values inside
-  `$effect` (see the `wasAlive` pattern in `CombatantCard.svelte`).
-- One-shot CSS animations are re-armed by `classList.remove` → force reflow
-  (`void el.offsetWidth`) → `add` (the `pulse()` helper). Don't convert to
-  reactive classes; they won't restart on repeat hits.
-- `.gold` is both a TopBar chip class and a log-entry tone class — scope
-  selectors (`.stat.gold`) in tests/drivers.
-- Vitest runs only `tests/**/*.test.ts` (see `vite.config.ts`).
-- Commit messages so far follow "Mx: summary" — keep milestone-style
-  prefixes if the user starts new scoped work.
+- Svelte 5: track previous values inside `$effect` (see `wasAlive` /
+  `lastDefId` patterns in the cards) to avoid `state_referenced_locally`.
+- One-shot CSS animations are re-armed by `classList.remove` → force reflow →
+  `add` (the `pulse()` helper). Don't convert to reactive classes.
+- `Game` store: field initializers may reference earlier fields (`boot()`
+  runs first); don't move sim creation into the constructor body — `$state`
+  initializers need it.
+- The enemy card renders `lastEnemy` (a kept snapshot) while `combat.enemy`
+  is null so the "Slain" veil + respawn countdown work; clear `lastEnemy` on
+  travel/challenge/spawn.
+- The kill line in the log is folded from three events (enemyDied + xpGained
+  + goldGained) inside `Game.step()` — don't log those individually.
+- Enemy timers count the spawn tick: first swing lands at `swingTicks − 1`
+  after spawn, first hardcast at `cooldown/2 − 1`. Tests encode this.
+- `.gold` is both a TopBar chip class and a log-entry tone — scope selectors
+  (`.stat.gold`) in drivers.
+- Vitest runs only `tests/**/*.test.ts`; tools/ scripts are plain node.
+- Commits follow "Mx: summary" milestone prefixes (v1 shipped as M6).
 
 ## Where the game goes next (when the user asks)
 
-The concept roadmap (see README "Where this goes next") calls v0 → vertical
-slice: GCD + spell queueing, enemy mechanics, 6–8 abilities/loadouts, XP and
-gear, zones, idle auto-resolve, **save/offline progress** (the deterministic
-tick engine can replay elapsed time — design for it), sound. The engine's
-data-driven `abilities.ts` and config-driven encounter setup were shaped so
-content scales without touching the core `tick()` logic. Balance work should
-use the headless engine in Monte-Carlo sims.
+Candidates, in rough order of leverage: non-combat skills that feed combat
+(the original dashboard-of-skills vision), prestige/rebirth, gear enchanting
+as a gold sink, more mechanics (dispellable enemy buffs, stacking debuffs),
+cloud saves, richer audio. The content pack + mechanics-union design means
+new zones/enemies are pure data; the balance suite tells you if they fit the
+curve.

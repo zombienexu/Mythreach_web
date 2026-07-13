@@ -1,6 +1,5 @@
-// npm run shots — build, boot the preview server, play the same key timeline
-// as the Godot repo's tools/screenshot.gd (2 @ 0.4s, 1 @ 0.6s, 3 @ 4.0s;
-// captures at ~1.7s / 3.4s / 5.0s), writing docs/shot-{1,2,3}.png.
+// npm run shots — build, boot the preview server, and capture the three
+// README screenshots: a fresh fight, a mid-game boss pull, and the bags.
 import { mkdir } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { build, preview } from 'vite'
@@ -12,25 +11,79 @@ const { port } = server.httpServer.address()
 await mkdir('docs', { recursive: true })
 
 const browser = await chromium.launch()
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-await page.goto(`http://localhost:${port}/`)
-await page.waitForTimeout(600) // settle: fonts, first paint
 
-const t0 = Date.now()
-const at = (ms) => new Promise((r) => setTimeout(r, Math.max(0, t0 + ms - Date.now())))
+// ── shot 1: a fresh hero's first fight ──────────────────────────────
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  await page.goto(`http://localhost:${port}/`)
+  await page.waitForTimeout(1500) // settle: fonts, first spawn
+  await page.keyboard.press('2') // Ignite
+  await page.waitForTimeout(500)
+  await page.keyboard.press('1') // Fireball
+  await page.waitForTimeout(1600)
+  await page.screenshot({ path: 'docs/shot-1.png' }) // DoT ticking, fireball mid-cast
+  await page.close()
+}
 
-await at(400)
-await page.keyboard.press('2') // Ignite
-await at(600)
-await page.keyboard.press('1') // Fireball
-await at(1700)
-await page.screenshot({ path: 'docs/shot-1.png' }) // DoT ticking, fireball mid-cast
-await at(3400)
-await page.screenshot({ path: 'docs/shot-2.png' }) // fireball landed
-await at(4000)
-await page.keyboard.press('3') // Renew
-await at(5000)
-await page.screenshot({ path: 'docs/shot-3.png' }) // renew mid-cast
+// A mid-game save: level 12, geared, Duskmire boss ready. savedAt is fresh so
+// no offline modal interferes with the shot.
+const save = {
+  version: 1,
+  savedAt: Date.now(),
+  level: 12,
+  xp: 900,
+  gold: 780,
+  talents: { searingFlames: 5, criticalMass: 3, impFireball: 2, fortitude: 1 },
+  equipped: {
+    staff: { uid: 1, name: 'Stormbound Staff of the Comet', slot: 'staff', ilvl: 9, rarity: 'rare', stats: { power: 18, stamina: 6 } },
+    robe: { uid: 2, name: 'Starforged Robe of Burning Thought', slot: 'robe', ilvl: 10, rarity: 'epic', stats: { power: 16, stamina: 10, crit: 6 } },
+    ring: { uid: 3, name: 'Moonlit Ring of the Phoenix', slot: 'ring', ilvl: 8, rarity: 'rare', stats: { crit: 8, spirit: 4 } },
+  },
+  inventory: [
+    { uid: 4, name: 'Runed Hood of Still Water', slot: 'hood', ilvl: 9, rarity: 'rare', stats: { spirit: 9, stamina: 6 } },
+    { uid: 5, name: 'Gleaming Talisman of Deep Roots', slot: 'trinket', ilvl: 8, rarity: 'uncommon', stats: { stamina: 11 } },
+    { uid: 6, name: 'Whispering Ring of Sudden Fury', slot: 'ring', ilvl: 9, rarity: 'rare', stats: { power: 7, crit: 7 } },
+  ],
+  nextUid: 100,
+  zoneId: 'duskmire',
+  zoneKills: { hollowroot: 16, duskmire: 12 },
+  bossesDefeated: ['hollowroot'],
+  achievements: ['first-blood', 'level-5', 'level-10', 'boss-grubthar', 'kills-100'],
+  lifetime: { kills: 132, deaths: 3, goldEarned: 1450, interrupts: 9, epicsFound: 1, bossKills: 1 },
+  autoBattle: false,
+  muted: true,
+  completed: false,
+}
+
+// ── shot 2: pulling the Bramble Widow ───────────────────────────────
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
+  await page.goto(`http://localhost:${port}/`)
+  await page.waitForTimeout(1200)
+  await page.getByRole('button', { name: 'Challenge' }).click()
+  await page.waitForTimeout(4200) // approach + spawn
+  await page.keyboard.press('2') // Ignite
+  await page.waitForTimeout(400)
+  await page.keyboard.press('7') // Combustion
+  await page.waitForTimeout(400)
+  await page.keyboard.press('4') // Pyroblast
+  await page.waitForTimeout(2400)
+  await page.screenshot({ path: 'docs/shot-2.png' }) // boss card, buffs, pyro mid-cast
+  await page.close()
+}
+
+// ── shot 3: the bags ────────────────────────────────────────────────
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
+  await page.goto(`http://localhost:${port}/`)
+  await page.waitForTimeout(1000)
+  await page.getByRole('button', { name: 'Character' }).click()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: 'docs/shot-3.png' })
+  await page.close()
+}
 
 console.log('wrote docs/shot-1.png docs/shot-2.png docs/shot-3.png')
 

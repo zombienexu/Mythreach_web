@@ -16,3 +16,29 @@ export function mulberry32(seed: number): Rng {
 export function rollInt(rng: Rng, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1))
 }
+
+/** True with `pct` percent probability. */
+export function rollPct(rng: Rng, pct: number): boolean {
+  if (pct <= 0) return false
+  return rollInt(rng, 1, 100) <= pct
+}
+
+/** Uniform pick from a non-empty array. */
+export function pickOne<T>(rng: Rng, arr: readonly T[]): T {
+  const value = arr[rollInt(rng, 0, arr.length - 1)]
+  if (value === undefined) throw new Error('pickOne: empty array')
+  return value
+}
+
+/** Weighted pick; entries must be non-empty with positive weights. */
+export function pickWeighted<T>(rng: Rng, entries: ReadonlyArray<{ value: T; weight: number }>): T {
+  const total = entries.reduce((s, e) => s + e.weight, 0)
+  let roll = rollInt(rng, 1, total)
+  for (const entry of entries) {
+    roll -= entry.weight
+    if (roll <= 0) return entry.value
+  }
+  const last = entries[entries.length - 1]
+  if (last === undefined) throw new Error('pickWeighted: empty entries')
+  return last.value
+}

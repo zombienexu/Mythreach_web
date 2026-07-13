@@ -1,5 +1,5 @@
 <script lang="ts">
-  type Kind = 'life' | 'cast' | 'swing'
+  type Kind = 'life' | 'cast' | 'swing' | 'mana' | 'xp' | 'enemycast'
 
   let {
     value,
@@ -120,6 +120,37 @@
     background: var(--wound);
   }
   .swing .loss {
+    display: none;
+  }
+
+  .mana .fill {
+    background: linear-gradient(90deg, oklch(0.5 0.11 250), var(--mana));
+  }
+  .mana .fill::after {
+    background: var(--mana);
+  }
+  .mana .loss {
+    display: none;
+  }
+
+  .xp .fill {
+    background: linear-gradient(90deg, oklch(0.5 0.13 305), var(--xp));
+  }
+  .xp .fill::after {
+    background: var(--xp);
+  }
+  .xp .loss {
+    display: none;
+  }
+
+  /* enemy hardcast: reads as danger, not as the player's ether cast */
+  .enemycast .fill {
+    background: linear-gradient(90deg, oklch(0.55 0.14 45), oklch(0.75 0.15 65));
+  }
+  .enemycast .fill::after {
+    background: oklch(0.75 0.15 65);
+  }
+  .enemycast .loss {
     display: none;
   }
 

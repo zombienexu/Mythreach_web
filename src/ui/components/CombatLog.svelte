@@ -3,7 +3,18 @@
     id: number
     time: string
     text: string
-    tone: 'player' | 'enemy' | 'heal' | 'gold' | 'arcana' | 'info'
+    tone:
+      | 'player'
+      | 'enemy'
+      | 'heal'
+      | 'gold'
+      | 'arcana'
+      | 'info'
+      | 'boss'
+      | 'loot-common'
+      | 'loot-uncommon'
+      | 'loot-rare'
+      | 'loot-epic'
   }
 
   let { entries }: { entries: LogEntry[] } = $props()
@@ -105,6 +116,24 @@
   }
   .info .text {
     color: var(--text-dim);
+  }
+  .boss .text {
+    color: var(--ember);
+    font-weight: 620;
+    letter-spacing: 0.01em;
+  }
+  .loot-common .text {
+    color: var(--rarity-common);
+  }
+  .loot-uncommon .text {
+    color: var(--rarity-uncommon);
+  }
+  .loot-rare .text {
+    color: var(--rarity-rare);
+  }
+  .loot-epic .text {
+    color: var(--rarity-epic);
+    text-shadow: 0 0 12px oklch(0.72 0.16 305 / 0.5);
   }
 
   @media (prefers-reduced-motion: reduce) {

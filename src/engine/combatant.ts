@@ -4,8 +4,18 @@
 export class Combatant {
   hp: number
 
-  constructor(readonly maxHp: number) {
-    this.hp = maxHp
+  constructor(private _maxHp: number) {
+    this.hp = _maxHp
+  }
+
+  get maxHp(): number {
+    return this._maxHp
+  }
+
+  /** Level-ups and gear swaps resize the pool; current HP clamps down but never rises. */
+  setMaxHp(maxHp: number): void {
+    this._maxHp = Math.max(1, maxHp)
+    this.hp = Math.min(this.hp, this._maxHp)
   }
 
   get alive(): boolean {

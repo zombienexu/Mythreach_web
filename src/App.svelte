@@ -1,12 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import ActionBar from './ui/components/ActionBar.svelte'
   import Background from './ui/components/Background.svelte'
-  import CombatantCard from './ui/components/CombatantCard.svelte'
-  import CombatLog from './ui/components/CombatLog.svelte'
+  import LevelUpBanner from './ui/components/LevelUpBanner.svelte'
+  import OfflineModal from './ui/components/OfflineModal.svelte'
   import Sidebar from './ui/components/Sidebar.svelte'
+  import Toast from './ui/components/Toast.svelte'
   import TopBar from './ui/components/TopBar.svelte'
+  import VictoryModal from './ui/components/VictoryModal.svelte'
   import { Game } from './ui/game.svelte'
+  import AtlasView from './ui/views/AtlasView.svelte'
+  import CharacterView from './ui/views/CharacterView.svelte'
+  import ChronicleView from './ui/views/ChronicleView.svelte'
+  import CombatView from './ui/views/CombatView.svelte'
+  import TalentsView from './ui/views/TalentsView.svelte'
 
   const game = new Game()
 
@@ -15,46 +21,71 @@
     return () => game.stop()
   })
 
-  const playerFloats = $derived(game.floats.filter((f) => f.side === 'player'))
-  const enemyFloats = $derived(game.floats.filter((f) => f.side === 'enemy'))
+  const TITLES: Record<typeof game.view, string> = {
+    combat: 'Combat',
+    character: 'Character',
+    talents: 'Talents',
+    atlas: 'Atlas',
+    chronicle: 'Chronicle',
+  }
+
+  const zone = $derived(game.progress.zones.find((z) => z.current))
 </script>
 
 <Background />
 <div class="app">
-  <Sidebar />
+  <Sidebar
+    view={game.view}
+    level={game.progress.level}
+    xp={game.progress.xp}
+    xpToNext={game.progress.xpToNext}
+    talentPoints={game.progress.talentPoints}
+    onnavigate={(v) => game.setView(v)}
+  />
   <main class="main">
-    <TopBar kills={game.snap.kills} gold={game.snap.gold} />
-    <section class="arena" aria-label="Combatants">
-      <CombatantCard
-        side="player"
-        name="Hero"
-        combatant={game.snap.player}
-        floats={playerFloats}
-        impact={game.impacts.player}
-        bloom={game.bloom}
-      />
-      <CombatantCard
-        side="enemy"
-        name="Cave Golem"
-        combatant={game.snap.enemy}
-        swingProgress={game.snap.swingProgress}
-        dot={game.snap.dot}
-        floats={enemyFloats}
-        impact={game.impacts.enemy}
-      />
-    </section>
-    <CombatLog entries={game.log} />
-    <div class="foot">
-      <ActionBar
-        cast={game.snap.cast}
-        cooldowns={game.snap.cooldowns}
-        usable={game.usable}
-        pressedKeys={game.pressed}
-        onactivate={(id) => game.use(id)}
-      />
-    </div>
+    <TopBar
+      title={TITLES[game.view]}
+      zoneName={zone?.name ?? ''}
+      zoneHue={zone?.hue ?? 260}
+      kills={game.progress.lifetime.kills}
+      gold={game.progress.gold}
+      auto={game.auto}
+      muted={game.muted}
+      ontoggleauto={() => game.toggleAuto()}
+      ontogglemute={() => game.toggleMute()}
+    />
+
+    {#if game.view === 'combat'}
+      <CombatView {game} />
+    {:else if game.view === 'character'}
+      <CharacterView {game} />
+    {:else if game.view === 'talents'}
+      <TalentsView {game} />
+    {:else if game.view === 'atlas'}
+      <AtlasView {game} />
+    {:else}
+      <ChronicleView {game} />
+    {/if}
   </main>
 </div>
+
+{#if game.banner}
+  <LevelUpBanner level={game.banner.level} unlocked={game.banner.unlocked} />
+{/if}
+
+{#if game.toast}
+  {#key game.toast.id}
+    <Toast title={game.toast.title} body={game.toast.body} />
+  {/key}
+{/if}
+
+{#if game.offline}
+  <OfflineModal summary={game.offline} onclose={() => game.dismissOffline()} />
+{/if}
+
+{#if game.victory}
+  <VictoryModal lifetime={game.progress.lifetime} onclose={() => game.dismissVictory()} />
+{/if}
 
 <style>
   .app {
@@ -73,18 +104,6 @@
     min-height: 100dvh;
   }
 
-  .arena {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-  }
-
-  /* pin the action bar toward the bottom of the viewport */
-  .foot {
-    margin-top: auto;
-    padding-block: 10px 4px;
-  }
-
   @media (max-width: 1000px) {
     .app {
       grid-template-columns: 196px minmax(0, 1fr);
@@ -92,10 +111,6 @@
 
     .main {
       padding: 20px 22px 24px;
-    }
-
-    .arena {
-      gap: 14px;
     }
   }
 </style>

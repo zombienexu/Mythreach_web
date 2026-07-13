@@ -1,43 +1,35 @@
-export interface DotDef {
-  tickDamage: number
-  intervalTicks: number
-  tickCount: number
-}
-
-/** A single damage-over-time instance. Reapplying refreshes the full duration. */
+/** A single damage-over-time instance. One instance per application;
+ *  refreshing means replacing the instance. */
 export class Dot {
   private sinceLast = 0
-  private hitsLeft = 0
+  private hitsLeft: number
 
-  constructor(private readonly def: DotDef) {}
+  constructor(
+    readonly name: string,
+    readonly tickDamage: number,
+    readonly intervalTicks: number,
+    tickCount: number,
+  ) {
+    this.hitsLeft = tickCount
+  }
 
   get active(): boolean {
     return this.hitsLeft > 0
   }
 
-  /** Total ticks until the DoT expires (0 when inactive). */
+  /** Total ticks until the DoT expires (0 when spent). */
   get remainingTicks(): number {
     if (this.hitsLeft <= 0) return 0
-    return (this.hitsLeft - 1) * this.def.intervalTicks + (this.def.intervalTicks - this.sinceLast)
-  }
-
-  apply(): void {
-    this.sinceLast = 0
-    this.hitsLeft = this.def.tickCount
-  }
-
-  clear(): void {
-    this.sinceLast = 0
-    this.hitsLeft = 0
+    return (this.hitsLeft - 1) * this.intervalTicks + (this.intervalTicks - this.sinceLast)
   }
 
   /** Advance one tick; returns the damage due this tick (usually 0). */
   tick(): number {
     if (this.hitsLeft <= 0) return 0
     this.sinceLast++
-    if (this.sinceLast < this.def.intervalTicks) return 0
+    if (this.sinceLast < this.intervalTicks) return 0
     this.sinceLast = 0
     this.hitsLeft--
-    return this.def.tickDamage
+    return this.tickDamage
   }
 }

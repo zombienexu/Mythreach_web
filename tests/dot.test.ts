@@ -1,69 +1,44 @@
 import { describe, expect, it } from 'vitest'
 import { Dot } from '../src/engine/dot'
 
-const DEF = { tickDamage: 4, intervalTicks: 20, tickCount: 6 }
-
-function run(dot: Dot, ticks: number): number[] {
-  const hits: number[] = []
-  for (let i = 1; i <= ticks; i++) {
-    const d = dot.tick()
-    if (d > 0) hits.push(i)
-  }
-  return hits
-}
-
 describe('Dot', () => {
-  it('deals 4 damage at each of 6 one-second boundaries, 24 total', () => {
-    const dot = new Dot(DEF)
-    dot.apply()
+  it('is active on creation and deals damage on exact interval boundaries', () => {
+    const dot = new Dot('Burn', 4, 20, 6)
+    expect(dot.active).toBe(true)
     let total = 0
     const hits: number[] = []
-    for (let i = 1; i <= 200; i++) {
-      const d = dot.tick()
-      if (d > 0) {
-        expect(d).toBe(4)
-        total += d
-        hits.push(i)
+    for (let t = 1; t <= 140; t++) {
+      const due = dot.tick()
+      if (due > 0) {
+        hits.push(t)
+        total += due
       }
     }
     expect(hits).toEqual([20, 40, 60, 80, 100, 120])
     expect(total).toBe(24)
-  })
-
-  it('expires after the sixth tick and clears', () => {
-    const dot = new Dot(DEF)
-    dot.apply()
-    run(dot, 120)
-    expect(dot.active).toBe(false)
-    expect(dot.remainingTicks).toBe(0)
-  })
-
-  it('reapplying refreshes the full duration', () => {
-    const dot = new Dot(DEF)
-    dot.apply()
-    run(dot, 30) // one damage tick fired (at 20), 10 ticks into the next interval
-    dot.apply() // refresh
-    expect(dot.remainingTicks).toBe(120)
-    const hits = run(dot, 200)
-    // relative to the refresh: boundaries at every 20 ticks, 6 of them
-    expect(hits).toEqual([20, 40, 60, 80, 100, 120])
     expect(dot.active).toBe(false)
   })
 
-  it('reports remaining ticks counting down from 120', () => {
-    const dot = new Dot(DEF)
-    dot.apply()
+  it('reports remaining ticks that count down to zero', () => {
+    const dot = new Dot('Burn', 4, 20, 6)
     expect(dot.remainingTicks).toBe(120)
     dot.tick()
     expect(dot.remainingTicks).toBe(119)
+    for (let i = 0; i < 119; i++) dot.tick()
+    expect(dot.remainingTicks).toBe(0)
   })
 
-  it('clear() removes the DoT immediately', () => {
-    const dot = new Dot(DEF)
-    dot.apply()
-    run(dot, 25)
-    dot.clear()
-    expect(dot.active).toBe(false)
-    expect(run(dot, 100)).toEqual([])
+  it('deals no damage once spent', () => {
+    const dot = new Dot('Burn', 4, 20, 1)
+    for (let i = 0; i < 19; i++) expect(dot.tick()).toBe(0)
+    expect(dot.tick()).toBe(4)
+    for (let i = 0; i < 40; i++) expect(dot.tick()).toBe(0)
+  })
+
+  it('uses the tick damage it was constructed with', () => {
+    const dot = new Dot('Venom', 7, 10, 3)
+    let total = 0
+    for (let i = 0; i < 30; i++) total += dot.tick()
+    expect(total).toBe(21)
   })
 })

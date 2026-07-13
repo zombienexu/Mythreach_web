@@ -6,14 +6,22 @@
 
   let {
     cast,
+    queued,
     cooldowns,
+    gcd,
     usable,
+    unlocked,
+    mana,
     pressedKeys,
     onactivate,
   }: {
     cast: CastSnapshot | null
+    queued: AbilityId | null
     cooldowns: Record<AbilityId, number>
+    gcd: number
     usable: Record<AbilityId, boolean>
+    unlocked: AbilityId[]
+    mana: number
     pressedKeys: ReadonlySet<string>
     onactivate?: (id: AbilityId) => void
   } = $props()
@@ -42,7 +50,11 @@
         def={ABILITIES[id]}
         cooldown={cooldowns[id]}
         usable={usable[id]}
+        locked={!unlocked.includes(id)}
         casting={cast?.abilityId === id}
+        queued={queued === id}
+        {gcd}
+        {mana}
         pressed={pressedKeys.has(ABILITIES[id].key)}
         onactivate={() => onactivate?.(id)}
       />
@@ -90,6 +102,12 @@
 
   .buttons {
     display: flex;
-    gap: 14px;
+    gap: 12px;
+  }
+
+  @media (max-width: 1000px) {
+    .buttons {
+      gap: 8px;
+    }
   }
 </style>
