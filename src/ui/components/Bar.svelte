@@ -103,11 +103,18 @@
     background: oklch(0.88 0.12 155);
   }
 
+  /* The cast bar inherits --tone from the slot: the spell colours its own
+     charge-up, so a Fireball reads as fire long before it exists. */
   .cast .fill {
-    background: linear-gradient(90deg, var(--ether), var(--arcana));
+    background: linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--tone, var(--ether)) 45%, oklch(0.35 0.06 280)),
+      var(--tone, var(--ether))
+    );
+    box-shadow: 0 0 12px -1px color-mix(in oklch, var(--tone, var(--ether)) 70%, transparent);
   }
   .cast .fill::after {
-    background: var(--arcana);
+    background: var(--tone, var(--ether));
   }
   .cast .loss {
     display: none;

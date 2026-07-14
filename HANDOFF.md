@@ -95,13 +95,26 @@ src/engine/            pure TS simulation
 src/ui/
   loop.ts              rAF accumulator (unchanged from v0)
   game.svelte.ts       Game store: boot/load/offline, event fan-out, autosave,
-                       floats/log/impacts, banner/toast/victory, keys 1-7 + A
-  sfx.ts               synthesized WebAudio cues, mute-aware, gesture-unlocked
-  format.ts            ticksToSeconds/Clock/Duration, stat & rarity labels
-  styles/tokens.css    design tokens incl. mana/xp/shield/rarity colors
+                       floats/log/impacts, banner/toast/victory, keys 1-7 + A.
+                       Also implements FxHost — the director calls back in here.
+  sfx.ts               synthesized WebAudio: layered voices (tone + filtered
+                       noise), boss drone, low-HP heartbeat. Still zero assets.
+  format.ts            ticksToSeconds/cooldownLabel/Clock/Duration, stat labels
+  fx/                  the combat effects layer (see "Combat FX" below)
+    stage.ts           Pixi canvas over the arena; pooled additive particles,
+                       projectiles, shockwaves, bolts, standing emitters;
+                       procedural textures; timeScale (hit-stop), intensity
+    director.ts        CombatEvent → choreography. handle()=one-shots,
+                       sync()=standing state. Owns projectile-delayed impacts.
+    shake.ts           screen-shake impulse, exponential decay, rAF
+    palette.ts         spell tones as hex — mirrors the --tone-* CSS tokens
+  styles/tokens.css    design tokens incl. spell tones + the motion timing scale
   components/          PlayerCard EnemyCard FloatLayer ActionBar AbilityButton
                        Bar CombatLog Sidebar TopBar ItemTile Modal OfflineModal
                        VictoryModal LevelUpBanner Toast Background
+                       ArenaFx (mounts the stage, measures anchors)
+                       Vignette (threat / low-HP / combustion screen grade)
+                       BossIntro (GSAP challenge cinematic)
                        portraits/HeroPortrait portraits/EnemyPortrait(parametric)
                        icons/AbilityIcon (7 glyphs)
   views/               CombatView CharacterView TalentsView AtlasView ChronicleView
@@ -128,6 +141,39 @@ New in v1: rarity color tokens (only ever mean rarity), parametric enemy
 portraits (8 families, hue-tinted, eyes flare on enrage), zone hue accents,
 enemy hardcast bar reads as *danger* (orange) vs the player's ether cast.
 
+## Combat FX — "the arena is a place" (v1.1)
+
+The combat page used to be two info panels: a number appeared and the card
+jiggled. It is now a **stage**. Rules that matter:
+
+- **Every spell has a tone** (`--tone-fireball` … `--tone-combustion`, mirrored
+  as hex in `fx/palette.ts`). A spell looks the same everywhere it appears:
+  icon, cast bar, particles, damage number. Charging Fireball looks like fire.
+- **Projectiles travel, and their consequences wait for them.** `director.damage()`
+  launches a bolt and withholds the float, the card recoil, the shake and the
+  sound until it lands (~140 ms fireball, ~280 ms pyroblast). That arrival also
+  lines up with the health bar's trailing loss layer. Never fire an impact
+  effect straight off the `damage` event for a projectile spell.
+- **Two channels, mirroring the engine's own split.** `handle(event)` for
+  one-shots; `sync(snapshot)` for standing state (ignite aura, combustion,
+  enrage, enemy hardcast). Persistent effects must be reconciled from the
+  snapshot — an Ignite that expires quietly emits no event, and would otherwise
+  burn forever.
+- **Sound is not a motion effect.** `cue()` runs even under reduced motion.
+  Only visuals are gated.
+- **Reduced motion is a hard off-switch.** `FxDirector.reduced` is decided in
+  the field initializer, *not* in `start()` — children mount before their
+  parent's `onMount`, so `ArenaFx` asks for the stage first. Get this wrong and
+  reduced-motion users spin up a WebGL context and download Pixi for nothing.
+- Combustion sets `stage.intensity`, which multiplies particle counts: the buff
+  is something you can *see* in every fire spell you cast while it's up.
+- Crits get hit-stop (`stage.hitStop`), a second shockwave, and a white flash.
+
+Dependencies (v1.1): **pixi.js** (the particle/projectile canvas) and **gsap**
+(the boss-intro timeline only). Both are dynamically imported — Pixi from
+`stage.mount()`, GSAP from `BossIntro`. Keep it that way: it holds the entry
+chunk near 56 KB and means a reduced-motion player downloads neither.
+
 Fonts are self-hosted in `public/fonts/` and preloaded from `index.html` —
 keep them out of Vite's hashed pipeline.
 
@@ -141,7 +187,13 @@ keep them out of Vite's hashed pipeline.
   `port: 0`, `page.addInitScript` to inject a `mythreach-save-v1` blob for
   mid/late-game states, screenshot to scratchpad, view the PNG).
   `tools/shots.mjs` is the committed example of all of this.
-- Perf/size: `npm run build` — JS budget **< 80 KB** gzip (currently ~45 KB).
+- Perf/size: `npm run build`. The hard byte budget is **retired** (owner's call,
+  2026-07-13) — richer effects are worth the bytes. The entry chunk is ~57 KB
+  gzip; Pixi (~129 KB) and GSAP (~27 KB) stay *dynamically imported* anyway,
+  because that is about **time to first fight**, not about size: the game is
+  playable before Pixi lands, GSAP only loads on a boss challenge, and a
+  reduced-motion player downloads neither. Keep new heavy deps async for the
+  same reason.
 
 ## Known quirks & gotchas
 
@@ -161,6 +213,16 @@ keep them out of Vite's hashed pipeline.
   after spawn, first hardcast at `cooldown/2 − 1`. Tests encode this.
 - `.gold` is both a TopBar chip class and a log-entry tone — scope selectors
   (`.stat.gold`) in drivers.
+- **`FxStage.mount()` is not a one-shot.** `CombatView` (and so `ArenaFx`) is
+  destroyed and rebuilt every time the player visits another tab, so mount is
+  called again with a *new* host element. It must re-parent the canvas into it
+  (`adopt`). An early `if (this.app) return` leaves the canvas in the old,
+  destroyed div and effects silently die forever — and the DOM bars/log/floats
+  keep animating, so it looks like the game is fine. `ArenaFx` pauses the stage
+  on unmount; `ready` is false while paused, so nothing spawns unrendered.
+- "WebGL context was lost" in the console at boot is **benign**: it is Pixi's
+  `isWebGLSupported` probe deliberately calling `loseContext()` on a throwaway
+  context. Don't chase it. (Real losses are handled in `stage.ts`.)
 - Vitest runs only `tests/**/*.test.ts`; tools/ scripts are plain node.
 - Commits follow "Mx: summary" milestone prefixes (v1 shipped as M6).
 

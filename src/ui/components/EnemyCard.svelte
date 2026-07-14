@@ -1,9 +1,7 @@
 <script lang="ts">
   import type { EnemySnapshot } from '../../engine'
-  import type { FloatText } from '../game.svelte'
   import { ticksToSeconds } from '../format'
   import Bar from './Bar.svelte'
-  import FloatLayer from './FloatLayer.svelte'
   import AbilityIcon from './icons/AbilityIcon.svelte'
   import EnemyPortrait from './portraits/EnemyPortrait.svelte'
 
@@ -13,7 +11,6 @@
     spawnIn = 0,
     spawnKind = 'normal',
     bossName = '',
-    floats = [],
     impact = 0,
   }: {
     enemy: EnemySnapshot | null
@@ -21,7 +18,6 @@
     spawnIn?: number
     spawnKind?: 'normal' | 'boss'
     bossName?: string
-    floats?: FloatText[]
     impact?: number
   } = $props()
 
@@ -57,11 +53,13 @@
   class:dead={slain}
   class:enraged={enemy?.enraged ?? false}
   class:boss={(shown?.rank ?? (spawnKind === 'boss' ? 'boss' : 'normal')) === 'boss'}
+  class:casting={enemy?.cast != null}
+  data-fx-card="enemy"
   bind:this={el}
 >
   {#if shown}
     <div class="body">
-      <div class="portrait">
+      <div class="portrait" data-fx-anchor="enemy">
         <EnemyPortrait
           family={shown.portrait.family}
           hue={shown.portrait.hue}
@@ -124,8 +122,6 @@
       <span class="veil-count num">{ticksToSeconds(spawnIn)}s</span>
     </div>
   {/if}
-
-  <FloatLayer {floats} />
 </article>
 
 <style>
@@ -162,6 +158,7 @@
   }
 
   .portrait {
+    position: relative;
     width: 84px;
     height: 84px;
     flex: none;
@@ -169,6 +166,24 @@
     padding: 10px;
     background: radial-gradient(circle, oklch(0.8 0.02 260 / 0.07) 0%, transparent 72%);
     border: 1px solid oklch(0.85 0.03 260 / 0.1);
+    transition: box-shadow var(--dur) ease;
+  }
+
+  /* A hardcast is a threat with a timer on it. Say so, loudly. */
+  .card.casting .portrait {
+    border-color: oklch(0.78 0.14 65 / 0.6);
+    box-shadow:
+      0 0 22px -2px oklch(0.75 0.17 55 / 0.6),
+      inset 0 0 20px -4px oklch(0.75 0.17 55 / 0.5);
+    animation: cast-warn 620ms ease-in-out infinite alternate;
+  }
+
+  @keyframes cast-warn {
+    to {
+      box-shadow:
+        0 0 34px 2px oklch(0.75 0.17 55 / 0.85),
+        inset 0 0 26px -2px oklch(0.75 0.17 55 / 0.7);
+    }
   }
 
   .info {
@@ -363,8 +378,56 @@
     color: var(--text);
   }
 
+  /* Taking a spell knocks the body away from the caster and it springs back. */
+  :global(.card.enemy.hit) {
+    animation: recoil-right 300ms var(--ease-punch);
+  }
+
+  @keyframes recoil-right {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(1.9);
+    }
+    16% {
+      transform: translate3d(11px, -3px, 0) scale(1.02);
+      filter: brightness(1.5);
+    }
+    44% {
+      transform: translate3d(-5px, 1px, 0) scale(0.992);
+      filter: brightness(1.05);
+    }
+    72% {
+      transform: translate3d(2px, 0, 0) scale(1);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(1);
+    }
+  }
+
+  /* Arriving out of the dark, as the motes converge. */
+  :global(.card.enemy.reborn) {
+    animation: enemy-arrive 520ms var(--ease-out-expo);
+  }
+
+  @keyframes enemy-arrive {
+    0% {
+      opacity: 0;
+      transform: scale(1.06);
+      filter: brightness(2.4) saturate(0.3);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+      filter: brightness(1) saturate(1);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .enrage-tag {
+    .enrage-tag,
+    .card.casting .portrait,
+    :global(.card.enemy.hit),
+    :global(.card.enemy.reborn) {
       animation: none;
     }
   }

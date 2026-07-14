@@ -2,15 +2,15 @@
   import { BOSS_KILLS_REQUIRED } from '../../engine'
   import type { Game } from '../game.svelte'
   import ActionBar from '../components/ActionBar.svelte'
+  import ArenaFx from '../components/ArenaFx.svelte'
   import CombatLog from '../components/CombatLog.svelte'
   import EnemyCard from '../components/EnemyCard.svelte'
+  import FloatLayer from '../components/FloatLayer.svelte'
   import PlayerCard from '../components/PlayerCard.svelte'
 
   let { game }: { game: Game } = $props()
 
   const zone = $derived(game.progress.zones.find((z) => z.current))
-  const playerFloats = $derived(game.floats.filter((f) => f.side === 'player'))
-  const enemyFloats = $derived(game.floats.filter((f) => f.side === 'enemy'))
   const bossOnField = $derived(
     game.combat.enemy?.rank === 'boss' || (game.combat.enemy === null && game.combat.spawnKind === 'boss'),
   )
@@ -46,11 +46,10 @@
   </section>
 {/if}
 
-<section class="arena" aria-label="Combatants">
+<section class="arena" aria-label="Combatants" style:--zh={zone?.hue ?? 260}>
   <PlayerCard
     player={game.combat.player}
     level={game.progress.level}
-    floats={playerFloats}
     impact={game.impacts.player}
     bloom={game.bloom}
   />
@@ -60,9 +59,12 @@
     spawnIn={game.combat.spawnIn}
     spawnKind={game.combat.spawnKind}
     bossName={zone?.bossName ?? ''}
-    floats={enemyFloats}
     impact={game.impacts.enemy}
   />
+
+  <!-- Spells fly across the whole arena, so they render above both cards. -->
+  <ArenaFx {game} />
+  <FloatLayer floats={game.floats} />
 </section>
 
 <CombatLog entries={game.log} />
@@ -77,6 +79,7 @@
     unlocked={game.progress.unlockedAbilities}
     mana={game.combat.player.mana}
     pressedKeys={game.pressed}
+    denied={game.denied}
     onactivate={(id) => game.use(id)}
   />
 </div>
@@ -189,10 +192,26 @@
     cursor: default;
   }
 
+  /* The arena is a *place*, not two panels. The cards stand in pools of light
+     on a floor that catches the zone's colour. */
   .arena {
+    position: relative;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
+    isolation: isolate;
+  }
+
+  .arena::before {
+    content: '';
+    position: absolute;
+    inset: -40px -40px -56px;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(38% 60% at 22% 62%, oklch(0.8 0.11 195 / 0.09) 0%, transparent 70%),
+      radial-gradient(38% 60% at 78% 62%, oklch(0.7 0.13 calc(var(--zh) * 1) / 0.09) 0%, transparent 70%),
+      linear-gradient(180deg, transparent 55%, oklch(0.5 0.06 calc(var(--zh) * 1) / 0.07) 100%);
   }
 
   .foot {

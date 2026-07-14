@@ -6,6 +6,13 @@ export function ticksToSeconds(ticks: number): string {
   return (Math.max(0, ticks) / TICKS_PER_SECOND).toFixed(1)
 }
 
+/** "29" / "2.4" — how a game client counts a cooldown down: whole seconds
+ *  until it is nearly up, then tenths, when tenths are what you're waiting on. */
+export function cooldownLabel(ticks: number): string {
+  const s = Math.max(0, ticks) / TICKS_PER_SECOND
+  return s >= 3 ? String(Math.ceil(s)) : s.toFixed(1)
+}
+
 /** "12:04" — session clock for the combat log. */
 export function ticksToClock(ticks: number): string {
   const total = Math.floor(Math.max(0, ticks) / TICKS_PER_SECOND)

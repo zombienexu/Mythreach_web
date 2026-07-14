@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Background from './ui/components/Background.svelte'
+  import BossIntro from './ui/components/BossIntro.svelte'
   import LevelUpBanner from './ui/components/LevelUpBanner.svelte'
   import OfflineModal from './ui/components/OfflineModal.svelte'
   import Sidebar from './ui/components/Sidebar.svelte'
   import Toast from './ui/components/Toast.svelte'
   import TopBar from './ui/components/TopBar.svelte'
   import VictoryModal from './ui/components/VictoryModal.svelte'
+  import Vignette from './ui/components/Vignette.svelte'
   import { Game } from './ui/game.svelte'
   import AtlasView from './ui/views/AtlasView.svelte'
   import CharacterView from './ui/views/CharacterView.svelte'
@@ -16,8 +18,12 @@
 
   const game = new Game()
 
+  let shell: HTMLDivElement | undefined = $state()
+
   onMount(() => {
     game.start()
+    // The whole page takes the hit, not just the card that got hit.
+    if (shell) game.fx.attachShake(shell)
     return () => game.stop()
   })
 
@@ -33,7 +39,7 @@
 </script>
 
 <Background />
-<div class="app">
+<div class="app" bind:this={shell}>
   <Sidebar
     view={game.view}
     level={game.progress.level}
@@ -68,6 +74,18 @@
     {/if}
   </main>
 </div>
+
+<Vignette combat={game.combat} />
+
+{#if game.bossIntro}
+  {#key game.bossIntro}
+    <BossIntro
+      name={game.bossIntro}
+      onslam={() => game.fx.shaker.punch(10, 0.6)}
+      ondone={() => game.dismissBossIntro()}
+    />
+  {/key}
+{/if}
 
 {#if game.banner}
   <LevelUpBanner level={game.banner.level} unlocked={game.banner.unlocked} />
