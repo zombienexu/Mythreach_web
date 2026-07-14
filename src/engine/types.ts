@@ -30,6 +30,13 @@ export type TalentId =
   | 'swiftRenewal'
 export type BuffId = 'barrier' | 'combustion'
 
+/** A stop on an expedition trail. `boss` is always the last node; the rest are
+ *  drawn from a weighted table and interpreted as data (like enemy mechanics). */
+export type NodeKind = 'battle' | 'elite' | 'cache' | 'shrine' | 'rest' | 'boss'
+
+/** Expedition-scoped blessings, cleared when the expedition ends. */
+export type BlessingId = 'emberheart' | 'stoneskin' | 'springstep' | 'manatide' | 'keeneye'
+
 /** The engine runs at 20 ticks per second; one tick is 50 ms. */
 export const TICKS_PER_SECOND = 20
 export const MS_PER_TICK = 1000 / TICKS_PER_SECOND
@@ -37,16 +44,20 @@ export const MS_PER_TICK = 1000 / TICKS_PER_SECOND
 /** Global cooldown triggered by (almost) every ability. 1.2 s — snappier than the classic 1.5. */
 export const GCD_TICKS = 24
 export const PLAYER_RESPAWN_TICKS = 100
-export const SPAWN_GAP_TICKS = 50
 export const BOSS_APPROACH_TICKS = 70
 export const REGEN_INTERVAL_TICKS = 20
 export const LEVEL_CAP = 15
-export const BOSS_KILLS_REQUIRED = 10
 export const INVENTORY_CAP = 24
 export const RESPEC_COST = 50
-/** Offline progress simulates at most 8 hours of real ticks. */
-export const OFFLINE_CAP_TICKS = 8 * 60 * 60 * TICKS_PER_SECOND
-export const OFFLINE_MIN_MS = 60_000
+
+/** An expedition is a trail of `ROUTE_STEPS` nodes plus a final boss node. */
+export const ROUTE_STEPS = 8
+/** Ticks spent travelling between two nodes (4.5 s at 20 tps). */
+export const TRAVEL_TICKS = 90
+/** Auto-battle pause at camp / a resolved node before it embarks / advances. */
+export const AUTO_BREATHER_TICKS = 30
+/** Delay between arriving at a combat node and the encounter appearing. */
+export const NODE_SPAWN_TICKS = 20
 
 export interface Item {
   uid: number
@@ -106,6 +117,23 @@ export interface EnemyDef {
   mechanics: EnemyMechanic[]
 }
 
+/** Where a mob stands in the pack. Purely presentational + targeting order:
+ *  front-row mobs are retargeted first when your target dies. */
+export type EncounterRow = 'front' | 'back'
+
+export interface EncounterSlot {
+  enemyId: string
+  /** Defaults to 'front'. */
+  row?: EncounterRow
+}
+
+/** A pack of 1–3 mobs that spawn and fight together. The encounter is the
+ *  template; the slots are the mobs you plug into it. */
+export interface EncounterDef {
+  slots: EncounterSlot[]
+  weight: number
+}
+
 export interface ZoneDef {
   id: string
   name: string
@@ -114,8 +142,12 @@ export interface ZoneDef {
   minLevel: number
   /** Accent hue for the zone's ambience (oklch hue angle). */
   hue: number
-  /** Weighted spawn table of normal/elite enemy ids. */
-  spawns: Array<{ enemyId: string; weight: number }>
+  /** Weighted table of encounters (packs of 1–3 mobs). */
+  encounters: EncounterDef[]
+  /** Weighted table for `elite` nodes — a tougher spawn than the normal table. */
+  eliteEncounters: EncounterDef[]
+  /** Flavor lines shown while travelling between nodes; one is picked per hop. */
+  travelLines: string[]
   bossId: string
   intro: string
 }
@@ -185,10 +217,13 @@ export interface EnemyCastSnapshot {
 }
 
 export interface EnemySnapshot {
+  /** Instance id — unique per spawned mob, never reused. Targeting and FX key on it. */
+  iid: number
   defId: string
   name: string
   level: number
   rank: EnemyRank
+  row: EncounterRow
   portrait: { family: PortraitFamily; hue: number }
   hp: number
   maxHp: number
@@ -199,18 +234,48 @@ export interface EnemySnapshot {
   dot: DotSnapshot | null
 }
 
+/** One node on the trail ribbon. `kind` is masked to 'unknown' until revealed
+ *  (the boss is never masked). */
+export interface ExpeditionNodeView {
+  kind: NodeKind | 'unknown'
+  state: 'done' | 'current' | 'ahead'
+}
+
+export interface ExpeditionSnapshot {
+  /** Current/target node index. */
+  index: number
+  /** ROUTE_STEPS + 1. */
+  total: number
+  traveling: boolean
+  travelRemaining: number
+  travelTotal: number
+  nodeResolved: boolean
+  nodes: ExpeditionNodeView[]
+  pendingShrine: BlessingId[] | null
+  blessings: BlessingId[]
+}
+
 export interface CombatSnapshot {
   tick: number
+  /** Where the hero is: at camp, walking the trail, resolving a node, or
+   *  assaulting the world boss. */
+  phase: 'camp' | 'travel' | 'node' | 'assault'
   player: PlayerSnapshot
-  /** null between spawns. */
-  enemy: EnemySnapshot | null
+  /** The current pack, dead mobs included until it's cleared; empty between spawns. */
+  enemies: EnemySnapshot[]
+  /** iid of the targeted enemy, or null when the field is empty. */
+  target: number | null
+  /** Ticks until the current node's encounter arrives (0 once on the field). */
   spawnIn: number
-  spawnKind: 'normal' | 'boss'
+  /** The live expedition, or null at camp / during a world-boss assault. */
+  expedition: ExpeditionSnapshot | null
   cast: CastSnapshot | null
   queued: AbilityId | null
   cooldowns: Record<AbilityId, number>
   gcdRemaining: number
   autoBattle: boolean
+  /** The hired companion's live swing state, or null when none is hired. */
+  companion: { name: string; swingProgress: number } | null
 }
 
 export interface ZoneProgress {
@@ -221,11 +286,18 @@ export interface ZoneProgress {
   hue: number
   unlocked: boolean
   current: boolean
-  kills: number
-  bossReady: boolean
   bossDefeated: boolean
   bossName: string
   enemyNames: string[]
+}
+
+/** Leaderboard scaffold — local now, server-owned someday. */
+export interface Records {
+  expeditionsCompleted: number
+  worldBossFells: number
+  bestAssaultDamage: number
+  /** zoneId → fewest ticks from boss spawn to boss kill. */
+  fastestBossKills: Record<string, number>
 }
 
 export interface LifetimeStats {
@@ -252,12 +324,16 @@ export interface ProgressSnapshot {
   zones: ZoneProgress[]
   achievements: string[]
   lifetime: LifetimeStats
+  records: Records
+  /** The persistent world-boss pool, for the Atlas panel. */
+  worldBoss: { name: string; hp: number; maxHp: number; fells: number }
+  /** The hired companion, or null. */
+  companion: { id: string; name: string } | null
   completed: boolean
 }
 
 export interface SaveData {
-  version: 1
-  savedAt: number
+  version: 2
   level: number
   xp: number
   gold: number
@@ -266,24 +342,14 @@ export interface SaveData {
   inventory: Item[]
   nextUid: number
   zoneId: string
-  zoneKills: Record<string, number>
   bossesDefeated: string[]
   achievements: string[]
   lifetime: LifetimeStats
+  records: Records
+  /** Persistent world-boss HP pool (the seam a server would someday own). */
+  worldBossHp: number
+  /** Hired companion id, or null. */
+  companionId: string | null
   autoBattle: boolean
-  muted: boolean
   completed: boolean
-}
-
-export interface OfflineSummary {
-  ticks: number
-  kills: number
-  deaths: number
-  xpGained: number
-  goldGained: number
-  levelFrom: number
-  levelTo: number
-  /** Items still in the bags afterwards (best first, capped for display). */
-  itemsKept: Item[]
-  itemsSold: number
 }

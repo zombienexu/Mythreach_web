@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { mulberry32 } from '../src/engine/rng'
 import { GameSim } from '../src/engine/sim'
-import { MS_PER_TICK, OFFLINE_CAP_TICKS } from '../src/engine/types'
-import { advance, makeSim, testContent } from './helpers'
+import type { SaveData } from '../src/engine/types'
+import { advance, makeSim, testContent, v1Save } from './helpers'
 
 describe('serialize / deserialize', () => {
   it('round-trips progression exactly', () => {
@@ -28,55 +28,42 @@ describe('serialize / deserialize', () => {
     expect(restored.autoBattle).toBe(true)
   })
 
-  it('comes back at full strength with a fresh spawn pending', () => {
+  it('comes back at full strength, at camp', () => {
     const content = testContent({ swingTicks: 20, dmgMin: 10, dmgMax: 10 })
     const sim = makeSim({ content })
-    advance(sim, 200) // take some hits
+    sim.embark()
+    advance(sim, 200) // walk to the fight and take some hits
     expect(sim.combatSnapshot().player.hp).toBeLessThan(sim.combatSnapshot().player.maxHp)
     const restored = GameSim.deserialize(sim.serialize(), { content, rng: mulberry32(3) })
     const snap = restored.combatSnapshot()
     expect(snap.player.hp).toBe(snap.player.maxHp)
-    expect(snap.enemy).toBeNull()
+    expect(snap.enemies).toHaveLength(0)
+    expect(snap.phase).toBe('camp')
   })
 
   it('rejects unknown save versions', () => {
     const sim = makeSim()
     const bad = { ...sim.serialize(), version: 99 as never }
-    expect(() => GameSim.deserialize(bad)).toThrow()
-  })
-})
-
-describe('offline progress', () => {
-  it('offlineTicks floors and caps', () => {
-    expect(GameSim.offlineTicks(0)).toBe(0)
-    expect(GameSim.offlineTicks(MS_PER_TICK * 100)).toBe(100)
-    expect(GameSim.offlineTicks(1000 * 60 * 60 * 24)).toBe(OFFLINE_CAP_TICKS)
+    expect(() => GameSim.deserialize(bad, { rng: mulberry32(1) })).toThrow()
   })
 
-  it('fastForward grinds on auto and reports the haul', () => {
-    const sim = makeSim({ content: testContent({ hp: 1, xp: 30, dropPct: 30 }) })
-    expect(sim.autoBattle).toBe(false)
-    const summary = sim.fastForward(12_000) // 10 minutes
-    expect(summary.kills).toBeGreaterThan(20)
-    expect(summary.xpGained).toBeGreaterThan(600)
-    expect(summary.goldGained).toBeGreaterThan(0)
-    expect(summary.levelTo).toBeGreaterThan(summary.levelFrom)
-    expect(sim.autoBattle).toBe(false) // restored
-    // The haul is real: it's in the progression too.
-    const progress = sim.progressSnapshot()
-    expect(progress.level).toBe(summary.levelTo)
-    expect(progress.lifetime.kills).toBe(summary.kills)
-  })
-
-  it('itemsKept are sorted best-first', () => {
-    const sim = makeSim({ content: testContent({ hp: 1, dropPct: 100 }), seed: 8 })
-    const summary = sim.fastForward(8_000)
-    const order = { common: 0, uncommon: 1, rare: 2, epic: 3 }
-    for (let i = 1; i < summary.itemsKept.length; i++) {
-      expect(order[summary.itemsKept[i - 1]!.rarity]).toBeGreaterThanOrEqual(
-        order[summary.itemsKept[i]!.rarity],
-      )
-    }
+  it('accepts a version-1 save and ignores its dead fields', () => {
+    // A v1 blob still carries savedAt, muted and zoneKills. Deserialize must
+    // round-trip the live progression and simply drop the rest.
+    const legacy = v1Save({ level: 7, gold: 250, xp: 12 })
+    let restored: GameSim | undefined
+    expect(() => {
+      restored = GameSim.deserialize(legacy as unknown as SaveData, { rng: mulberry32(1) })
+    }).not.toThrow()
+    const progress = restored!.progressSnapshot()
+    expect(progress.level).toBe(7)
+    expect(progress.gold).toBe(250)
+    expect(progress.xp).toBe(12)
+    // Re-serializing yields a clean v2 blob with none of the dead fields.
+    const reserialized = restored!.serialize() as unknown as Record<string, unknown>
+    expect(reserialized.version).toBe(2)
+    expect(reserialized.savedAt).toBeUndefined()
+    expect(reserialized.muted).toBeUndefined()
   })
 })
 
@@ -94,7 +81,10 @@ describe('auto-battle on real content', () => {
       }
     }
     expect(kills).toBeGreaterThanOrEqual(15)
-    expect(deaths).toBeLessThanOrEqual(2)
+    // Auto-battle now walks to the zone boss at the end of every expedition, so a
+    // level-1 hero pays a few deaths learning it under-levelled (a real player
+    // would out-level first — see the balance envelope). It still progresses.
+    expect(deaths).toBeLessThanOrEqual(6)
     expect(sim.progressSnapshot().level).toBeGreaterThanOrEqual(3)
   })
 })

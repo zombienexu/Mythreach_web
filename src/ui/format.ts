@@ -21,7 +21,7 @@ export function ticksToClock(ticks: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-/** "6h 12m" / "43m" / "50s" — humane duration for the offline modal. */
+/** "6h 12m" / "43m" / "50s" — humane duration for elapsed play time. */
 export function ticksToDuration(ticks: number): string {
   const total = Math.floor(Math.max(0, ticks) / TICKS_PER_SECOND)
   if (total < 60) return `${total}s`

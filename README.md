@@ -1,17 +1,19 @@
 # Mythreach
 
-**Idle when you're away. An RPG when you're here.**
+**An RPG you actually play — and your absence is simply respected.**
 
-Mythreach is an idle/incremental RPG with the clean dashboard presentation of
-the genre's best — and, unlike nearly every idle game, a combat system you
-actually *play*: an MMO-style action bar with cast times, cooldowns, a global
-cooldown with spell queueing, interrupts, and healing decisions under pressure.
+Mythreach is a dashboard RPG with the clean presentation of the incremental
+genre's best — and a combat system you actually *play*: an MMO-style action bar
+with cast times, cooldowns, a global cooldown with spell queueing, interrupts,
+and healing decisions under pressure. It is **active-only**: no away-from-game
+progression, no passive accrual. When you step away, the world simply waits for
+you.
 
-This repository is **v1 — "The Sundered Reaches"**: a complete single-player
-campaign. Five zones, twenty-five enemies, five bosses, seven abilities, mana,
-crits, XP and levels, loot with rarities, talents, achievements, auto-battle,
-save games, and offline progress — the deterministic engine literally
-simulates the hours you were gone.
+This repository is **v1 — "The Wayfarer's Atlas"**: a complete single-player
+campaign. Five zones walked as **expeditions**, twenty-five enemies, five
+bosses, seven abilities, mana, crits, XP and levels, loot with rarities,
+talents, achievements, auto-battle, and save games — all driven by one
+deterministic, pure engine.
 
 ![Combat mid-fight](docs/shot-1.png)
 
@@ -32,27 +34,36 @@ Design pillars:
    one card to the other. They gather in your hand, cross the gap, and
    detonate. Fire clings to what it burns. The presentation is austere by
    design and violent on purpose.
-3. **Hands-on combat is the differentiator.** The idle audience wants moments
-   of mastery. Active play (rotations, cooldown usage, interrupt timing)
+3. **Hands-on combat is the differentiator.** The dashboard audience wants
+   moments of mastery. Active play (rotations, cooldown usage, interrupt timing)
    meaningfully beats passive play without being mandatory — the auto-battle
    echo runs a sensible priority, but it doesn't burst bosses like you do.
-4. **Never punish absence.** Your echo keeps fighting while you're away
-   (capped at 8 hours); death costs seconds; the observatory heals you
-   between pulls.
+4. **Respect absence — don't simulate it.** The game is active-only: no
+   away-from-game catch-up and no passive accrual. Close the tab and nothing
+   happens; your absence is respected by the world simply waiting for you.
+   Auto-battle is an active-session assist (tab open, you present), and camp
+   heals you between expeditions.
 5. **Numbers you can feel.** A damage number's *size is its value*. A burn tick
    is a small violet 11; a Pyroblast crit is an enormous stroked 240 that
    overshoots, snaps back and hangs in the air while the card it hit is still
    reeling. You never have to read a number to know how hard it landed.
 
-The wedge, in one sentence: **the idle game where combat is real.**
+The wedge, in one sentence: **the dashboard RPG where combat is real and your
+time is your own.**
 
 ## The game
 
 An Arcanist of the Observatory pushes out through five zones toward Malgrath
-the Worldrender. Kill ten creatures in a zone to earn a boss challenge; kill
-the boss to unlock the next zone. On full auto the campaign arc runs about an
-hour; played actively (and with better gear luck) it's faster — and the world
-stays open for farming after the crown.
+the Worldrender. Each zone is not a farm field but a **trail**: from camp — the
+Wayfarer's Rest — you **embark** on an expedition, a generated route of eight
+nodes plus a final boss that you walk node by node. Fights come as *encounters*
+— a lone brute, a pair, or a vanguard of two screening minions with something
+meaner chanting behind them. Click a card (or Tab) to switch targets;
+Counterspell only reads your target's lips, so the wisp hiding behind its whelps
+is your problem to solve. Complete the boss node to finish the expedition and,
+the first time, unlock the next zone. You may **turn back** at any point,
+keeping everything earned. On full auto the campaign arc runs a couple of hours;
+played actively (and with better gear luck) it's faster.
 
 **The spellbook** (keys `1`–`7`, unlocked by level):
 
@@ -62,7 +73,7 @@ stays open for farming after the crown.
 | `2` | Ignite | Instant, 8 s CD | burn: 5/s for 6 s, refreshable |
 | `3` | Renew (Lv 2) | 1.8 s cast, 5 s CD | heals 20–28, scales with spirit |
 | `4` | Pyroblast (Lv 4) | 3.5 s cast, 12 s CD | 48–64 fire damage |
-| `5` | Counterspell (Lv 6) | Instant, off-GCD, 15 s CD | interrupts an enemy hardcast — only usable while they're casting |
+| `5` | Counterspell (Lv 6) | Instant, off-GCD, 15 s CD | interrupts your target's hardcast — switch to the caster first |
 | `6` | Arcane Barrier (Lv 8) | Instant, 20 s CD | absorb shield, 25 + 5/level |
 | `7` | Combustion (Lv 11) | Instant, 30 s CD | 12 s: +25% fire damage, +20% crit |
 
@@ -83,10 +94,24 @@ spirit, and crit budgets that scale with item level. Six talents with five
 ranks each shape your build; respec costs 50 gold. Fifteen achievements track
 your deeds.
 
-**Idle layer**: toggle auto-battle (`A`) and your echo runs the rotation —
-including interrupts and defensive cooldowns. Close the tab and the game
-saves; come back and the engine fast-forwards up to 8 hours of real combat,
-then shows you the haul.
+**Expeditions**: from camp you `embark` (Space) on a generated route of eight
+nodes plus a boss. You **travel** between nodes (fog of war hides each kind
+until you walk toward it), resolve what you find, and press on. Node kinds are
+data-interpreted like enemy mechanics: **battle** and **elite** packs; **cache**
+(gold and sometimes an item); **shrine** (pick one of two expedition-scoped
+**blessings**); **rest** (restore health and mana); and the final **boss**. Die
+and the expedition ends; turn back and you keep the loot. Toggle auto-battle
+(`A`) and your echo walks the whole route hands-free — embarking, advancing,
+fighting, and taking the first blessing offered.
+
+**Scaffolds of the multiplayer future**: three systems ship as single-player
+scaffolds for features a server will someday own. **The Rift Colossus** is a
+world boss with a persistent HP pool that survives across assaults (the one
+field a server would own), banking your damage each time and paying out when
+felled. **Records** track expeditions completed, world-boss fells, best assault
+damage, and per-zone fastest boss kills. And you can **hire a companion** — a
+sellsword who fights at your side on their own timer. Each is deliberately one
+field and one interpreter away from going networked.
 
 ### Run it
 
@@ -99,7 +124,7 @@ npm run dev
 |--------|--------------|
 | `npm run dev` | dev server with HMR |
 | `npm run build` / `preview` | production build / serve it |
-| `npm test` | the engine contract — 88 Vitest cases incl. a campaign balance envelope |
+| `npm test` | the engine contract — 122 Vitest cases incl. an engine-purity guard and a campaign balance envelope |
 | `npm run check` | svelte-check + tsc, strict mode |
 | `npm run shots` | build + headless Playwright screenshots into `docs/` (first run: `npx playwright install chromium`) |
 
@@ -125,11 +150,12 @@ assertion, not a hope.
 `GameSim` is the whole game — combat **and** progression — behind four moves:
 
 ```ts
-const sim = new GameSim({ rng })
+const sim = new GameSim({ rng })   // rng is required — the engine owns no wall clock
+sim.embark()                 // set out from camp on a generated expedition
 sim.useAbility('fireball')   // start, queue, or refuse
 sim.tick()                   // advance exactly one tick → CombatEvent[]
-sim.combatSnapshot()         // HP/mana/shield, casts, cooldowns, GCD, enemy state
-sim.progressSnapshot()       // level, gold, gear, talents, zones, achievements
+sim.combatSnapshot()         // phase, expedition, HP/mana/shield, casts, cooldowns, enemy state
+sim.progressSnapshot()       // level, gold, gear, talents, zones, records, achievements
 ```
 
 Everything else follows from a few load-bearing ideas:
@@ -145,32 +171,38 @@ Everything else follows from a few load-bearing ideas:
   *mechanics* (enrage / hardcast / venom) are a tagged union the engine
   interprets — a new monster is data, not logic. Tests inject tiny custom
   content packs to pin rules independently of live balance numbers.
-- **Injected RNG.** Seeded mulberry32 in tests, `Math.random` in the game.
-  Loot generation, crits, and enemy rolls all flow through it — which is why
-  the balance suite can Monte-Carlo the entire campaign headlessly.
-- **Offline = the same simulation.** `fastForward(ticks)` runs the real
-  engine with auto-battle on and summarizes what happened. There is no
-  second "estimate" code path to drift out of sync.
+- **Injected RNG, required.** The engine takes its randomness as a constructor
+  option — seeded mulberry32 in tests, the platform PRNG in the game — and has
+  no `Math.random` default and no wall clock of its own. Loot, crits, enemy
+  rolls, and route generation all flow through it, which is why the balance
+  suite can Monte-Carlo the entire campaign headlessly. A `purity.test.ts` reads
+  every engine source and fails the build on any ambient global, `Date.now`, or
+  reach into the UI world. Saves are **v2** (v1 saves still load, their dead
+  fields ignored); expedition state is never persisted — reload and you are at
+  camp.
+- **Active-only, by construction.** There is no away-from-game path.
+  `src/ui/loop.ts` discards a backgrounded tab's gap rather than replaying it, so
+  absence never progresses the game.
 
 ### The UI: a 60 fps view of a 20 Hz truth
 
 `src/ui/loop.ts` is a `requestAnimationFrame` accumulator stepping the sim once
 per elapsed 50 ms. `src/ui/game.svelte.ts` is the bridge: a runes-based `Game`
-store that owns the sim, publishes snapshots, writes the log, autosaves to
-`localStorage` every five seconds, and computes offline progress on boot. It
+store that owns the sim, publishes snapshots, writes the log, and autosaves to
+`localStorage` every five seconds. It
 hands every event to the FX director (below), which decides *when* each number,
 recoil and sound actually happens — a fireball's damage is dealt on the tick the
 sim says so, but it isn't *shown* until the bolt lands.
 
-Five views hang off a sidebar: **Combat** (zone banner with boss challenge,
-player and enemy cards, log, action bar), **Character** (stats, paper-doll,
-bags with stat-delta compare), **Talents**, **Atlas** (travel and boss
-status), and **Chronicle** (lifetime stats, achievements). The sim never
-pauses while you shop.
+Five views hang off a sidebar: **Combat** (zone banner with the expedition trail
+ribbon, the enemy pack up top, your card above the action bar, the log between),
+**Character** (stats, paper-doll, bags with stat-delta compare), **Talents**,
+**Atlas** (travel between zones and the Rift Colossus panel), and **Chronicle**
+(lifetime stats, records, achievements). The sim never pauses while you shop.
 
 ### The combat FX: effects as data
 
-The fight is staged on a PixiJS canvas laid across both cards. The interesting
+The fight is staged on a PixiJS canvas laid across the whole battlefield. The interesting
 part isn't the particles — it's that **no code anywhere describes what a spell
 looks like**. Effects are declarative:
 
@@ -259,20 +291,23 @@ for panels, slow (480 ms) for navigation, epic (1100 ms) for level-ups and boss
 challenges. Nothing invents its own duration.
 
 Runtime dependencies are deliberately few: **PixiJS** for the effects canvas and
-**GSAP** for exactly one thing (the boss-challenge cinematic). Both are
-dynamically imported — the fight is playable before Pixi arrives, GSAP loads
-only when you challenge a boss, and a reduced-motion player downloads neither.
+**GSAP** for exactly one thing (the boss-intro cinematic). Both are dynamically
+imported — the fight is playable before Pixi arrives, GSAP loads only when a
+boss node announces itself, and a reduced-motion player downloads neither.
 
 ### The tests: the contract
 
-`tests/` holds 88 cases across eleven files: the unit rules (combatant, DoT,
-RNG), every ability's exact timing (GCD, queueing, fizzle refunds,
-cooldown-at-resolve), enemy mechanics on custom content packs, progression
-math pinned to formulas, item generation budgets, the boss/zone/campaign
-flow, save round-trips, offline summaries — and a **balance envelope** that
-auto-plays the whole campaign with a smart-player heuristic and asserts the
-arc (first boss inside 15 minutes with ≤2 deaths; full clear in 0.6–3 hours
-with <20 deaths). Balance changes that break the feel break the build.
+`tests/` holds 122 cases across sixteen files: an **engine-purity guard** that
+fails the build on any ambient global or wall-clock in the engine, the unit
+rules (combatant, DoT, RNG), every ability's exact timing (GCD, queueing, fizzle
+refunds, cooldown-at-resolve), enemy mechanics on custom content packs,
+progression math pinned to formulas, item generation budgets, the full
+**expedition** state machine (route rules, fog of war, retreat/death/completion,
+hands-free auto-battle), the world boss, companion, and save round-trips
+(including v1→v2 migration) — and a **balance envelope** that auto-plays the
+whole campaign with a smart-player heuristic and asserts the arc (first boss
+inside 15 minutes with ≤2 deaths; full clear in 0.5–3 hours with <25 deaths).
+Balance changes that break the feel break the build.
 
 `npm test` and `npm run check` green is the bar for every change. The entry
 chunk ships at ~59 KB gzipped; Pixi and GSAP load asynchronously behind it.

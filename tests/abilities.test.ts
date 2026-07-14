@@ -110,7 +110,7 @@ describe('casting and the GCD', () => {
 
   it('offensive abilities are refused with no enemy on the field', () => {
     const sim = makeSim()
-    expect(sim.combatSnapshot().enemy).toBeNull()
+    expect(sim.combatSnapshot().enemies).toHaveLength(0)
     expect(sim.useAbility('fireball')).toBe(false)
     expect(sim.useAbility('ignite')).toBe(false)
   })

@@ -20,6 +20,8 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'epic-find', name: 'It Glows Purple', description: 'Find an epic item.' },
   { id: 'interrupts-10', name: 'Silence!', description: 'Interrupt 10 enemy spells.' },
   { id: 'deaths-10', name: 'Frequent Flyer', description: 'Die 10 times. The observatory keeps a cot for you.' },
+  { id: 'worldboss-felled', name: 'Riftbreaker', description: 'Fell the Rift Colossus.' },
+  { id: 'expeditions-10', name: 'Wayfarer', description: 'Complete 10 expeditions.' },
 ]
 
 export const ACHIEVEMENT_BY_ID: Record<string, AchievementDef> = Object.fromEntries(

@@ -21,7 +21,10 @@ describe('leveling', () => {
       content: testContent({ hp: 1, xp: 60, swingTicks: 30, dmgMin: 8, dmgMax: 8 }),
     })
     sim.autoBattle = true
-    const events = advance(sim, 400)
+    const events: ReturnType<typeof advance> = []
+    for (let i = 0; i < 3000 && eventsOf(events, 'levelUp').length === 0; i++) {
+      events.push(...sim.tick())
+    }
     const ups = eventsOf(events, 'levelUp')
     expect(ups.length).toBeGreaterThanOrEqual(1)
     expect(ups[0]!.level).toBe(2)

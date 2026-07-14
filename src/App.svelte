@@ -4,7 +4,6 @@
   import BossIntro from './ui/components/BossIntro.svelte'
   import CritFlash from './ui/components/CritFlash.svelte'
   import LevelUpBanner from './ui/components/LevelUpBanner.svelte'
-  import OfflineModal from './ui/components/OfflineModal.svelte'
   import Sidebar from './ui/components/Sidebar.svelte'
   import Toast from './ui/components/Toast.svelte'
   import TopBar from './ui/components/TopBar.svelte'
@@ -102,10 +101,6 @@
   {#key game.toast.id}
     <Toast title={game.toast.title} body={game.toast.body} />
   {/key}
-{/if}
-
-{#if game.offline}
-  <OfflineModal summary={game.offline} onclose={() => game.dismissOffline()} />
 {/if}
 
 {#if game.victory}

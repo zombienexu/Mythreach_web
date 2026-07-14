@@ -3,15 +3,18 @@
 
   let { combat }: { combat: CombatSnapshot } = $props()
 
-  /** The enemy is winding up a hardcast. The room closes in as it fills —
-   *  and snaps back the instant you counter it. This is the tension. */
-  const threat = $derived(combat.enemy?.cast?.progress ?? 0)
+  /** An enemy is winding up a hardcast. The room closes in as it fills —
+   *  and snaps back the instant you counter it. With a pack on the field the
+   *  ripest cast drives the squeeze. */
+  const threat = $derived(
+    Math.max(0, ...combat.enemies.filter((e) => e.alive).map((e) => e.cast?.progress ?? 0)),
+  )
 
   const hpFrac = $derived(combat.player.maxHp > 0 ? combat.player.hp / combat.player.maxHp : 1)
   const danger = $derived(combat.player.alive && hpFrac < 0.35 ? (0.35 - hpFrac) / 0.35 : 0)
 
   const lit = $derived(combat.player.buffs.some((b) => b.id === 'combustion'))
-  const enraged = $derived(combat.enemy?.enraged ?? false)
+  const enraged = $derived(combat.enemies.some((e) => e.alive && e.enraged))
 </script>
 
 <div

@@ -1,7 +1,14 @@
 import type { CombatEvent } from '../src/engine/events'
 import { mulberry32 } from '../src/engine/rng'
 import { GameSim } from '../src/engine/sim'
-import type { ContentPack, EnemyDef, SaveData, ZoneDef } from '../src/engine/types'
+import type {
+  ContentPack,
+  EncounterDef,
+  EnemyDef,
+  EnemySnapshot,
+  SaveData,
+  ZoneDef,
+} from '../src/engine/types'
 
 /** A fully controllable enemy. Defaults to a harmless, drop-less training dummy. */
 export function dummyEnemy(over: Partial<EnemyDef> = {}): EnemyDef {
@@ -28,7 +35,7 @@ export function dummyEnemy(over: Partial<EnemyDef> = {}): EnemyDef {
 /** Two-zone content pack: z1 (dummy → boss1) unlocks z2 (dummy2 → boss2 = final). */
 export function testContent(
   enemyOverrides: Partial<EnemyDef> = {},
-  extra: { enemies?: EnemyDef[]; zone1Spawns?: Array<{ enemyId: string; weight: number }> } = {},
+  extra: { enemies?: EnemyDef[]; zone1Encounters?: EncounterDef[] } = {},
 ): ContentPack {
   const enemies: EnemyDef[] = [
     dummyEnemy(enemyOverrides),
@@ -44,7 +51,9 @@ export function testContent(
       epithet: 'test grounds',
       minLevel: 1,
       hue: 200,
-      spawns: extra.zone1Spawns ?? [{ enemyId: 'dummy', weight: 1 }],
+      encounters: extra.zone1Encounters ?? [{ slots: [{ enemyId: 'dummy' }], weight: 1 }],
+      eliteEncounters: [{ slots: [{ enemyId: 'dummy' }], weight: 1 }],
+      travelLines: ['the road stretches on'],
       bossId: 'boss1',
       intro: 'zone one',
     },
@@ -54,7 +63,9 @@ export function testContent(
       epithet: 'more test grounds',
       minLevel: 5,
       hue: 100,
-      spawns: [{ enemyId: 'dummy2', weight: 1 }],
+      encounters: [{ slots: [{ enemyId: 'dummy2' }], weight: 1 }],
+      eliteEncounters: [{ slots: [{ enemyId: 'dummy2' }], weight: 1 }],
+      travelLines: ['the road stretches on'],
       bossId: 'boss2',
       intro: 'zone two',
     },
@@ -64,8 +75,33 @@ export function testContent(
 
 export function blankSave(over: Partial<SaveData> = {}): SaveData {
   return {
+    version: 2,
+    level: 1,
+    xp: 0,
+    gold: 0,
+    talents: {},
+    equipped: {},
+    inventory: [],
+    nextUid: 1,
+    zoneId: 'z1',
+    bossesDefeated: [],
+    achievements: [],
+    lifetime: { kills: 0, deaths: 0, goldEarned: 0, interrupts: 0, epicsFound: 0, bossKills: 0 },
+    records: { expeditionsCompleted: 0, worldBossFells: 0, bestAssaultDamage: 0, fastestBossKills: {} },
+    worldBossHp: 40_000,
+    companionId: null,
+    autoBattle: false,
+    completed: false,
+    ...over,
+  }
+}
+
+/** A v1-shaped save blob, complete with the fields v2 dropped (savedAt, muted,
+ *  zoneKills). Typed loosely — the whole point is the shape predates SaveData. */
+export function v1Save(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
     version: 1,
-    savedAt: 0,
+    savedAt: 1_700_000_000_000,
     level: 1,
     xp: 0,
     gold: 0,
@@ -102,14 +138,23 @@ export function makeSim(opts: MakeSimOptions = {}): GameSim {
   return new GameSim({ content, rng })
 }
 
-/** Advance until the first enemy is on the field (spawn happens at tick 20). */
+/** Embark (if at camp) and advance until the first encounter is on the field.
+ *  Node 0 of every route is a battle, so this always lands on a fight. */
 export function advanceToSpawn(sim: GameSim): CombatEvent[] {
   const events: CombatEvent[] = []
-  for (let i = 0; i < 200; i++) {
+  if (sim.combatSnapshot().phase === 'camp') sim.embark()
+  for (let i = 0; i < 400; i++) {
     events.push(...sim.tick())
-    if (sim.combatSnapshot().enemy !== null) return events
+    if (sim.combatSnapshot().enemies.length > 0) return events
   }
-  throw new Error('no enemy spawned within 200 ticks')
+  throw new Error('no enemy spawned within 400 ticks')
+}
+
+/** The player's current target, or null — the multi-enemy stand-in for the
+ *  old single `snapshot().enemy`. */
+export function targetOf(sim: GameSim): EnemySnapshot | null {
+  const snap = sim.combatSnapshot()
+  return snap.enemies.find((e) => e.iid === snap.target) ?? null
 }
 
 /** Advance `ticks` ticks, collecting every event emitted along the way. */

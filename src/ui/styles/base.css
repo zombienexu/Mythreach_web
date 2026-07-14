@@ -51,7 +51,7 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--ether);
+  outline: 2px solid var(--gilt);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -91,15 +91,70 @@ button {
   padding: 1px;
   background: linear-gradient(
     180deg,
-    oklch(0.9 0.03 250 / 0.28),
+    oklch(0.85 0.08 85 / 0.3),
     var(--glass-edge) 30%,
-    oklch(0.85 0.03 260 / 0.06)
+    oklch(0.7 0.07 82 / 0.06)
   );
   mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   mask-composite: exclude;
   pointer-events: none;
+}
+
+/* Smoked-vellum grain, tiled over the whole pane. */
+.glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+/* ---- Wax-seal action button --------------------------------------- */
+.seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid var(--gilt);
+  border-radius: 8px;
+  background: linear-gradient(180deg, oklch(0.56 0.15 30), var(--seal));
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) ease,
+    opacity var(--dur-fast) ease;
+}
+
+.seal:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -8px oklch(0.6 0.16 40 / 0.7), 0 0 14px -4px var(--gilt);
+}
+
+.seal:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Lower-emphasis seal: gilt outline on vellum, no wax fill. */
+.seal.quiet {
+  background: oklch(0.5 0.05 75 / 0.08);
+  border-color: oklch(0.78 0.1 85 / 0.5);
+  color: var(--text-dim);
+}
+
+.seal.quiet:hover:not(:disabled) {
+  color: var(--text);
 }
 
 /* ---- Motion safety ------------------------------------------------ */

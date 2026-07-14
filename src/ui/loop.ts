@@ -1,8 +1,9 @@
 import { MS_PER_TICK } from '../engine'
 
-/** Max simulated time per frame. A backgrounded tab fast-forwards a little
- *  on return instead of spiralling through a huge catch-up. */
-const MAX_FRAME_MS = 2000
+/** Max simulated time per frame — a hidden tab resumes with at most 5 ticks of
+ *  catch-up. Your absence must not progress the game: the world simply waits,
+ *  so a long background gap is discarded here rather than fast-forwarded. */
+const MAX_FRAME_MS = 250
 
 export interface LoopHandle {
   stop(): void

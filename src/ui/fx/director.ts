@@ -43,8 +43,9 @@ import {
 export interface FxHost {
   /** `at` is a point in arena-stage space — the number lands where the spell did */
   float(f: { side: Side; kind: 'damage' | 'crit' | 'heal' | 'absorb'; amount: number; tone: string; scale: number; at: Spot }): void
-  /** the card recoils; `power` and `crit` decide how hard */
-  bump(side: Side, power: number, crit: boolean): void
+  /** the card recoils; `power` and `crit` decide how hard. `iid` says *which*
+   *  enemy card — a pack means three cards that can each take a blow. */
+  bump(side: Side, power: number, crit: boolean, iid?: number): void
   sfx(name: SfxName, gain?: number): void
 }
 
@@ -75,7 +76,8 @@ export class FxDirector {
    *  spell ripens. Fields, not closed-over snapshots — a snapshot captured when
    *  the emitter was created is frozen at 0% forever. */
   private charge = 0
-  private enemyCharge = 0
+  /** per-enemy hardcast progress, keyed by iid — a pack can chant in chorus */
+  private readonly enemyCharges = new Map<number, number>()
   /** which spell the gather belongs to, so chain-casting restarts it */
   private chargeId: AbilityId | null = null
 
@@ -103,33 +105,39 @@ export class FxDirector {
     this.shaker.detach()
     this.stage.destroy()
     this.standing.clear()
+    this.enemyCharges.clear()
   }
 
   // ─────────────── geometry ───────────────
 
-  private spot(side: Side): Spot {
-    return side === 'player' ? this.stage.anchors.player : this.stage.anchors.enemy
+  /** `iid` picks the specific enemy card; without one (or before that card has
+   *  been measured) the enemy side falls back to the row centre. */
+  private spot(side: Side, iid?: number): Spot {
+    if (side === 'player') return this.stage.anchors.player
+    return (iid !== undefined ? this.stage.anchors.enemies[iid]?.spot : undefined) ?? this.stage.anchors.enemy
   }
 
-  private region(side: Side): Region {
-    return side === 'player' ? this.stage.anchors.playerCard : this.stage.anchors.enemyCard
+  private region(side: Side, iid?: number): Region {
+    if (side === 'player') return this.stage.anchors.playerCard
+    return (iid !== undefined ? this.stage.anchors.enemies[iid]?.card : undefined) ?? this.stage.anchors.enemyCard
   }
 
-  private ctx(spec: { tone: number; deep: number }, from: Side, to: Side, scale = 1): RecipeCtx {
+  /** One `iid` covers both ends: only one side of any beat is ever an enemy. */
+  private ctx(spec: { tone: number; deep: number }, from: Side, to: Side, scale = 1, iid?: number): RecipeCtx {
     return {
       stage: this.stage,
       shaker: this.shaker,
-      source: this.spot(from),
-      target: this.spot(to),
-      region: this.region(to),
+      source: this.spot(from, iid),
+      target: this.spot(to, iid),
+      region: this.region(to, iid),
       tone: spec.tone,
       deep: spec.deep,
       scale,
     }
   }
 
-  private play(recipe: Recipe | undefined, spec: { tone: number; deep: number }, from: Side, to: Side, scale = 1): void {
-    playRecipe(recipe, this.ctx(spec, from, to, scale))
+  private play(recipe: Recipe | undefined, spec: { tone: number; deep: number }, from: Side, to: Side, scale = 1, iid?: number): void {
+    playRecipe(recipe, this.ctx(spec, from, to, scale, iid))
   }
 
   /** How hard did that land? One number drives particle size, shockwave reach,
@@ -156,7 +164,6 @@ export class FxDirector {
   sync(c: CombatSnapshot): void {
     if (this.reduced || !this.stage.ready) return
     this.charge = c.cast?.progress ?? 0
-    this.enemyCharge = c.enemy?.cast?.progress ?? 0
 
     // gathering power for a cast you can see coming
     const casting = c.cast && SPELL_FX[c.cast.abilityId].charge ? c.cast.abilityId : null
@@ -168,14 +175,31 @@ export class FxDirector {
     }
     this.hold('charge', casting !== null, () => this.gather(SPELL_FX[casting!], 'player', () => this.charge))
 
-    this.hold('enemyCharge', c.enemy?.cast != null, () =>
-      this.gather(SPELL_FX.enemyCast, 'enemy', () => this.enemyCharge),
-    )
+    // Per-mob standing states. First sweep away emitters whose mob left the
+    // field — a cleared pack must not leave three burns smouldering on air.
+    const iids = new Set(c.enemies.map((e) => e.iid))
+    for (const key of [...this.standing.keys()]) {
+      const m = /^(?:enemyCharge|ignite|enrage)-(\d+)$/.exec(key)
+      if (m && !iids.has(Number(m[1]))) this.stop(key)
+    }
+    for (const iid of [...this.enemyCharges.keys()]) {
+      if (!iids.has(iid)) this.enemyCharges.delete(iid)
+    }
 
-    // afflictions and buffs that cling to a card
-    this.hold('ignite', c.enemy?.dot != null, () => this.aura(SPELL_FX.ignite, SPELL_FX.ignite.aura!, 'enemy'))
+    for (const e of c.enemies) {
+      this.enemyCharges.set(e.iid, e.cast?.progress ?? 0)
+      this.hold(`enemyCharge-${e.iid}`, e.cast != null, () =>
+        this.gather(SPELL_FX.enemyCast, 'enemy', () => this.enemyCharges.get(e.iid) ?? 0, e.iid),
+      )
+      this.hold(`ignite-${e.iid}`, e.dot != null && e.alive, () =>
+        this.aura(SPELL_FX.ignite, SPELL_FX.ignite.aura!, 'enemy', e.iid),
+      )
+      this.hold(`enrage-${e.iid}`, e.enraged && e.alive, () =>
+        this.aura(ENRAGE_AURA, ENRAGE_AURA, 'enemy', e.iid),
+      )
+    }
+
     this.hold('venom', c.player.dot != null, () => this.aura(SPELL_FX.venom, SPELL_FX.venom.aura!, 'player'))
-    this.hold('enrage', c.enemy?.enraged ?? false, () => this.aura(ENRAGE_AURA, ENRAGE_AURA, 'enemy'))
 
     const lit = c.player.buffs.some((b) => b.id === 'combustion')
     this.hold('combustion', lit, () => this.aura(SPELL_FX.combustion, SPELL_FX.combustion.aura!, 'player'))
@@ -199,10 +223,10 @@ export class FxDirector {
 
   /** Motes spiralling into the caster's hand, tightening as the cast ripens.
    *  This is the anticipation the old UI never had. */
-  private gather(spec: SpellFx, side: Side, progress: () => number): number {
+  private gather(spec: SpellFx, side: Side, progress: () => number, iid?: number): number {
     const ch = spec.charge!
     return this.stage.emit(Infinity, ch.rate, () => {
-      const a = this.spot(side)
+      const a = this.spot(side, iid)
       const t = progress()
       this.stage.implode(a.x, a.y, {
         count: 1,
@@ -219,9 +243,9 @@ export class FxDirector {
   }
 
   /** Flames licking off a card, for as long as the thing burns. */
-  private aura(spec: { tone: number; deep: number }, a: { rate: number; alpha: number }, side: Side): number {
+  private aura(spec: { tone: number; deep: number }, a: { rate: number; alpha: number }, side: Side, iid?: number): number {
     return this.stage.emit(Infinity, a.rate, () => {
-      const r = this.region(side)
+      const r = this.region(side, iid)
       if (r.w === 0) return
       this.stage.burst(r.x + Math.random() * r.w, r.y + r.h * (0.55 + Math.random() * 0.45), {
         count: 1,
@@ -309,7 +333,7 @@ export class FxDirector {
       case 'dotApplied': {
         const on: Side = event.target === 'enemy' ? 'enemy' : 'player'
         const spec = SPELL_FX[event.target === 'enemy' ? 'ignite' : 'venom']
-        this.play(spec.release, spec, on === 'enemy' ? 'player' : 'enemy', on)
+        this.play(spec.release, spec, on === 'enemy' ? 'player' : 'enemy', on, 1, event.iid)
         break
       }
       case 'buffApplied': {
@@ -321,16 +345,16 @@ export class FxDirector {
         this.play(BARRIER_SHATTER, SPELL_FX.barrier, 'player', 'player')
         break
       case 'interrupted':
-        this.play(SPELL_FX.counterspell.release, SPELL_FX.counterspell, 'player', 'enemy')
+        this.play(SPELL_FX.counterspell.release, SPELL_FX.counterspell, 'player', 'enemy', 1, event.iid)
         break
       case 'enemyEnraged':
-        this.play(ENRAGE, ENRAGE_AURA, 'player', 'enemy')
+        this.play(ENRAGE, ENRAGE_AURA, 'player', 'enemy', 1, event.iid)
         break
       case 'enemySpawned':
-        this.play(MATERIALIZE, { tone: 0x9fb8e0, deep: 0x5f7aa8 }, 'player', 'enemy')
+        this.play(MATERIALIZE, { tone: 0x9fb8e0, deep: 0x5f7aa8 }, 'player', 'enemy', 1, event.iid)
         break
       case 'enemyDied':
-        this.play(DISINTEGRATE, { tone: 0xffb070, deep: 0x9a7ad9 }, 'player', 'enemy')
+        this.play(DISINTEGRATE, { tone: 0xffb070, deep: 0x9a7ad9 }, 'player', 'enemy', 1, event.iid)
         break
       case 'playerDied':
         this.play(PLAYER_DEATH, { tone: 0x6a4a8a, deep: 0x3a2a5a }, 'enemy', 'player')
@@ -352,10 +376,27 @@ export class FxDirector {
   // ─────────────── damage: the whole point ───────────────
 
   private damage(e: Extract<CombatEvent, { kind: 'damage' }>): void {
-    const spec = SPELL_FX[e.source as FxSource]
+    const spec = SPELL_FX[e.source as FxSource] as SpellFx | undefined
     const to: Side = e.target
     const from: Side = to === 'enemy' ? 'player' : 'enemy'
+    // The enemy involved — the card being hit, or the card swinging at you.
+    const iid = e.iid
     const w = this.weigh(e.amount, e.crit)
+
+    // A source with no spell-table entry (the companion's blade) has no recipe:
+    // degrade to the plain float + card bump so it still reads as a hit.
+    if (!spec) {
+      this.host?.float({
+        side: to,
+        kind: e.crit ? 'crit' : 'damage',
+        amount: e.amount,
+        tone: '#d8b96a',
+        scale: w.text,
+        at: this.spot(to, iid),
+      })
+      this.host?.bump(to, w.fx, e.crit, iid)
+      return
+    }
 
     // Everything that says "it landed", in one place. For a projectile this is
     // deferred until the bolt actually arrives.
@@ -367,10 +408,10 @@ export class FxDirector {
           amount: e.absorbed,
           tone: SPELL_FX.barrier.css,
           scale: 1,
-          at: this.spot(to),
+          at: this.spot(to, iid),
         })
         this.host?.sfx('absorb')
-        if (!this.reduced) this.play(SHIELD_HOLD, SPELL_FX.barrier, from, to)
+        if (!this.reduced) this.play(SHIELD_HOLD, SPELL_FX.barrier, from, to, 1, iid)
         return
       }
 
@@ -380,36 +421,36 @@ export class FxDirector {
         amount: e.amount,
         tone: spec.css,
         scale: w.text,
-        at: this.spot(to),
+        at: this.spot(to, iid),
       })
-      this.host?.bump(to, w.fx, e.crit)
+      this.host?.bump(to, w.fx, e.crit, iid)
 
       const cue = e.crit ? (spec.sfx?.crit ?? spec.sfx?.impact) : spec.sfx?.impact
       // a big hit is a loud hit
       if (cue) this.host?.sfx(cue, 0.7 + w.fx * 0.35)
 
       if (this.reduced) return
-      this.play(spec.impact, spec, from, to, w.fx)
-      if (e.crit) this.play(spec.crit, spec, from, to, w.fx)
-      if (e.absorbed > 0) this.play(SHIELD_HOLD, SPELL_FX.barrier, from, to)
+      this.play(spec.impact, spec, from, to, w.fx, iid)
+      if (e.crit) this.play(spec.crit, spec, from, to, w.fx, iid)
+      if (e.absorbed > 0) this.play(SHIELD_HOLD, SPELL_FX.barrier, from, to, 1, iid)
     }
 
     if (this.reduced || !spec.projectile) {
       // Instant, or a DoT tick: it is already there.
-      if (!this.reduced) this.play(spec.release, spec, from, to, w.fx)
+      if (!this.reduced) this.play(spec.release, spec, from, to, w.fx, iid)
       land()
       return
     }
 
     // It has to cross the arena first.
-    this.play(spec.release, spec, from, to, w.fx)
+    this.play(spec.release, spec, from, to, w.fx, iid)
     if (spec.sfx?.release) this.host?.sfx(spec.sfx.release)
-    this.launch(spec, from, to, w.fx, land)
+    this.launch(spec, from, to, w.fx, iid, land)
   }
 
-  private launch(spec: SpellFx, from: Side, to: Side, scale: number, onArrive: () => void): void {
+  private launch(spec: SpellFx, from: Side, to: Side, scale: number, iid: number | undefined, onArrive: () => void): void {
     const p = spec.projectile!
-    const ctx = this.ctx(spec, from, to, scale)
+    const ctx = this.ctx(spec, from, to, scale, iid)
     this.stage.projectile({
       from: ctx.source,
       to: ctx.target,

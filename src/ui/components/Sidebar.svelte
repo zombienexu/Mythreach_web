@@ -130,10 +130,18 @@
     border: 0;
     background: none;
     border-radius: var(--radius-sm);
-    font-size: 14.5px;
+    font-family: var(--font-display);
+    font-size: 15px;
+    letter-spacing: 0.02em;
     color: var(--text-dim);
     cursor: pointer;
     transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
+  }
+
+  /* Illuminated initial, the way a scribe would open a line. */
+  .nav-label::first-letter {
+    font-size: 1.3em;
+    color: var(--gilt);
   }
 
   .nav-btn:hover {
@@ -143,10 +151,10 @@
 
   .active .nav-btn {
     color: var(--text);
-    background: linear-gradient(90deg, oklch(0.8 0.11 195 / 0.1), transparent 70%);
+    background: linear-gradient(90deg, oklch(0.78 0.1 85 / 0.12), transparent 70%);
   }
 
-  /* Edge glow, not a colored stripe. */
+  /* Edge glow in gilt, not a colored stripe. */
   .active::before {
     content: '';
     position: absolute;
@@ -155,7 +163,7 @@
     bottom: 18%;
     width: 4px;
     border-radius: 4px;
-    background: var(--ether);
+    background: var(--gilt);
     filter: blur(3.5px);
     opacity: 0.9;
   }

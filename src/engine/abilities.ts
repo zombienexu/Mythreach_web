@@ -89,7 +89,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     offensive: true,
     offGcd: true,
     school: 'arcane',
-    description: 'Shatter an enemy spell mid-cast. Only usable while the enemy is casting; off the global cooldown.',
+    description: 'Shatter an enemy spell mid-cast. Only usable while your target is casting — switch to the caster; off the global cooldown.',
   },
   barrier: {
     id: 'barrier',

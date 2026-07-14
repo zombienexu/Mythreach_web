@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { advance, advanceTimeline, advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
+import { advance, advanceTimeline, advanceToSpawn, eventsOf, makeSim, targetOf, testContent } from './helpers'
 
 describe('enemy swings', () => {
   it('lands the first swing one swing-interval after spawning, none a tick earlier', () => {
@@ -46,13 +46,13 @@ describe('enrage', () => {
     let events = advance(sim, 44)
     let enrages = eventsOf(events, 'enemyEnraged')
     // Keep hitting until below 30.
-    for (let i = 0; i < 6 && sim.combatSnapshot().enemy && sim.combatSnapshot().enemy!.hp > 30; i++) {
+    for (let i = 0; i < 6 && targetOf(sim) && targetOf(sim)!.hp > 30; i++) {
       sim.useAbility('fireball')
       events = advance(sim, 44)
       enrages = enrages.concat(eventsOf(events, 'enemyEnraged'))
     }
     expect(enrages.length).toBe(1)
-    expect(sim.combatSnapshot().enemy?.enraged).toBe(true)
+    expect(targetOf(sim)?.enraged).toBe(true)
   })
 
   it('speeds up and hardens swings', () => {
@@ -63,8 +63,8 @@ describe('enrage', () => {
     advance(sim, 165) // full burn + cooldown (160)
     expect(sim.useAbility('ignite')).toBe(true) // second application crosses the line
     advance(sim, 130)
-    const snap = sim.combatSnapshot()
-    if (snap.enemy && snap.enemy.enraged) {
+    const enemy = targetOf(sim)
+    if (enemy && enemy.enraged) {
       const timeline = advanceTimeline(sim, 45)
       const hits = timeline.flatMap(({ events }) =>
         eventsOf(events, 'damage').filter((e) => e.source === 'enemySwing'),
@@ -114,7 +114,7 @@ describe('hardcast', () => {
     advance(sim, 98)
     const castStart = advance(sim, 1)
     expect(eventsOf(castStart, 'enemyCastStarted')).toHaveLength(1)
-    expect(sim.combatSnapshot().enemy?.cast?.name).toBe('Bolt')
+    expect(targetOf(sim)?.cast?.name).toBe('Bolt')
     const during = advance(sim, 39)
     expect(eventsOf(during, 'damage').filter((e) => e.source === 'enemySwing')).toHaveLength(0)
     const landing = sim.tick()
@@ -125,36 +125,38 @@ describe('hardcast', () => {
   })
 })
 
-describe('between-fight recovery', () => {
-  it('the hero mends while no enemy is on the field', () => {
-    const sim = makeSim({ content: testContent({ hp: 40, swingTicks: 20, dmgMin: 15, dmgMax: 15 }) })
-    sim.autoBattle = true
-    let hpAfterKill = -1
-    for (let i = 0; i < 2000 && hpAfterKill === -1; i++) {
-      if (sim.tick().some((e) => e.kind === 'enemyDied')) hpAfterKill = sim.combatSnapshot().player.hp
-    }
-    expect(hpAfterKill).toBeGreaterThan(-1)
-    expect(hpAfterKill).toBeLessThan(sim.combatSnapshot().player.maxHp)
-    advance(sim, 45) // most of the 50-tick spawn gap
-    expect(sim.combatSnapshot().player.hp).toBeGreaterThan(hpAfterKill)
+describe('camp recovery', () => {
+  it('the hero mends at camp — but not on the trail', () => {
+    const sim = makeSim({ content: testContent({ hp: 1000, swingTicks: 20, dmgMin: 15, dmgMax: 15 }) })
+    advanceToSpawn(sim)
+    advance(sim, 80) // eat a few swings on the trail
+    const hurt = sim.combatSnapshot().player.hp
+    expect(hurt).toBeLessThan(sim.combatSnapshot().player.maxHp)
+    // Retreat to camp; there the observatory knits you back together.
+    sim.retreat()
+    expect(sim.combatSnapshot().phase).toBe('camp')
+    advance(sim, 65) // several regen intervals at camp
+    expect(sim.combatSnapshot().player.hp).toBeGreaterThan(hurt)
   })
 })
 
 describe('death and respawn', () => {
-  it('the hero dies, the field clears, and they revive at full after 100 ticks', () => {
+  it('the hero dies, the field clears, and they revive at full at camp after 100 ticks', () => {
     const sim = makeSim({ content: testContent({ swingTicks: 10, dmgMin: 40, dmgMax: 40 }) })
     advanceToSpawn(sim)
     const events = advance(sim, 40) // three swings kill a 100 HP hero
     expect(eventsOf(events, 'playerDied')).toHaveLength(1)
-    expect(sim.combatSnapshot().enemy).toBeNull()
+    expect(sim.combatSnapshot().enemies).toHaveLength(0)
     expect(sim.combatSnapshot().player.alive).toBe(false)
     const later = advance(sim, 100)
     expect(eventsOf(later, 'playerRespawned')).toHaveLength(1)
     const snap = sim.combatSnapshot()
     expect(snap.player.hp).toBe(snap.player.maxHp)
-    // A fresh enemy is on its way.
-    const respawned = advance(sim, 60)
-    expect(eventsOf(respawned, 'enemySpawned')).toHaveLength(1)
+    expect(snap.phase).toBe('camp')
+    // A fresh fight comes only when you embark again.
+    sim.embark()
+    const respawned = advanceToSpawn(sim)
+    expect(eventsOf(respawned, 'enemySpawned').length).toBeGreaterThanOrEqual(1)
   })
 
   it('death cancels the cast, clears the queue and venom', () => {

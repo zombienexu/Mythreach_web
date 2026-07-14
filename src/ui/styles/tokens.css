@@ -1,18 +1,22 @@
 :root {
-  /* The void (page) — near-black indigo, never pure black */
-  --void: oklch(0.13 0.03 275); /* ≈ #0a0d1c */
-  --void-deep: oklch(0.1 0.025 280);
+  /* The void (page) — candlelit indigo-to-violet night, never pure black */
+  --void: oklch(0.13 0.03 290);
+  --void-deep: oklch(0.09 0.035 305);
 
-  /* Glass panels */
-  --glass: oklch(0.8 0.02 260 / 0.05);
-  --glass-edge: oklch(0.85 0.03 260 / 0.16);
+  /* Glass panels — smoked vellum with gilt hairlines */
+  --glass: oklch(0.5 0.05 75 / 0.07);
+  --glass-edge: oklch(0.78 0.08 82 / 0.25);
   --glass-blur: 14px;
   /* Opaque stand-in when backdrop-filter is unavailable */
-  --glass-fallback: oklch(0.17 0.03 272 / 0.92);
+  --glass-fallback: oklch(0.18 0.03 75 / 0.94);
 
   /* Ink */
-  --text: oklch(0.94 0.01 260);
-  --text-dim: oklch(0.68 0.02 260);
+  --text: oklch(0.93 0.02 85);
+  --text-dim: oklch(0.67 0.03 80);
+
+  /* Cartography chrome */
+  --gilt: oklch(0.78 0.1 85); /* chrome ornament; never a reward */
+  --seal: oklch(0.5 0.15 30); /* wax-seal primary actions */
 
   /* The trio (never all at full strength in one component) */
   --ether: oklch(0.8 0.11 195); /* teal — primary accent, player, casts */
@@ -42,8 +46,8 @@
   --tone-barrier: oklch(0.85 0.06 240);
   --tone-combustion: oklch(0.8 0.13 80);
 
-  --radius: 14px;
-  --radius-sm: 8px;
+  --radius: 10px;
+  --radius-sm: 6px;
 
   /* ---- Motion language --------------------------------------------
      One timing scale, four tiers. Every animation picks a tier; nothing

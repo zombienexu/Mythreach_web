@@ -1,6 +1,7 @@
 import { Combatant } from './combatant'
 import { Dot } from './dot'
 import type {
+  EncounterRow,
   EnemyDef,
   EnemyMechanicEnrage,
   EnemyMechanicHardcast,
@@ -23,7 +24,12 @@ export class EnemyUnit {
   /** The player's burn on this enemy. */
   ignite: Dot | null = null
 
-  constructor(readonly def: EnemyDef) {
+  constructor(
+    readonly def: EnemyDef,
+    /** Instance id, unique per spawn — how targeting and FX tell twins apart. */
+    readonly iid: number,
+    readonly row: EncounterRow = 'front',
+  ) {
     this.combatant = new Combatant(def.hp)
     const hc = this.hardcastMech
     if (hc) this.castCooldown = Math.floor(hc.cooldownTicks / 2)
@@ -70,10 +76,12 @@ export class EnemyUnit {
 
   snapshot(): EnemySnapshot {
     return {
+      iid: this.iid,
       defId: this.def.id,
       name: this.def.name,
       level: this.def.level,
       rank: this.def.rank,
+      row: this.row,
       portrait: this.def.portrait,
       hp: this.combatant.hp,
       maxHp: this.combatant.maxHp,

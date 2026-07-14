@@ -24,6 +24,7 @@ simulation. Keep it that way.
 - [Add a visual effect (a new `Step`)](#add-a-visual-effect-a-new-step)
 - [Restyle a spell without touching code](#restyle-a-spell-without-touching-code)
 - [Add an enemy](#add-an-enemy)
+- [Add an encounter](#add-an-encounter)
 - [Add an enemy mechanic](#add-an-enemy-mechanic)
 - [Add a zone](#add-a-zone)
 - [Add a talent](#add-a-talent)
@@ -366,12 +367,53 @@ Pure content. One file: `engine/content/enemies.ts`.
 }
 ```
 
-Then reference the id from a zone's `spawns` (see below). No FX work: enemies
-share `enemySwing` / `enemyCast` rows in `SPELL_FX`.
+Then slot the id into one of the zone's encounters (see below). No FX work:
+enemies share `enemySwing` / `enemyCast` rows in `SPELL_FX`.
 
 Balance is a contract, not a vibe — `tests/balance.test.ts` asserts the HP and
 damage curves stay inside an envelope. If your numbers are wild, that test tells
 you.
+
+---
+
+## Add an encounter
+
+An encounter is a pack of 1–3 mobs that spawn and fight together. **The
+encounter is the template; the slots are the mobs you plug in.** Pure content,
+one file: `engine/content/zones.ts`, using the helpers at the top:
+
+```ts
+solo('cave-golem', 26),                                        // one mob
+pair('gravel-skitterling', 'mossback-boar', 14),               // two, side by side
+vanguard(['mire-whelp', 'mire-whelp'], 'witchlight-wisp', 12), // two front, one back
+```
+
+Add the line to a zone's `encounters` array and you are done. Everything else
+follows from data the engine already has:
+
+- **Weights** are relative within the zone, exactly like the old spawn table.
+- **Rows.** `vanguard` marks its third mob `row: 'back'`: it renders raised
+  centre, and auto-retargeting prefers front-row mobs, so the screen falls
+  before the thing it screens. Rows change nothing else — any mob can be hit
+  at any time by clicking its card or Tab-cycling.
+- **Every mob pays its own XP/gold/loot** at the moment it dies; the *pack*
+  clearing counts as **one** kill toward the zone's boss gate. Budget
+  accordingly: a pack's summed XP should land near a solo mob of the same
+  weight, or the zone levels twice as fast.
+- **Targeting is where the fun lives.** A caster in the back row forces a
+  target swap to interrupt (Counterspell reads *your target's* cast, nobody
+  else's). A weak flanker forces a focus-fire decision. If a new encounter
+  creates no decision, it's just a bigger health bar — cut it.
+
+Balance intuition for a 3-pack: two minions plus a back mob should together
+swing for roughly what one solo normal does. The zone minions
+(`gravel-skitterling`, `mire-whelp`, …) are tuned for exactly this; if you add
+a new minion, start near half the HP and 45% of the damage of the zone's
+cheapest normal. Then let `tests/balance.test.ts` referee, as always.
+
+Engine limits worth knowing: an `EncounterDef` is just `{ slots, weight }`, a
+slot is `{ enemyId, row? }`, and nothing caps the pack size except the UI —
+three cards is what the row is designed to hold.
 
 ---
 
@@ -400,11 +442,13 @@ export type EnemyMechanic = EnemyMechanicEnrage | EnemyMechanicHardcast | EnemyM
 **`fx/director.ts`:** this is the *only* director change you should ever need,
 and only if the mechanic is a **standing state** rather than a one-shot. Standing
 states are reconciled against the snapshot in `sync()`, because a state that
-expires quietly emits no event and would otherwise linger forever:
+expires quietly emits no event and would otherwise linger forever. Enemy states
+are per-mob now — key on the iid, inside the existing `for (const e of c.enemies)`
+loop, and add your prefix to the stale-key sweep regex above it:
 
 ```ts
-this.hold('enemyShield', c.enemy?.shield != null, () =>
-  this.aura(SPELL_FX.enemyShield, SPELL_FX.enemyShield.aura!, 'enemy'))
+this.hold(`enemyShield-${e.iid}`, e.shield != null && e.alive, () =>
+  this.aura(SPELL_FX.enemyShield, SPELL_FX.enemyShield.aura!, 'enemy', e.iid))
 ```
 
 `hold(key, on, start)` starts the emitter when `on` goes true, stops it when it
@@ -429,10 +473,18 @@ Pure content: `engine/content/zones.ts`.
   epithet: 'the lake that never finished freezing',
   minLevel: 13,
   hue: 220,                 // drives the zone banner, arena floor light, pips
-  spawns: [
-    { enemyId: 'frost-revenant', weight: 40 },
-    { enemyId: 'rime-stalker', weight: 35 },
-    { enemyId: 'hoarfrost-elemental', weight: 25 },
+  encounters: [
+    solo('frost-revenant', 30),
+    solo('rime-stalker', 25),
+    pair('icicle-sprite', 'frost-revenant', 15),
+    vanguard(['icicle-sprite', 'icicle-sprite'], 'hoarfrost-elemental', 12),
+  ],
+  eliteEncounters: [solo('hoarfrost-elemental', 1)],   // the `elite` node table
+  travelLines: [                                        // one is picked per hop
+    'Your breath crystallises and falls, tinkling, to the ice.',
+    'The lake creaks a question you would rather not answer.',
+    'Snow fills your last footprint before you take the next.',
+    'Something vast turns over, far below the ice.',
   ],
   bossId: 'queen-solenne',
   intro: 'The ice remembers every step you have not yet taken.',
@@ -440,11 +492,113 @@ Pure content: `engine/content/zones.ts`.
 ```
 
 `weight` is relative, not a percentage — they need not sum to 100. `hue` is an
-OKLCH hue angle and it propagates automatically: banner, pips, arena floor glow.
+OKLCH hue angle and it propagates automatically: banner, arena floor glow.
+`eliteEncounters` is a second weighted table used by `elite` nodes, and
+`travelLines` are the flavor lines shown while walking the trail.
 
 Add the boss to `enemies.ts` with `rank: 'boss'`, and give it an achievement
 (`boss-<id>` — `sim.ts` fires `checkAchievement(\`boss-${def.id}\`, true)`
 automatically, so the id must match).
+
+---
+
+## Add a node kind
+
+An expedition is a trail of `NodeKind`s (`engine/expedition.ts` generates the
+route; `engine/sim.ts` interprets each on arrival). A new kind is: one union
+member, one weight, and one interpreter branch — the same content-as-data shape
+as an enemy mechanic.
+
+**`engine/types.ts`** — extend the `NodeKind` union:
+
+```ts
+export type NodeKind = 'battle' | 'elite' | 'cache' | 'shrine' | 'rest' | 'boss' | 'merchant'
+```
+
+**`engine/expedition.ts`** — add its weight to `NODE_WEIGHTS`, and a rule to
+`legal()` if it needs placement constraints (e.g. "never at index 0"). The
+re-roll loop stays bounded because `battle` is always legal.
+
+**`engine/sim.ts`** — add a `case` to `resolveArrival()`. A combat node sets
+`pendingSpawn` + `spawnIn`; an instant node does its thing and marks the node
+resolved:
+
+```ts
+case 'merchant':
+  this.openMerchant()          // your behavior — emit an event, mark resolved
+  break
+// ...
+private openMerchant(): void {
+  // ... offer/act ...
+  this.nodeResolvedFlag = true
+  this.push({ kind: 'nodeResolved', index: this.nodeIndex })
+}
+```
+
+Give the UI a glyph in `TrailRibbon.svelte`'s `GLYPH` map, and (if it emits a new
+event) a log line + case in `game.svelte.ts`. Pin the route rule and the arrival
+behavior in `tests/expedition.test.ts`.
+
+---
+
+## Add a blessing
+
+Expedition-scoped buffs offered at shrines. They apply as a **post-derive**
+modifier pass, read from a data table — no per-blessing code in `sim.ts`.
+
+**`engine/types.ts`** — extend the `BlessingId` union.
+
+**`engine/content/blessings.ts`** — one `BLESSINGS` row: `{ id, name,
+description, effect }`. The `effect` is data the sim interprets:
+
+```ts
+frostheart: {
+  id: 'frostheart',
+  name: 'Frostheart',
+  description: 'Your crits bite 10% deeper.',   // shown on the shrine card
+  effect: { kind: 'stat', stat: 'critPct', add: 10 },
+}
+```
+
+The four effect shapes (`stat`, `maxHpPct`, `regenMult`, `travelMult`) are
+interpreted in `sim.ts`'s `applyBlessings()` (a stat pass) and `startTravel()`
+(travel time). If your effect fits one of those shapes you write **zero** new
+sim code; a genuinely new shape means one `case` in `applyBlessings`. Shrines
+offer two random unheld blessings, so a new one is in the pool automatically.
+
+Test it the way `expedition.test.ts` does: two sims, same seed, one blessed —
+compare an **ignite tick** (never crits, so it is a clean read of a fire/stat
+change).
+
+---
+
+## Add a companion
+
+The single hireling scaffold. Content object + a swing loop that already exists.
+
+**`engine/content/companions.ts`** — a `COMPANIONS` row:
+
+```ts
+brand: {
+  id: 'brand',
+  name: 'Brand the Warden',
+  epithet: 'a shield that outlived its oath',
+  cost: 300,
+  swingTicks: 34,
+  baseDmg: 5,
+  dmgPerLevel: 1,
+}
+```
+
+`hireCompanion(id)` (camp only, pays `cost`, persists `companionId`) and the
+per-tick swing (`companionSwing_`, which swings at your current target through
+the normal `damage` event with `source: 'companion'`) are already generic over
+the table — a new companion needs no new sim code. The FX director degrades an
+unknown `damage` source to a plain float, so the blade reads as a hit without a
+spell recipe.
+
+Note: companion damage flows through the same pipeline as spells, so kills,
+loot, and XP all fall out for free. Pin it in `tests/companion.test.ts`.
 
 ---
 
@@ -514,7 +668,7 @@ charge; two detuned voices always sound better than one loud one.
 ## Invariants — the rules that bite
 
 **Engine purity.** `src/engine/` imports nothing from the DOM, Svelte, or
-`window`. It is deterministic given a seed. This is what makes 88 tests possible
+`window`. It is deterministic given a seed. This is what makes 100 tests possible
 and offline progress correct. There is no lint rule for it; there is only you.
 
 **Ticks, not milliseconds.** The sim runs at 20 ticks/second. Every duration in
@@ -544,6 +698,19 @@ health.** This was tried the other way and it is wrong: sizing by share draws a
 *timid* number on a boss, because bosses have more health — exactly backwards.
 `BIG_HIT = 180` in `director.ts`. Do not re-derive this.
 
+**Snapshots are rebuilt every tick — guard one-shot choreography.** A Svelte
+`$effect` that reads a snapshot object re-runs 20×/second, and re-arming a CSS
+animation every run holds it at frame zero forever (the enemy card was once
+invisible for exactly this reason). Track the last id you reacted to
+(`EnemyCard`'s `lastIid`) and pulse only on change.
+
+**Enemy events carry an `iid`.** With packs on the field, "the enemy" is not a
+place. Any event that touches a specific mob (`damage`, `dotApplied`,
+`enemySpawned`, `enemyDied`, `enemyCastStarted`, `enemyEnraged`, `interrupted`)
+names it by instance id, and the director resolves that to a per-card anchor —
+falling back to the row centre when the card hasn't been measured yet. A new
+enemy event without an iid will land its effects mid-row; that's the tell.
+
 **Crits get a bigger number, not a bigger flash.** Additive light does not read
 as "twice as big" when you double it — it reads as *gone*. The particle multiplier
 in `weigh()` is deliberately tamer than the text multiplier. That asymmetry is the
@@ -554,7 +721,7 @@ fix for a bug, not an oversight.
 ## The contract
 
 ```bash
-npm test        # 88 cases. Green, always.
+npm test        # 100 cases. Green, always.
 npm run check   # 0 errors, 0 warnings. Both, always.
 npm run build   # entry chunk stays lean; Pixi and GSAP are lazy chunks
 ```

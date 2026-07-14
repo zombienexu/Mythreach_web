@@ -9,34 +9,45 @@
 
   const centre = (r: Region): Spot => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 })
 
-  /** Spells fly between the portraits, so the stage has to know where the
-   *  portraits actually are — in canvas space, after every reflow. */
+  /** Spells fly between the portraits, so the stage has to know where every
+   *  portrait actually is — per enemy card, in canvas space, after every reflow. */
   function measure(): void {
     const arena = host?.parentElement
     if (!host || !arena) return
     const base = host.getBoundingClientRect()
     if (base.width === 0) return
 
-    const box = (sel: string): Region | null => {
-      const el = arena.querySelector(sel)
-      if (!el) return null
+    const toRegion = (el: Element): Region => {
       const r = el.getBoundingClientRect()
       return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height }
     }
+    const box = (sel: string): Region | null => {
+      const el = arena.querySelector(sel)
+      return el ? toRegion(el) : null
+    }
 
     const playerCard = box('[data-fx-card="player"]')
-    const enemyCard = box('[data-fx-card="enemy"]')
-    if (!playerCard || !enemyCard) return
+    const foesRow = box('[data-fx-row="enemies"]')
+    if (!playerCard || !foesRow) return
 
-    // A slain or unspawned enemy has no portrait — aim at the card instead.
+    // Each enemy card gets its own anchor, keyed by iid, aimed at its portrait.
+    const enemies: Anchors['enemies'] = {}
+    for (const el of arena.querySelectorAll('[data-fx-card="enemy"]')) {
+      const iid = Number((el as HTMLElement).dataset.iid)
+      if (!Number.isFinite(iid)) continue
+      const card = toRegion(el)
+      const portrait = el.querySelector('[data-fx-anchor="enemy"]')
+      enemies[iid] = { spot: portrait ? centre(toRegion(portrait)) : centre(card), card }
+    }
+
     const playerSpot = box('[data-fx-anchor="player"]')
-    const enemySpot = box('[data-fx-anchor="enemy"]')
-
     const anchors: Anchors = {
       player: playerSpot ? centre(playerSpot) : centre(playerCard),
-      enemy: enemySpot ? centre(enemySpot) : centre(enemyCard),
+      // The fallback: mid-row, where a card is about to be, or just was.
+      enemy: centre(foesRow),
       playerCard,
-      enemyCard,
+      enemyCard: foesRow,
+      enemies,
     }
     game.fx.setAnchors(anchors)
   }
@@ -61,9 +72,9 @@
     }
   })
 
-  // The enemy portrait comes and goes with the enemy; re-aim when it does.
+  // Enemy cards come and go with the pack; re-aim when the roster changes.
   $effect(() => {
-    void game.combat.enemy?.defId
+    void game.combat.enemies.map((e) => e.iid).join(',')
     void game.combat.spawnIn
     void tick().then(measure)
   })

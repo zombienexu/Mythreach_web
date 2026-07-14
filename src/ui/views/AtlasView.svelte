@@ -1,8 +1,11 @@
 <script lang="ts">
-  import { BOSS_KILLS_REQUIRED } from '../../engine'
   import type { Game } from '../game.svelte'
+  import Bar from '../components/Bar.svelte'
 
   let { game }: { game: Game } = $props()
+
+  const onExpedition = $derived(game.combat.phase !== 'camp')
+  const wb = $derived(game.progress.worldBoss)
 </script>
 
 <section class="atlas" aria-label="Zone atlas">
@@ -24,9 +27,6 @@
         <span class="boss-name" class:dead={zone.bossDefeated}>
           {zone.bossDefeated ? '✦' : '☠'} {zone.bossName}
         </span>
-        {#if zone.unlocked && !zone.bossDefeated}
-          <span class="progress num">{Math.min(zone.kills, BOSS_KILLS_REQUIRED)}/{BOSS_KILLS_REQUIRED}</span>
-        {/if}
       </div>
 
       <div class="zone-foot">
@@ -36,19 +36,41 @@
           </span>
         {:else if zone.current}
           <span class="here">You are here</span>
-          <button
-            class="btn gold-btn"
-            disabled={!zone.bossReady || !game.combat.player.alive}
-            onclick={() => game.challengeBoss()}
-          >
-            {zone.bossDefeated ? 'Challenge again' : 'Challenge boss'}
-          </button>
         {:else}
-          <button class="btn" onclick={() => game.travel(zone.id)}>Travel</button>
+          <button
+            class="btn"
+            disabled={onExpedition}
+            title={onExpedition ? 'Return to camp first' : ''}
+            onclick={() => game.travel(zone.id)}
+          >
+            Travel
+          </button>
         {/if}
       </div>
     </article>
   {/each}
+</section>
+
+<section class="glass colossus" aria-label="The Rift Colossus">
+  <header class="col-head">
+    <div>
+      <h2>{wb.name}</h2>
+      <p class="epithet">A wound in the sky that never fully closes.</p>
+    </div>
+    <span class="fells num" title="Times felled">{wb.fells} felled</span>
+  </header>
+  <Bar value={wb.hp} max={wb.maxHp} kind="swing" label="Rift Colossus health" height={12} />
+  <div class="col-foot">
+    <span class="col-hp num">{wb.hp.toLocaleString()} / {wb.maxHp.toLocaleString()}</span>
+    <button
+      class="seal"
+      disabled={onExpedition}
+      title={onExpedition ? 'Return to camp first' : ''}
+      onclick={() => game.assault()}
+    >
+      Assault
+    </button>
+  </div>
 </section>
 
 <style>
@@ -79,7 +101,8 @@
       0 18px 40px -18px oklch(0.05 0.02 280 / 0.9);
   }
 
-  .zone-head {
+  .zone-head,
+  .col-head {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -88,7 +111,7 @@
 
   h2 {
     font-size: 18px;
-    color: oklch(0.85 0.09 calc(var(--zh) * 1));
+    color: oklch(0.85 0.09 calc(var(--zh, 305) * 1));
   }
 
   .epithet {
@@ -135,11 +158,6 @@
     text-decoration-color: oklch(0.68 0.02 260 / 0.5);
   }
 
-  .progress {
-    font-size: 12px;
-    color: var(--text-dim);
-  }
-
   .zone-foot {
     display: flex;
     justify-content: space-between;
@@ -184,13 +202,32 @@
     cursor: default;
   }
 
-  .gold-btn {
-    color: var(--ember);
-    border-color: oklch(0.8 0.13 80 / 0.45);
-    background: oklch(0.8 0.13 80 / 0.08);
+  .colossus {
+    --zh: 305;
+    margin-top: 20px;
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-top: 2px solid oklch(0.72 0.16 305 / 0.55);
   }
 
-  .gold-btn:hover:not(:disabled) {
-    box-shadow: 0 0 16px -4px oklch(0.8 0.13 80 / 0.5);
+  .fells {
+    flex: none;
+    font-size: 11px;
+    font-weight: 640;
+    color: var(--ember);
+  }
+
+  .col-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .col-hp {
+    font-size: 12px;
+    color: var(--text-dim);
   }
 </style>

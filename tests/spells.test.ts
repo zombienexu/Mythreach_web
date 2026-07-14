@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Item } from '../src/engine/types'
-import { advance, advanceTimeline, advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
+import { advance, advanceTimeline, advanceToSpawn, eventsOf, makeSim, targetOf, testContent } from './helpers'
 
 function critGear(crit: number): Partial<Record<'trinket', Item>> {
   return {
@@ -19,7 +19,7 @@ describe('ignite', () => {
       events.some((e) => e.kind === 'damage' && e.source === 'ignite'),
     )
     expect(burns.map((b) => b.tick - start)).toEqual([20, 40, 60, 80, 100, 120])
-    expect(sim.combatSnapshot().enemy?.dot).toBeNull()
+    expect(targetOf(sim)?.dot).toBeNull()
   })
 
   it('scales with power, snapshotted at apply time', () => {
@@ -38,7 +38,7 @@ describe('ignite', () => {
     sim.useAbility('ignite')
     advance(sim, 160) // cooldown over; 8 of 6 burns done → dot expired
     sim.useAbility('ignite')
-    expect(sim.combatSnapshot().enemy?.dot?.remainingTicks).toBe(120)
+    expect(targetOf(sim)?.dot?.remainingTicks).toBe(120)
   })
 })
 
@@ -181,7 +181,7 @@ describe('counterspell', () => {
     const events = advance(sim, 180)
     expect(eventsOf(events, 'interrupted')).toHaveLength(1)
     expect(eventsOf(events, 'damage').filter((e) => e.source === 'enemyCast')).toHaveLength(0)
-    expect(sim.combatSnapshot().enemy?.cast).toBeNull()
+    expect(targetOf(sim)?.cast).toBeNull()
   })
 
   it('fires off-GCD, even during your own cast, without breaking it', () => {

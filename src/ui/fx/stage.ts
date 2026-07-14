@@ -26,10 +26,14 @@ export interface Region extends Spot {
 export interface Anchors {
   /** portrait centre — where spells are cast from and land on */
   player: Spot
+  /** centre of the enemy row — the fallback when no per-mob anchor exists
+   *  (e.g. a materialize the frame before the new card has rendered) */
   enemy: Spot
   /** whole-card boxes — for auras, dissolves and full-body washes */
   playerCard: Region
   enemyCard: Region
+  /** per-mob anchors, keyed by the enemy's instance id */
+  enemies: Record<number, { spot: Spot; card: Region }>
 }
 
 export type TexName = 'glow' | 'spark' | 'ring' | 'shard' | 'smoke'
@@ -216,6 +220,7 @@ export class FxStage {
     enemy: { x: 0, y: 0 },
     playerCard: { x: 0, y: 0, w: 0, h: 0 },
     enemyCard: { x: 0, y: 0, w: 0, h: 0 },
+    enemies: {},
   }
 
   /** False while hidden or while the GPU context is away: every spawn call

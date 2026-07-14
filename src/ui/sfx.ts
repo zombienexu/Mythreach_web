@@ -32,6 +32,7 @@ export type SfxName =
   | 'boss'
   | 'warn'
   | 'denied'
+  | 'target'
 
 interface Tone {
   kind: 'tone'
@@ -185,6 +186,11 @@ const VOICES: Record<SfxName, Voice[]> = {
   denied: [
     { kind: 'tone', type: 'triangle', freq: [150, 96], dur: 0.09, gain: 0.05 },
     { kind: 'noise', cut: [700, 260], filter: 'lowpass', dur: 0.06, gain: 0.03 },
+  ],
+  // a tiny glass tick — the reticle sliding onto a new mob
+  target: [
+    { kind: 'tone', type: 'sine', freq: [640, 880], dur: 0.06, gain: 0.035 },
+    { kind: 'noise', cut: [4200, 2400], filter: 'highpass', dur: 0.03, gain: 0.015 },
   ],
 }
 

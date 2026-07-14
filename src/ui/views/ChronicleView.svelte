@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ACHIEVEMENTS } from '../../engine'
+  import { ticksToClock } from '../format'
   import type { Game } from '../game.svelte'
 
   let { game }: { game: Game } = $props()
@@ -16,6 +17,13 @@
     { label: 'Epics found', value: life.epicsFound },
   ])
   const unlocked = $derived(new Set(game.progress.achievements))
+  const records = $derived(game.progress.records)
+  // Only zones with a recorded kill get a row, named from the zone list.
+  const fastestBoss = $derived(
+    game.progress.zones
+      .filter((z) => records.fastestBossKills[z.id] !== undefined)
+      .map((z) => ({ name: z.name, ticks: records.fastestBossKills[z.id]! })),
+  )
 </script>
 
 <div class="stack">
@@ -29,6 +37,34 @@
         </div>
       {/each}
     </div>
+  </section>
+
+  <section class="glass pane" aria-label="Records">
+    <h2>Records <span class="count">the ledger of firsts</span></h2>
+    <div class="stat-grid">
+      <div class="stat-tile">
+        <span class="stat-value num">{records.expeditionsCompleted}</span>
+        <span class="stat-label">Expeditions walked</span>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-value num">{records.worldBossFells}</span>
+        <span class="stat-label">Colossus fells</span>
+      </div>
+      <div class="stat-tile">
+        <span class="stat-value num">{records.bestAssaultDamage.toLocaleString()}</span>
+        <span class="stat-label">Best assault damage</span>
+      </div>
+    </div>
+    {#if fastestBoss.length > 0}
+      <div class="fastest">
+        {#each fastestBoss as row (row.name)}
+          <div class="fast-row">
+            <span class="fast-zone">{row.name}</span>
+            <span class="fast-time num">{ticksToClock(row.ticks)}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <section class="glass pane" aria-label="Achievements">
@@ -122,6 +158,31 @@
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-dim);
+  }
+
+  .fastest {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .fast-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid oklch(0.85 0.03 260 / 0.08);
+    font-size: 12.5px;
+  }
+
+  .fast-zone {
+    color: var(--text-dim);
+  }
+
+  .fast-time {
+    font-weight: 640;
+    color: var(--ember);
   }
 
   .deeds {

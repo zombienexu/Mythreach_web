@@ -12,11 +12,13 @@ await mkdir('docs', { recursive: true })
 
 const browser = await chromium.launch()
 
-// ── shot 1: a fresh hero's first fight ──────────────────────────────
+// ── shot 1: a fresh hero sets out on their first expedition ─────────
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1500) // settle: fonts, first spawn
+  await page.waitForTimeout(1500) // settle: fonts
+  await page.keyboard.press(' ') // Embark from the Wayfarer's Rest
+  await page.waitForTimeout(6000) // walk the trail, arrive at the first fight
   await page.keyboard.press('2') // Ignite
   await page.waitForTimeout(500)
   await page.keyboard.press('1') // Fireball
@@ -25,11 +27,9 @@ const browser = await chromium.launch()
   await page.close()
 }
 
-// A mid-game save: level 12, geared, Duskmire boss ready. savedAt is fresh so
-// no offline modal interferes with the shot.
+// A mid-game save (v2): level 12, geared, deep in Duskmire.
 const save = {
-  version: 1,
-  savedAt: Date.now(),
+  version: 2,
   level: 12,
   xp: 900,
   gold: 780,
@@ -46,33 +46,31 @@ const save = {
   ],
   nextUid: 100,
   zoneId: 'duskmire',
-  zoneKills: { hollowroot: 16, duskmire: 12 },
   bossesDefeated: ['hollowroot'],
   achievements: ['first-blood', 'level-5', 'level-10', 'boss-grubthar', 'kills-100'],
   lifetime: { kills: 132, deaths: 3, goldEarned: 1450, interrupts: 9, epicsFound: 1, bossKills: 1 },
+  records: { expeditionsCompleted: 4, worldBossFells: 0, bestAssaultDamage: 3200, fastestBossKills: { hollowroot: 900 } },
+  worldBossHp: 31000,
+  companionId: null,
   autoBattle: false,
-  muted: true,
   completed: false,
 }
 
-// ── shot 2: pulling the Bramble Widow ───────────────────────────────
+// ── shot 2: an expedition fight in Duskmire ─────────────────────────
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
   await page.goto(`http://localhost:${port}/`)
   await page.waitForTimeout(1200)
-  await page.getByRole('button', { name: 'Challenge' }).click()
-  await page.waitForTimeout(4200) // approach + spawn
+  await page.keyboard.press(' ') // Embark
+  await page.waitForTimeout(6000) // walk the trail, reach the first node fight
   await page.keyboard.press('2') // Ignite
   await page.waitForTimeout(400)
   await page.keyboard.press('7') // Combustion
   await page.waitForTimeout(400)
   await page.keyboard.press('4') // Pyroblast
-  // The queue means Pyroblast doesn't start casting until the earlier GCDs
-  // clear, then 3.5 s of cast, then ~0.3 s of flight. Land just past the
-  // detonation, while the shockwave and debris are still in the air.
   await page.waitForTimeout(4250)
-  await page.screenshot({ path: 'docs/shot-2.png' }) // the comet detonating on the boss
+  await page.screenshot({ path: 'docs/shot-2.png' }) // the comet detonating, trail ribbon above
   await page.close()
 }
 
