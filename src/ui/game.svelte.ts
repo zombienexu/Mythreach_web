@@ -36,6 +36,16 @@ export interface FloatText {
   y: number
   /** CSS colour of the spell that caused it */
   tone: string
+  /** how big to draw it: derived from the damage as a share of the target's
+   *  max HP, so the number *is* the readout. A chip is small, a crit is huge. */
+  scale: number
+}
+
+/** A card taking a blow. `power` and `crit` decide how hard it recoils. */
+export interface Impact {
+  n: number
+  power: number
+  crit: boolean
 }
 
 const SAVE_KEY = 'mythreach-save-v1'
@@ -101,8 +111,11 @@ export class Game implements FxHost {
   view: View = $state('combat')
   log: LogEntry[] = $state([])
   floats: FloatText[] = $state([])
-  /** bump counters driving hit-shake / heal-bloom choreography */
-  impacts: Record<Side, number> = $state({ player: 0, enemy: 0 })
+  /** bump counters driving hit-recoil / heal-bloom choreography */
+  impacts: Record<Side, Impact> = $state({
+    player: { n: 0, power: 1, crit: false },
+    enemy: { n: 0, power: 1, crit: false },
+  })
   bloom = $state(0)
   pressed = new SvelteSet<string>()
   /** Last enemy seen — keeps the "Slain" card on screen between spawns. */
@@ -166,31 +179,33 @@ export class Game implements FxHost {
 
   // ─────────────── FxHost — the director calls back in here ───────────────
 
-  float(side: Side, kind: FloatText['kind'], amount: number, tone: string, at: Spot): void {
+  float(f: { side: Side; kind: FloatText['kind']; amount: number; tone: string; scale: number; at: Spot }): void {
     const id = this.nextId++
     // Lifted clear of the portrait it belongs to, with a little scatter so a
     // flurry of ticks reads as several numbers rather than one blur.
     this.floats.push({
       id,
-      side,
-      kind,
-      amount,
-      tone,
-      x: at.x + (Math.random() * 44 - 22),
-      y: at.y - 34 + (Math.random() * 18 - 9),
+      side: f.side,
+      kind: f.kind,
+      amount: f.amount,
+      tone: f.tone,
+      scale: f.scale,
+      x: f.at.x + (Math.random() * 44 - 22),
+      y: f.at.y - 34 + (Math.random() * 18 - 9),
     })
     setTimeout(() => {
-      const i = this.floats.findIndex((f) => f.id === id)
+      const i = this.floats.findIndex((f2) => f2.id === id)
       if (i !== -1) this.floats.splice(i, 1)
     }, FLOAT_LIFETIME_MS)
   }
 
-  bump(side: Side): void {
-    this.impacts[side]++
+  bump(side: Side, power: number, crit: boolean): void {
+    const cur = this.impacts[side]
+    this.impacts[side] = { n: cur.n + 1, power, crit }
   }
 
-  sfx(name: SfxName): void {
-    this.audio.play(name)
+  sfx(name: SfxName, gain = 1): void {
+    this.audio.play(name, gain)
   }
 
   // ─────────────── player intents ───────────────
@@ -309,7 +324,7 @@ export class Game implements FxHost {
     }
     for (const event of events) {
       this.onEvent(event)
-      this.fx.handle(event, this.combat)
+      this.fx.handle(event)
     }
   }
 
@@ -403,7 +418,7 @@ export class Game implements FxHost {
         break
       case 'enemyEnraged':
         this.append(`${event.name} flies into a frenzy!`, 'enemy')
-        this.impacts.enemy++
+        this.bump('enemy', 1.6, false)
         break
       case 'enemySpawned':
         this.lastEnemy = null

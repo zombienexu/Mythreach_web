@@ -13,6 +13,7 @@ export type SfxName =
   | 'hit'
   | 'pyro-hit'
   | 'crit'
+  | 'crit-heavy'
   | 'burn'
   | 'ignite'
   | 'heal'
@@ -74,10 +75,20 @@ const VOICES: Record<SfxName, Voice[]> = {
     { kind: 'noise', cut: [3200, 220], filter: 'lowpass', dur: 0.34, gain: 0.16 },
     { kind: 'noise', cut: [700, 90], filter: 'lowpass', dur: 0.6, gain: 0.08, delay: 0.06 },
   ],
+  // body + crack + a bright rising "shing" that says *that one counted*
   crit: [
     { kind: 'tone', type: 'triangle', freq: [210, 44], dur: 0.28, gain: 0.18 },
     { kind: 'noise', cut: [4600, 400], filter: 'lowpass', dur: 0.2, gain: 0.15 },
     { kind: 'tone', type: 'sine', freq: [1180, 2500], dur: 0.14, gain: 0.055, delay: 0.015 },
+    { kind: 'noise', cut: [7000, 3000], filter: 'highpass', dur: 0.26, gain: 0.05, delay: 0.02 },
+  ],
+  // a Pyroblast crit is a different event from a Fireball crit — it detonates
+  'crit-heavy': [
+    { kind: 'tone', type: 'sine', freq: [110, 26], dur: 0.7, gain: 0.24 },
+    { kind: 'noise', cut: [5200, 200], filter: 'lowpass', dur: 0.45, gain: 0.2 },
+    { kind: 'tone', type: 'triangle', freq: [260, 50], dur: 0.34, gain: 0.16, delay: 0.01 },
+    { kind: 'tone', type: 'sine', freq: [1400, 3000], dur: 0.18, gain: 0.06, delay: 0.02 },
+    { kind: 'noise', cut: [600, 70], filter: 'lowpass', dur: 0.85, gain: 0.09, delay: 0.08 },
   ],
 
   // ── fire over time ──
@@ -217,14 +228,17 @@ export class Sfx {
     return g
   }
 
-  play(name: SfxName): void {
+  /** @param gain multiplier — a heavy hit is a loud hit. Clamped so a crit on a
+   *  full-health boss can't blow the ceiling off the mix. */
+  play(name: SfxName, gain = 1): void {
     if (!this.live) return
     const ctx = this.ctx!
     const now = ctx.currentTime
+    const g = Math.min(1.6, Math.max(0.35, gain))
 
     for (const v of VOICES[name]) {
       const t0 = now + (v.delay ?? 0)
-      const env = this.envelope(v.gain, t0, v.dur)
+      const env = this.envelope(v.gain * g, t0, v.dur)
       env.connect(this.master!)
 
       if (v.kind === 'tone') {

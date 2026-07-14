@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { EnemySnapshot } from '../../engine'
   import { ticksToSeconds } from '../format'
+  import type { Impact } from '../game.svelte'
   import Bar from './Bar.svelte'
   import AbilityIcon from './icons/AbilityIcon.svelte'
   import EnemyPortrait from './portraits/EnemyPortrait.svelte'
@@ -11,14 +12,14 @@
     spawnIn = 0,
     spawnKind = 'normal',
     bossName = '',
-    impact = 0,
+    impact,
   }: {
     enemy: EnemySnapshot | null
     lastEnemy?: EnemySnapshot | null
     spawnIn?: number
     spawnKind?: 'normal' | 'boss'
     bossName?: string
-    impact?: number
+    impact: Impact
   } = $props()
 
   // Render the living enemy, or the corpse of the last one while we wait.
@@ -36,7 +37,9 @@
   }
 
   $effect(() => {
-    if (impact > 0) pulse('hit')
+    if (impact.n === 0 || !el) return
+    el.style.setProperty('--power', String(impact.power))
+    pulse(impact.crit ? 'crit-hit' : 'hit')
   })
 
   // New spawn: fade-up from the void.
@@ -378,9 +381,21 @@
     color: var(--text);
   }
 
-  /* Taking a spell knocks the body away from the caster and it springs back. */
+  /* Taking a spell knocks the body away from the caster and it springs back,
+     as far as the spell was heavy (--power, set before the class is armed). */
+  .card {
+    --power: 1;
+    --knock: calc(11px * var(--power));
+  }
+
   :global(.card.enemy.hit) {
     animation: recoil-right 300ms var(--ease-punch);
+  }
+
+  /* A crit doesn't knock it back — it *hurls* it, and the body flashes white
+     to the bone before it settles. */
+  :global(.card.enemy.crit-hit) {
+    animation: crit-right 560ms var(--ease-punch);
   }
 
   @keyframes recoil-right {
@@ -389,7 +404,7 @@
       filter: brightness(1.9);
     }
     16% {
-      transform: translate3d(11px, -3px, 0) scale(1.02);
+      transform: translate3d(var(--knock), -3px, 0) scale(1.02);
       filter: brightness(1.5);
     }
     44% {
@@ -398,6 +413,33 @@
     }
     72% {
       transform: translate3d(2px, 0, 0) scale(1);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes crit-right {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(3.4) saturate(0.2) contrast(1.3);
+      box-shadow: 0 0 0 3px oklch(0.98 0.06 90), 0 0 70px 6px oklch(0.85 0.16 70 / 0.95);
+    }
+    10% {
+      transform: translate3d(calc(var(--knock) * 2.2), -8px, 0) scale(1.05) rotate(1.4deg);
+      filter: brightness(2.1) saturate(0.6);
+    }
+    30% {
+      transform: translate3d(calc(var(--knock) * -0.65), 3px, 0) scale(0.975) rotate(-0.7deg);
+      filter: brightness(1.25);
+      box-shadow: 0 0 0 2px oklch(0.85 0.14 70 / 0.5), 0 0 40px -2px oklch(0.8 0.15 60 / 0.6);
+    }
+    52% {
+      transform: translate3d(calc(var(--knock) * 0.4), -1px, 0) scale(1.008) rotate(0.3deg);
+    }
+    76% {
+      transform: translate3d(-2px, 0, 0) scale(1);
     }
     100% {
       transform: translate3d(0, 0, 0) scale(1);
@@ -427,6 +469,7 @@
     .enrage-tag,
     .card.casting .portrait,
     :global(.card.enemy.hit),
+    :global(.card.enemy.crit-hit),
     :global(.card.enemy.reborn) {
       animation: none;
     }

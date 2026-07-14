@@ -1,18 +1,19 @@
 <script lang="ts">
   import type { PlayerSnapshot } from '../../engine'
   import { ticksToSeconds } from '../format'
+  import type { Impact } from '../game.svelte'
   import Bar from './Bar.svelte'
   import HeroPortrait from './portraits/HeroPortrait.svelte'
 
   let {
     player,
     level,
-    impact = 0,
+    impact,
     bloom = 0,
   }: {
     player: PlayerSnapshot
     level: number
-    impact?: number
+    impact: Impact
     bloom?: number
   } = $props()
 
@@ -29,8 +30,12 @@
     el.classList.add(cls)
   }
 
+  // The blow's weight drives the recoil distance, and a crit gets its own,
+  // much more violent choreography.
   $effect(() => {
-    if (impact > 0) pulse('hit')
+    if (impact.n === 0 || !el) return
+    el.style.setProperty('--power', String(impact.power))
+    pulse(impact.crit ? 'crit-hit' : 'hit')
   })
 
   $effect(() => {
@@ -357,9 +362,21 @@
   }
 
   /* one-shot choreography, classes re-armed from script.
-     A hit is a *recoil*: the body is knocked back and springs in. */
+     A hit is a *recoil*: the body is knocked back and springs in, as far as
+     the blow was heavy — --power is set from the impact before arming. */
+  .card {
+    --power: 1;
+    --knock: calc(-9px * var(--power));
+  }
+
   :global(.card.player.hit) {
     animation: recoil-left 300ms var(--ease-punch);
+  }
+
+  /* A crit is a different event. The card is *hurled*, overshoots coming back,
+     and the whole thing flares white before it settles. */
+  :global(.card.player.crit-hit) {
+    animation: crit-left 520ms var(--ease-punch);
   }
 
   :global(.card.bloomed) {
@@ -372,7 +389,7 @@
       box-shadow: 0 0 0 2px oklch(0.68 0.17 25 / 0.7), 0 0 34px -4px oklch(0.68 0.17 25 / 0.6);
     }
     18% {
-      transform: translate3d(-9px, 2px, 0) scale(0.982);
+      transform: translate3d(var(--knock), 2px, 0) scale(0.982);
     }
     45% {
       transform: translate3d(4px, -1px, 0) scale(1.006);
@@ -383,6 +400,33 @@
     }
     100% {
       transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  @keyframes crit-left {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(2.6) saturate(0.4);
+      box-shadow: 0 0 0 3px oklch(0.95 0.1 30), 0 0 60px 4px oklch(0.7 0.19 28 / 0.9);
+    }
+    12% {
+      transform: translate3d(calc(var(--knock) * 2.1), 5px, 0) scale(0.95) rotate(-1.1deg);
+      filter: brightness(1.6);
+    }
+    34% {
+      transform: translate3d(calc(var(--knock) * -0.7), -3px, 0) scale(1.03) rotate(0.6deg);
+      filter: brightness(1.15);
+      box-shadow: 0 0 0 2px oklch(0.68 0.17 25 / 0.5), 0 0 34px -2px oklch(0.68 0.17 25 / 0.55);
+    }
+    56% {
+      transform: translate3d(calc(var(--knock) * 0.35), 1px, 0) scale(0.995) rotate(-0.25deg);
+    }
+    78% {
+      transform: translate3d(-2px, 0, 0) scale(1);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(1);
     }
   }
 
@@ -397,6 +441,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     :global(.card.player.hit),
+    :global(.card.player.crit-hit),
     :global(.card.bloomed),
     :global(.card.reborn),
     .critical,

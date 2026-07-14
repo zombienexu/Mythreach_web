@@ -144,35 +144,78 @@ enemy hardcast bar reads as *danger* (orange) vs the player's ether cast.
 ## Combat FX — "the arena is a place" (v1.1)
 
 The combat page used to be two info panels: a number appeared and the card
-jiggled. It is now a **stage**. Rules that matter:
+jiggled. It is now a **stage**: a Pixi canvas over both cards, spells that fly
+card-to-card, and effects that cling to the cards themselves.
 
-- **Every spell has a tone** (`--tone-fireball` … `--tone-combustion`, mirrored
-  as hex in `fx/palette.ts`). A spell looks the same everywhere it appears:
-  icon, cast bar, particles, damage number. Charging Fireball looks like fire.
+### The four layers (do not collapse them)
+
+```
+spells.ts    DATA. What each spell looks and sounds like. One row per source.
+recipe.ts    The effect language: a Step union + playRecipe(). No spell knowledge.
+director.ts  Timing, weight, standing state. No idea what any spell looks like.
+stage.ts     Pixi primitives: particles, projectiles, rings, bolts, emitters.
+```
+
+The rule: **`spells.ts` is the only file with opinions about a specific spell.**
+If you find yourself adding `if (id === 'fireball')` anywhere else, stop.
+
+### Adding an ability
+
+1. Define it in the engine (`abilities.ts`, `ABILITY_EFFECTS`, `ABILITY_IDS`).
+2. Add a `--tone-<id>` CSS token in `tokens.css` and a `TONE`/`TONE_DEEP` entry
+   in `fx/palette.ts`.
+3. Add one row to `SPELL_FX` in `fx/spells.ts`: `charge`, `release`,
+   `projectile` (omit ⇒ instant), `impact`, `crit`, `aura`, `sfx`.
+
+That's it. No director, stage, recipe or component changes. Reuse the shared
+phrases (`DETONATE`, `DEBRIS`, `CRIT_FLOURISH`) — because tints are symbolic
+(`'tone'`, `'deep'`, `'hot'`, `'mix'`), the same phrase comes out orange for
+Fireball and violet for Ignite.
+
+### Adding a *kind* of effect
+
+Only if no combination of existing Steps will do: add a primitive to `stage.ts`,
+then a `Step` variant to `recipe.ts` that drives it. Everything downstream gets
+it for free.
+
+### Rules that matter
+
+- **Every spell has a tone**, mirrored between CSS and hex. A spell looks the
+  same everywhere it appears: icon, cast bar, particles, damage number.
+  Charging Fireball looks like fire.
 - **Projectiles travel, and their consequences wait for them.** `director.damage()`
-  launches a bolt and withholds the float, the card recoil, the shake and the
-  sound until it lands (~140 ms fireball, ~280 ms pyroblast). That arrival also
-  lines up with the health bar's trailing loss layer. Never fire an impact
-  effect straight off the `damage` event for a projectile spell.
+  launches the bolt and withholds the float, the card recoil, the shake and the
+  sound until it *lands*. That arrival also lines up with the health bar's
+  trailing loss layer. Never fire an impact effect straight off the `damage`
+  event for a projectile spell.
+- **One weight drives everything.** `director.weigh()` turns the damage into a
+  single factor that scales particle size, shockwave reach, screen shake and
+  the size of the number — so they can never disagree. It measures **absolute
+  damage**, not a share of the target's health: a Pyroblast is a Pyroblast
+  whether it hits a wolf or a boss, and sizing by share would draw a timid
+  little number on the boss.
+- Particles scale *tamer* than the text. Light is additive — doubling it reads
+  as a white disc with the fight hidden behind it, not as "twice as big". The
+  number is where a crit gets to shout.
 - **Two channels, mirroring the engine's own split.** `handle(event)` for
-  one-shots; `sync(snapshot)` for standing state (ignite aura, combustion,
-  enrage, enemy hardcast). Persistent effects must be reconciled from the
-  snapshot — an Ignite that expires quietly emits no event, and would otherwise
-  burn forever.
-- **Sound is not a motion effect.** `cue()` runs even under reduced motion.
-  Only visuals are gated.
+  one-shots; `sync(snapshot)` for standing state (auras, charges). Persistent
+  effects *must* be reconciled from the snapshot — an Ignite that expires
+  quietly emits no event and would otherwise burn forever. Adding an aura is
+  one `hold(...)` line in `sync`.
+- Gather emitters read cast progress from **fields**, not from a captured
+  snapshot: a snapshot closed over at emitter-creation time is frozen at 0%.
+- **Sound is not a motion effect.** `cue()` runs even under reduced motion; only
+  visuals are gated. `sfx.play(name, gain)` — a heavy hit is a loud hit.
 - **Reduced motion is a hard off-switch.** `FxDirector.reduced` is decided in
   the field initializer, *not* in `start()` — children mount before their
   parent's `onMount`, so `ArenaFx` asks for the stage first. Get this wrong and
   reduced-motion users spin up a WebGL context and download Pixi for nothing.
 - Combustion sets `stage.intensity`, which multiplies particle counts: the buff
   is something you can *see* in every fire spell you cast while it's up.
-- Crits get hit-stop (`stage.hitStop`), a second shockwave, and a white flash.
 
-Dependencies (v1.1): **pixi.js** (the particle/projectile canvas) and **gsap**
-(the boss-intro timeline only). Both are dynamically imported — Pixi from
-`stage.mount()`, GSAP from `BossIntro`. Keep it that way: it holds the entry
-chunk near 56 KB and means a reduced-motion player downloads neither.
+Dependencies: **pixi.js** (the canvas) and **gsap** (the boss-intro timeline,
+and nothing else). Both dynamically imported — Pixi from `stage.mount()`, GSAP
+from `BossIntro`.
 
 Fonts are self-hosted in `public/fonts/` and preloaded from `index.html` —
 keep them out of Vite's hashed pipeline.

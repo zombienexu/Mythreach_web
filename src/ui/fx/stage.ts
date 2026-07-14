@@ -688,6 +688,74 @@ export class FxStage {
     if (i !== -1) this.emitters.splice(i, 1)
   }
 
+  /** Motes rushing *inward* to a point — power gathering, a shell knitting
+   *  itself together. The visual opposite of a burst. */
+  implode(
+    x: number,
+    y: number,
+    o: { count: number; radius: number; life: [number, number]; size: [number, number]; tint: number | readonly number[]; spin?: number },
+  ): void {
+    if (!this.ready) return
+    for (let i = 0; i < o.count; i++) {
+      const sp = this.take('spark', 'add', pick(o.tint))
+      if (!sp) return
+      const ang = rand(0, TAU)
+      const r = o.radius * rand(0.75, 1.15)
+      const life = rand(o.life[0], o.life[1])
+      const size = rand(o.size[0], o.size[1])
+      // aimed inward, with a touch of tangential drift so it curls in
+      const speed = r / life
+      const swirl = o.spin ?? 0.35
+      this.spawn(
+        sp,
+        x + Math.cos(ang) * r,
+        y + Math.sin(ang) * r,
+        -Math.cos(ang) * speed - Math.sin(ang) * speed * swirl,
+        -Math.sin(ang) * speed + Math.cos(ang) * speed * swirl,
+        {
+          ay: 0,
+          drag: 0,
+          life: 0,
+          max: life,
+          s0: size,
+          s1: size * 0.25,
+          a0: 0.95,
+          a1: 0.2,
+          spin: 0,
+          stretch: 1.3,
+          blend: 'add',
+        },
+      )
+    }
+  }
+
+  /** Hard light spikes thrown out from a point. Short-lived, high drag: they
+   *  shoot, stop, and vanish — the shape the eye reads as *impact*. */
+  rays(x: number, y: number, o: { count: number; reach: number; life: number; width: number; tint: number | readonly number[] }): void {
+    if (!this.ready) return
+    const count = Math.round(o.count * this.intensity)
+    for (let i = 0; i < count; i++) {
+      const sp = this.take('spark', 'add', pick(o.tint))
+      if (!sp) return
+      // even fan with jitter, so it reads as a star and not as noise
+      const ang = (i / count) * TAU + rand(-0.18, 0.18)
+      const speed = (o.reach * rand(0.6, 1.4)) / o.life
+      this.spawn(sp, x, y, Math.cos(ang) * speed, Math.sin(ang) * speed, {
+        ay: 0,
+        drag: 9,
+        life: 0,
+        max: o.life,
+        s0: o.width,
+        s1: o.width * 0.3,
+        a0: 1,
+        a1: 0,
+        spin: 0,
+        stretch: 5,
+        blend: 'add',
+      })
+    }
+  }
+
   /** Scatter a region into rising motes — how a body leaves the world. */
   dissolve(r: Region, tint: number | readonly number[], count = 48): void {
     if (!this.ready) return

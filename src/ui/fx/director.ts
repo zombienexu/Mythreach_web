@@ -1,76 +1,88 @@
 /** Turns CombatEvents into light, force and sound.
  *
- *  Two channels, matching the engine's own split:
- *    handle(event)  — one-shots. A spell fires, a body falls.
- *    sync(snapshot) — standing state. A burn still burns, a shield still holds.
+ *  The director knows *nothing* about what any spell looks like — that all
+ *  lives in `spells.ts`. Its job is the three things a data table can't do:
  *
- *  The important trick lives in `damage()`: a projectile spell does not land
- *  the instant the sim resolves it. The bolt has to *fly*. So the float, the
- *  impact, the shake and the sound are all withheld until the projectile
- *  arrives — which is also, by design, roughly when the health bar's trailing
- *  loss layer starts to drain. Cause and effect line up. */
+ *  1. **Timing.** A projectile spell does not land the instant the sim resolves
+ *     it; the bolt has to fly. So the float, the card recoil, the shake and the
+ *     sound are withheld until it arrives — which is also, by design, when the
+ *     health bar's trailing loss layer starts to drain. Cause and effect line up.
+ *
+ *  2. **Weight.** It turns "18 damage to a 160 HP wolf" into a scale factor
+ *     that every part of the effect obeys at once: particle size, shockwave
+ *     reach, screen shake, and how big the number is. A chip and a crit run the
+ *     same recipe and land completely differently.
+ *
+ *  3. **Standing state.** One-shots come from events; auras (a burn still
+ *     burning, a shield still held) are reconciled against the snapshot, because
+ *     an Ignite that expires quietly emits no event and would otherwise burn
+ *     forever. */
 import type { AbilityId, CombatEvent, CombatSnapshot, Side } from '../../engine'
 import type { SfxName } from '../sfx'
-import { HOT, TONE, TONE_DEEP, VENOM, WOUND } from './palette'
+import { TONE, TONE_DEEP } from './palette'
+import { coneBehind, playRecipe, type Recipe, type RecipeCtx } from './recipe'
 import { Shaker } from './shake'
-import { FxStage, type Spot } from './stage'
+import { FxStage, type Region, type Spot } from './stage'
+import {
+  BARRIER_SHATTER,
+  DISINTEGRATE,
+  ENRAGE,
+  ENRAGE_AURA,
+  LEVEL_UP,
+  LOOT,
+  LOOT_EPIC,
+  MATERIALIZE,
+  PLAYER_DEATH,
+  SHIELD_HOLD,
+  SPELL_FX,
+  type FxSource,
+  type SpellFx,
+} from './spells'
 
 /** What the director needs back from the Game to finish a beat. */
 export interface FxHost {
-  /** `at` is a point in arena-stage space — the number lands where the spell did. */
-  float(side: Side, kind: 'damage' | 'crit' | 'heal' | 'absorb', amount: number, tone: string, at: Spot): void
-  bump(side: Side): void
-  sfx(name: SfxName): void
+  /** `at` is a point in arena-stage space — the number lands where the spell did */
+  float(f: { side: Side; kind: 'damage' | 'crit' | 'heal' | 'absorb'; amount: number; tone: string; scale: number; at: Spot }): void
+  /** the card recoils; `power` and `crit` decide how hard */
+  bump(side: Side, power: number, crit: boolean): void
+  sfx(name: SfxName, gain?: number): void
 }
 
-/** Flight time per projectile spell, seconds. Short enough that the health
- *  bar and the detonation still read as one event; long enough to see it. */
-const FLIGHT: Partial<Record<string, number>> = {
-  fireball: 0.14,
-  pyroblast: 0.28,
-  enemyCast: 0.22,
-}
-
-const CSS_TONE: Record<string, string> = {
-  fireball: 'var(--tone-fireball)',
-  ignite: 'var(--tone-ignite)',
-  renew: 'var(--tone-renew)',
-  pyroblast: 'var(--tone-pyroblast)',
-  counterspell: 'var(--tone-counterspell)',
-  barrier: 'var(--tone-barrier)',
-  combustion: 'var(--tone-combustion)',
-  enemySwing: 'var(--wound)',
-  enemyCast: 'oklch(0.78 0.14 65)',
-  venom: 'oklch(0.78 0.13 130)',
-}
+/** The damage at which an effect is as big as it gets. Everything above is
+ *  capped, so a monster crit can't break the screen.
+ *
+ *  Deliberately measured in *absolute damage*, not as a share of the target's
+ *  health: a Pyroblast is a Pyroblast whether it hits a wolf or a boss, and
+ *  sizing by share would draw a timid little number on the boss — exactly
+ *  backwards. Your numbers grow as you do. */
+const BIG_HIT = 180
 
 export class FxDirector {
   readonly stage = new FxStage()
   readonly shaker = new Shaker()
 
   /** Decided at construction, not at start(): child components mount before
-   *  their parent's onMount, so ArenaFx asks to mount the stage before the
-   *  Game has run a line of start(). If this were set there, we'd spin up a
-   *  WebGL context for a player who explicitly asked for no motion. */
+   *  their parent's onMount, so ArenaFx asks to mount the stage before the Game
+   *  has run a line of start(). Set it there and we'd spin up a WebGL context
+   *  for a player who explicitly asked for no motion. */
   reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   private host: FxHost | null = null
 
-  /** standing emitters, reconciled against the snapshot each frame */
-  private chargeFx = 0
-  private igniteFx = 0
-  private enrageFx = 0
-  private combustionFx = 0
-  private enemyCastFx = 0
-
-  /** cast progress, read by the charge emitter so the gather tightens */
+  /** standing emitters, reconciled against the snapshot every frame */
+  private readonly standing = new Map<string, number>()
+  /** cast progress, read live by the gather emitters so they tighten as the
+   *  spell ripens. Fields, not closed-over snapshots — a snapshot captured when
+   *  the emitter was created is frozen at 0% forever. */
   private charge = 0
+  private enemyCharge = 0
+  /** which spell the gather belongs to, so chain-casting restarts it */
+  private chargeId: AbilityId | null = null
 
   bind(host: FxHost): void {
     this.host = host
   }
 
-  /** The element the whole view shakes on — the page, not the card. */
   attachShake(el: HTMLElement): void {
     this.shaker.reduced = this.reduced
     this.shaker.attach(el)
@@ -79,7 +91,7 @@ export class FxDirector {
   /** Pixi is loaded here, on demand: it is a large chunk and nothing in the
    *  game depends on it, so the fight is playable before it arrives. */
   async mountStage(host: HTMLElement): Promise<void> {
-    if (this.reduced) return // no canvas at all — none of this is load-bearing
+    if (this.reduced) return
     await this.stage.mount(host)
   }
 
@@ -90,157 +102,165 @@ export class FxDirector {
   destroy(): void {
     this.shaker.detach()
     this.stage.destroy()
+    this.standing.clear()
   }
 
-  private get player(): Spot {
-    return this.stage.anchors.player
+  // ─────────────── geometry ───────────────
+
+  private spot(side: Side): Spot {
+    return side === 'player' ? this.stage.anchors.player : this.stage.anchors.enemy
   }
 
-  private get enemy(): Spot {
-    return this.stage.anchors.enemy
+  private region(side: Side): Region {
+    return side === 'player' ? this.stage.anchors.playerCard : this.stage.anchors.enemyCard
+  }
+
+  private ctx(spec: { tone: number; deep: number }, from: Side, to: Side, scale = 1): RecipeCtx {
+    return {
+      stage: this.stage,
+      shaker: this.shaker,
+      source: this.spot(from),
+      target: this.spot(to),
+      region: this.region(to),
+      tone: spec.tone,
+      deep: spec.deep,
+      scale,
+    }
+  }
+
+  private play(recipe: Recipe | undefined, spec: { tone: number; deep: number }, from: Side, to: Side, scale = 1): void {
+    playRecipe(recipe, this.ctx(spec, from, to, scale))
+  }
+
+  /** How hard did that land? One number drives particle size, shockwave reach,
+   *  screen shake and the size of the damage text — so they can never disagree.
+   *
+   *  The particle multiplier is deliberately tamer than the text one. Light is
+   *  additive: doubling it doesn't read as "twice as big", it reads as a white
+   *  disc with the fight hidden behind it. The *number* is where a crit gets to
+   *  shout, because a number can be enormous and still be information. */
+  private weigh(amount: number, crit: boolean): { fx: number; text: number } {
+    // Square-root curve: the difference between a 5 tick and a 30 hit reads
+    // clearly, without a 300 crit needing to be six times taller than the card.
+    const w = Math.min(1, Math.sqrt(Math.max(0, amount) / BIG_HIT))
+    return {
+      fx: (0.8 + w * 0.6) * (crit ? 1.35 : 1),
+      text: (0.8 + w * 0.85) * (crit ? 1.7 : 1),
+    }
   }
 
   // ─────────────── standing state ───────────────
 
-  /** Persistent effects follow the snapshot, never event bookkeeping — a burn
-   *  that expires quietly still has to stop burning. */
+  /** Reconcile every persistent emitter against the snapshot. Adding a new
+   *  aura means adding one `hold(...)` line. */
   sync(c: CombatSnapshot): void {
     if (this.reduced || !this.stage.ready) return
     this.charge = c.cast?.progress ?? 0
+    this.enemyCharge = c.enemy?.cast?.progress ?? 0
 
-    const casting = c.cast !== null && (c.cast.abilityId === 'fireball' || c.cast.abilityId === 'pyroblast' || c.cast.abilityId === 'renew')
-    if (casting && !this.chargeFx) {
-      const id = c.cast!.abilityId
-      this.chargeFx = this.stage.emit(Infinity, 0.022, () => this.gather(id))
-    } else if (!casting && this.chargeFx) {
-      this.stage.stopEmitter(this.chargeFx)
-      this.chargeFx = 0
+    // gathering power for a cast you can see coming
+    const casting = c.cast && SPELL_FX[c.cast.abilityId].charge ? c.cast.abilityId : null
+    if (casting !== this.chargeId) {
+      // a queued spell can start the frame the last one ends — restart the
+      // gather so it wears the new spell's colour, not the old one's
+      this.stop('charge')
+      this.chargeId = casting
     }
+    this.hold('charge', casting !== null, () => this.gather(SPELL_FX[casting!], 'player', () => this.charge))
 
-    const burning = c.enemy?.dot != null
-    if (burning && !this.igniteFx) {
-      this.igniteFx = this.stage.emit(Infinity, 0.028, () =>
-        this.lick(this.stage.anchors.enemyCard, TONE.ignite, TONE_DEEP.ignite, 0.8),
-      )
-    } else if (!burning && this.igniteFx) {
-      this.stage.stopEmitter(this.igniteFx)
-      this.igniteFx = 0
-    }
+    this.hold('enemyCharge', c.enemy?.cast != null, () =>
+      this.gather(SPELL_FX.enemyCast, 'enemy', () => this.enemyCharge),
+    )
 
-    const enraged = c.enemy?.enraged ?? false
-    if (enraged && !this.enrageFx) {
-      this.enrageFx = this.stage.emit(Infinity, 0.07, () =>
-        this.lick(this.stage.anchors.enemyCard, WOUND, 0xb01020, 0.5),
-      )
-    } else if (!enraged && this.enrageFx) {
-      this.stage.stopEmitter(this.enrageFx)
-      this.enrageFx = 0
-    }
+    // afflictions and buffs that cling to a card
+    this.hold('ignite', c.enemy?.dot != null, () => this.aura(SPELL_FX.ignite, SPELL_FX.ignite.aura!, 'enemy'))
+    this.hold('venom', c.player.dot != null, () => this.aura(SPELL_FX.venom, SPELL_FX.venom.aura!, 'player'))
+    this.hold('enrage', c.enemy?.enraged ?? false, () => this.aura(ENRAGE_AURA, ENRAGE_AURA, 'enemy'))
 
     const lit = c.player.buffs.some((b) => b.id === 'combustion')
-    if (lit && !this.combustionFx) {
-      this.combustionFx = this.stage.emit(Infinity, 0.018, () =>
-        this.lick(this.stage.anchors.playerCard, TONE.combustion, TONE_DEEP.fireball, 1),
-      )
-      // your fire is literally hotter — every fire effect gets denser
-      this.stage.setIntensity(1.6)
-    } else if (!lit && this.combustionFx) {
-      this.stage.stopEmitter(this.combustionFx)
-      this.combustionFx = 0
-      this.stage.setIntensity(1)
-    }
-
-    const hardcasting = c.enemy?.cast != null
-    if (hardcasting && !this.enemyCastFx) {
-      this.enemyCastFx = this.stage.emit(Infinity, 0.03, () => this.gatherEnemy())
-    } else if (!hardcasting && this.enemyCastFx) {
-      this.stage.stopEmitter(this.enemyCastFx)
-      this.enemyCastFx = 0
-    }
+    this.hold('combustion', lit, () => this.aura(SPELL_FX.combustion, SPELL_FX.combustion.aura!, 'player'))
+    // your fire is literally hotter — every fire effect gets denser
+    this.stage.setIntensity(lit ? 1.6 : 1)
   }
 
-  /** Flames licking off the top edge of a card. */
-  private lick(r: { x: number; y: number; w: number; h: number }, hot: number, deep: number, alpha: number): void {
-    if (r.w === 0) return
-    this.stage.burst(r.x + Math.random() * r.w, r.y + r.h * (0.55 + Math.random() * 0.45), {
-      count: 1,
-      speed: [26, 70],
-      angle: [-Math.PI * 0.72, -Math.PI * 0.28],
-      life: [0.35, 0.75],
-      size: [7, 17],
-      endScale: 0.1,
-      tint: [hot, deep],
-      gravity: -60,
-      drag: 1.1,
-      alpha,
-      tex: 'glow',
-    })
+  /** Start an emitter when a condition turns on, stop it when it turns off. */
+  private hold(key: string, on: boolean, start: () => number): void {
+    const id = this.standing.get(key)
+    if (on && id === undefined) this.standing.set(key, start())
+    else if (!on && id !== undefined) this.stop(key)
   }
 
-  /** Power gathering in the caster's hand: motes spiralling inward, tightening
-   *  as the cast completes. This is the anticipation the old UI never had. */
-  private gather(id: AbilityId): void {
-    const a = this.player
-    const t = this.charge
-    const radius = 62 - t * 34
-    const ang = Math.random() * Math.PI * 2
-    const x = a.x + Math.cos(ang) * radius
-    const y = a.y + Math.sin(ang) * radius
-    const pull = 150 + t * 260
-    this.stage.burst(x, y, {
-      count: 1,
-      speed: [pull * 0.8, pull],
-      angle: [ang + Math.PI - 0.35, ang + Math.PI + 0.35],
-      life: [0.24, 0.4],
-      size: [5, 12],
-      endScale: 0.2,
-      tint: [TONE[id], TONE_DEEP[id], HOT],
-      drag: 0.2,
-      stretch: 1.4,
-    })
-    // the core brightens as the spell ripens
-    if (Math.random() < 0.35) {
-      this.stage.flash(a.x, a.y, {
-        tint: TONE[id],
-        size: 26 + t * 54,
-        life: 0.2,
-        alpha: 0.14 + t * 0.4,
-        grow: 0.7,
+  private stop(key: string): void {
+    const id = this.standing.get(key)
+    if (id === undefined) return
+    this.stage.stopEmitter(id)
+    this.standing.delete(key)
+  }
+
+  /** Motes spiralling into the caster's hand, tightening as the cast ripens.
+   *  This is the anticipation the old UI never had. */
+  private gather(spec: SpellFx, side: Side, progress: () => number): number {
+    const ch = spec.charge!
+    return this.stage.emit(Infinity, ch.rate, () => {
+      const a = this.spot(side)
+      const t = progress()
+      this.stage.implode(a.x, a.y, {
+        count: 1,
+        radius: ch.radius * (1 - t * ch.tighten),
+        life: [0.24, 0.4],
+        size: [5, 8 + t * 8],
+        tint: [spec.tone, spec.deep],
       })
-    }
+      // the core brightens as the spell ripens
+      if (Math.random() < 0.35) {
+        this.stage.flash(a.x, a.y, { tint: spec.tone, size: 26 + t * 60, life: 0.2, alpha: 0.14 + t * 0.45, grow: 0.7 })
+      }
+    })
   }
 
-  private gatherEnemy(): void {
-    const a = this.enemy
-    const ang = Math.random() * Math.PI * 2
-    const r = 54
-    this.stage.burst(a.x + Math.cos(ang) * r, a.y + Math.sin(ang) * r, {
-      count: 1,
-      speed: [140, 240],
-      angle: [ang + Math.PI - 0.3, ang + Math.PI + 0.3],
-      life: [0.2, 0.34],
-      size: [5, 11],
-      tint: [0xff8a3c, 0xd93a1a],
-      drag: 0.2,
-      stretch: 1.2,
-      alpha: 0.9,
+  /** Flames licking off a card, for as long as the thing burns. */
+  private aura(spec: { tone: number; deep: number }, a: { rate: number; alpha: number }, side: Side): number {
+    return this.stage.emit(Infinity, a.rate, () => {
+      const r = this.region(side)
+      if (r.w === 0) return
+      this.stage.burst(r.x + Math.random() * r.w, r.y + r.h * (0.55 + Math.random() * 0.45), {
+        count: 1,
+        speed: [26, 70],
+        angle: [-Math.PI * 0.72, -Math.PI * 0.28],
+        life: [0.35, 0.75],
+        size: [7, 17],
+        endScale: 0.1,
+        tint: [spec.tone, spec.deep],
+        gravity: -60,
+        drag: 1.1,
+        alpha: a.alpha,
+        tex: 'glow',
+      })
     })
   }
 
   // ─────────────── one-shots ───────────────
 
-  handle(event: CombatEvent, snapshot: CombatSnapshot): void {
-    // Damage and heal own their own sound, because a projectile's sound has to
-    // wait for the projectile. Everything else is cued the moment it happens.
+  handle(event: CombatEvent): void {
     if (event.kind === 'damage') {
-      if (this.reduced) this.plainDamage(event)
-      else this.damage(event, snapshot)
+      this.damage(event)
       return
     }
     if (event.kind === 'heal') {
-      this.host?.float('player', 'heal', event.amount, CSS_TONE.renew!, this.player)
+      const spec = SPELL_FX.renew
+      const w = this.weigh(event.amount, event.crit)
+      this.host?.float({
+        side: 'player',
+        kind: 'heal',
+        amount: event.amount,
+        tone: spec.css,
+        scale: w.text,
+        at: this.spot('player'),
+      })
       this.host?.sfx('heal')
-      if (!this.reduced) this.heal(event.crit)
+      if (this.reduced) return
+      this.play(spec.impact, spec, 'player', 'player', w.fx)
+      if (event.crit) this.play(spec.crit, spec, 'player', 'player', w.fx)
       return
     }
 
@@ -248,14 +268,15 @@ export class FxDirector {
     if (!this.reduced) this.visual(event)
   }
 
-  /** Sound is never a motion effect — reduced-motion users still hear the fight. */
+  /** Sound is never a motion effect — reduced-motion players still hear the
+   *  fight. Only visuals are gated. */
   private cue(event: CombatEvent): void {
     switch (event.kind) {
       case 'dotApplied':
         this.host?.sfx(event.target === 'enemy' ? 'ignite' : 'warn')
         break
       case 'buffApplied':
-        this.host?.sfx(event.id === 'barrier' ? 'barrier' : 'epic')
+        this.host?.sfx(SPELL_FX[event.id === 'barrier' ? 'barrier' : 'combustion'].sfx?.release ?? 'cast')
         break
       case 'shieldBroken':
         this.host?.sfx('shatter')
@@ -283,508 +304,141 @@ export class FxDirector {
   private visual(event: CombatEvent): void {
     switch (event.kind) {
       case 'castFizzled':
-        this.stage.smokePuff(this.player.x, this.player.y, 4)
+        this.stage.smokePuff(this.spot('player').x, this.spot('player').y, 4)
         break
-      case 'dotApplied':
-        if (event.target === 'enemy') this.igniteCatch()
-        else this.venomTouch()
+      case 'dotApplied': {
+        const on: Side = event.target === 'enemy' ? 'enemy' : 'player'
+        const spec = SPELL_FX[event.target === 'enemy' ? 'ignite' : 'venom']
+        this.play(spec.release, spec, on === 'enemy' ? 'player' : 'enemy', on)
         break
-      case 'buffApplied':
-        if (event.id === 'barrier') this.barrierUp()
-        else this.combustionUp()
+      }
+      case 'buffApplied': {
+        const spec = SPELL_FX[event.id === 'barrier' ? 'barrier' : 'combustion']
+        this.play(spec.release, spec, 'player', 'player')
         break
+      }
       case 'shieldBroken':
-        this.barrierShatter()
+        this.play(BARRIER_SHATTER, SPELL_FX.barrier, 'player', 'player')
         break
       case 'interrupted':
-        this.counterspell()
+        this.play(SPELL_FX.counterspell.release, SPELL_FX.counterspell, 'player', 'enemy')
         break
       case 'enemyEnraged':
-        this.enrage()
+        this.play(ENRAGE, ENRAGE_AURA, 'player', 'enemy')
         break
       case 'enemySpawned':
-        this.materialize()
+        this.play(MATERIALIZE, { tone: 0x9fb8e0, deep: 0x5f7aa8 }, 'player', 'enemy')
         break
       case 'enemyDied':
-        this.disintegrate()
+        this.play(DISINTEGRATE, { tone: 0xffb070, deep: 0x9a7ad9 }, 'player', 'enemy')
         break
       case 'playerDied':
-        this.playerDeath()
+        this.play(PLAYER_DEATH, { tone: 0x6a4a8a, deep: 0x3a2a5a }, 'enemy', 'player')
         break
       case 'levelUp':
-        this.levelUp()
+        this.play(LEVEL_UP, { tone: TONE.combustion, deep: TONE_DEEP.combustion }, 'player', 'player')
         break
       case 'lootDropped':
-        if (!event.autoSold) this.loot(event.item.rarity === 'epic')
+        if (!event.autoSold) {
+          const epic = event.item.rarity === 'epic'
+          this.play(epic ? LOOT_EPIC : LOOT, { tone: TONE.combustion, deep: TONE_DEEP.combustion }, 'player', 'enemy')
+        }
         break
       default:
         break
     }
   }
 
-  /** Reduced-motion path: the information, none of the theatre. */
-  private plainDamage(e: Extract<CombatEvent, { kind: 'damage' }>): void {
-    const tone = CSS_TONE[e.source] ?? 'var(--wound)'
-    if (e.target === 'enemy') {
-      this.host?.float('enemy', e.crit ? 'crit' : 'damage', e.amount, tone, this.enemy)
-      this.host?.bump('enemy')
-    } else if (e.amount > 0) {
-      this.host?.float('player', 'damage', e.amount, tone, this.player)
-      this.host?.bump('player')
-    } else if (e.absorbed > 0) {
-      this.host?.float('player', 'absorb', e.absorbed, 'var(--shield)', this.player)
-    }
-    this.host?.sfx(e.amount === 0 && e.absorbed > 0 ? 'absorb' : e.crit ? 'crit' : 'hit')
-  }
+  // ─────────────── damage: the whole point ───────────────
 
-  // ─── damage ───
+  private damage(e: Extract<CombatEvent, { kind: 'damage' }>): void {
+    const spec = SPELL_FX[e.source as FxSource]
+    const to: Side = e.target
+    const from: Side = to === 'enemy' ? 'player' : 'enemy'
+    const w = this.weigh(e.amount, e.crit)
 
-  private damage(e: Extract<CombatEvent, { kind: 'damage' }>, c: CombatSnapshot): void {
-    const flight = FLIGHT[e.source]
-    const tone = CSS_TONE[e.source] ?? 'var(--wound)'
-
-    if (e.target === 'enemy') {
-      if (e.source === 'fireball' || e.source === 'pyroblast') {
-        const id = e.source
-        this.launch(id, () => this.spellImpact(id, e.amount, e.crit, tone))
-      } else if (e.source === 'ignite') {
-        this.burnTick(e.amount, e.crit, tone)
-      } else {
-        this.spellImpact('fireball', e.amount, e.crit, tone)
+    // Everything that says "it landed", in one place. For a projectile this is
+    // deferred until the bolt actually arrives.
+    const land = (): void => {
+      if (e.amount === 0 && e.absorbed > 0) {
+        this.host?.float({
+          side: to,
+          kind: 'absorb',
+          amount: e.absorbed,
+          tone: SPELL_FX.barrier.css,
+          scale: 1,
+          at: this.spot(to),
+        })
+        this.host?.sfx('absorb')
+        if (!this.reduced) this.play(SHIELD_HOLD, SPELL_FX.barrier, from, to)
+        return
       }
+
+      this.host?.float({
+        side: to,
+        kind: e.crit ? 'crit' : 'damage',
+        amount: e.amount,
+        tone: spec.css,
+        scale: w.text,
+        at: this.spot(to),
+      })
+      this.host?.bump(to, w.fx, e.crit)
+
+      const cue = e.crit ? (spec.sfx?.crit ?? spec.sfx?.impact) : spec.sfx?.impact
+      // a big hit is a loud hit
+      if (cue) this.host?.sfx(cue, 0.7 + w.fx * 0.35)
+
+      if (this.reduced) return
+      this.play(spec.impact, spec, from, to, w.fx)
+      if (e.crit) this.play(spec.crit, spec, from, to, w.fx)
+      if (e.absorbed > 0) this.play(SHIELD_HOLD, SPELL_FX.barrier, from, to)
+    }
+
+    if (this.reduced || !spec.projectile) {
+      // Instant, or a DoT tick: it is already there.
+      if (!this.reduced) this.play(spec.release, spec, from, to, w.fx)
+      land()
       return
     }
 
-    // incoming
-    const share = c.player.maxHp > 0 ? e.amount / c.player.maxHp : 0
-    const force = Math.min(13, 3 + share * 55)
-    const land = (): void => {
-      if (e.amount > 0) {
-        this.host?.float('player', 'damage', e.amount, tone, this.player)
-        this.host?.bump('player')
-        this.host?.sfx('hit')
-        this.shaker.punch(force)
-      } else if (e.absorbed > 0) {
-        this.host?.float('player', 'absorb', e.absorbed, 'var(--shield)', this.player)
-        this.host?.sfx('absorb')
-      }
-      if (e.absorbed > 0) this.shieldSpark()
-      this.hurt(e.source === 'venom' ? VENOM : WOUND, e.amount === 0)
-    }
-
-    if (e.source === 'enemyCast' && flight) {
-      this.enemyBolt(flight, land)
-    } else if (e.source === 'enemySwing') {
-      this.slash()
-      land()
-    } else {
-      land()
-    }
+    // It has to cross the arena first.
+    this.play(spec.release, spec, from, to, w.fx)
+    if (spec.sfx?.release) this.host?.sfx(spec.sfx.release)
+    this.launch(spec, from, to, w.fx, land)
   }
 
-  /** Fireball / Pyroblast: the flagship. Release, flight, detonation. */
-  private launch(id: 'fireball' | 'pyroblast', onArrive: () => void): void {
-    const from = this.player
-    const to = this.enemy
-    const big = id === 'pyroblast'
-    const hot = TONE[id]
-    const deep = TONE_DEEP[id]
-
-    // release: the gathered orb tears loose
-    this.stage.flash(from.x, from.y, { tint: HOT, size: big ? 110 : 74, life: 0.18, alpha: 0.95, grow: 1.5 })
-    this.stage.ring(from.x, from.y, { tint: hot, from: 18, to: big ? 130 : 88, life: 0.28, alpha: 0.6 })
-    const away = Math.atan2(to.y - from.y, to.x - from.x)
-    this.stage.burst(from.x, from.y, {
-      count: big ? 16 : 9,
-      speed: [180, 460],
-      angle: [away - 0.7, away + 0.7],
-      life: [0.2, 0.4],
-      size: [5, 13],
-      tint: [hot, deep, HOT],
-      drag: 2,
-      stretch: 1.6,
-    })
-    this.host?.sfx(big ? 'pyro-cast' : 'cast')
-    this.shaker.punch(big ? 3.5 : 1.6, 0.2)
-
+  private launch(spec: SpellFx, from: Side, to: Side, scale: number, onArrive: () => void): void {
+    const p = spec.projectile!
+    const ctx = this.ctx(spec, from, to, scale)
     this.stage.projectile({
-      from,
-      to,
-      dur: FLIGHT[id]!,
-      size: big ? 34 : 20,
-      tint: HOT,
-      halo: hot,
-      haloSize: big ? 130 : 76,
-      arc: big ? -54 : -18,
-      trailRate: 0.01,
+      from: ctx.source,
+      to: ctx.target,
+      dur: p.flight,
+      size: p.size,
+      tint: 0xfff2dc,
+      halo: spec.tone,
+      haloSize: p.haloSize,
+      arc: p.arc,
+      trailRate: p.trailRate,
       onTrail: (x, y, vx, vy) => {
-        // embers shed backward off the bolt, then fall
+        // the trail is a recipe step too — aimed backward off the bolt
+        if (p.trail.fx !== 'burst') return
         this.stage.burst(x, y, {
-          count: big ? 3 : 2,
-          speed: [30, 150],
-          angle: [Math.atan2(-vy, -vx) - 0.9, Math.atan2(-vy, -vx) + 0.9],
-          life: [0.24, 0.6],
-          size: big ? [8, 20] : [5, 13],
-          tint: [hot, deep, HOT],
-          gravity: 260,
-          drag: 1.6,
+          count: p.trail.count,
+          speed: p.trail.speed,
+          angle: coneBehind(vx, vy),
+          life: p.trail.life ?? [0.25, 0.6],
+          size: p.trail.size,
+          tint: [spec.tone, spec.deep, 0xfff2dc],
+          gravity: p.trail.gravity,
+          drag: p.trail.drag,
           alpha: 0.95,
         })
-        if (Math.random() < (big ? 0.5 : 0.22)) this.stage.smokePuff(x, y, 1)
+        if (p.smoke && Math.random() < p.smoke) this.stage.smokePuff(x, y, 1)
       },
       onArrive,
-    })
-  }
-
-  /** The detonation. Everything the player pressed the button for. */
-  private spellImpact(id: AbilityId, amount: number, crit: boolean, tone: string): void {
-    const a = this.enemy
-    const big = id === 'pyroblast'
-    const hot = TONE[id]
-    const deep = TONE_DEEP[id]
-    const k = big ? 1.7 : 1
-
-    this.host?.float('enemy', crit ? 'crit' : 'damage', amount, tone, a)
-    this.host?.bump('enemy')
-    this.host?.sfx(crit ? 'crit' : big ? 'pyro-hit' : 'hit')
-
-    // white-hot core, then the pressure wave, then the debris
-    this.stage.flash(a.x, a.y, { tint: HOT, size: 78 * k, life: 0.14, alpha: 1, grow: 2.4 })
-    this.stage.flash(a.x, a.y, { tint: hot, size: 130 * k, life: 0.3, alpha: 0.7, grow: 1.7 })
-    this.stage.ring(a.x, a.y, { tint: hot, from: 26 * k, to: 250 * k, life: 0.36, alpha: 0.9 })
-    this.stage.burst(a.x, a.y, {
-      count: Math.round(32 * k),
-      speed: [240, 760 * k],
-      life: [0.32, 0.85],
-      size: [7, 19 * k],
-      tint: [hot, deep, HOT],
-      gravity: 420,
-      drag: 2,
-      stretch: 2,
-    })
-    this.stage.smokePuff(a.x, a.y, big ? 8 : 4)
-    this.shaker.punch((big ? 12 : 6) * (crit ? 1.9 : 1))
-
-    if (crit) {
-      // a crit earns a second wave, a whiter flash, and a beat of hit-stop
-      this.stage.flash(a.x, a.y, { tint: 0xffffff, size: 90 * k, life: 0.09, alpha: 0.9, grow: 2.8 })
-      this.stage.ring(a.x, a.y, { tint: HOT, from: 40 * k, to: 320 * k, life: 0.5, alpha: 0.7 })
-      this.stage.burst(a.x, a.y, {
-        count: Math.round(22 * k),
-        speed: [420, 1000 * k],
-        life: [0.4, 0.95],
-        size: [7, 20 * k],
-        tint: [HOT, hot],
-        gravity: 380,
-        drag: 1.6,
-        stretch: 2.6,
-      })
-      this.stage.hitStop(big ? 0.11 : 0.075)
-    }
-  }
-
-  private burnTick(amount: number, crit: boolean, tone: string): void {
-    const a = this.enemy
-    this.host?.float('enemy', crit ? 'crit' : 'damage', amount, tone, a)
-    this.host?.sfx('burn')
-    this.stage.burst(a.x, a.y, {
-      count: 8,
-      speed: [40, 150],
-      angle: [-Math.PI * 0.85, -Math.PI * 0.15],
-      life: [0.3, 0.6],
-      size: [6, 15],
-      tint: [TONE.ignite, TONE_DEEP.ignite, HOT],
-      gravity: -110,
-      drag: 1.3,
-    })
-    this.stage.flash(a.x, a.y, { tint: TONE.ignite, size: 44, life: 0.22, alpha: 0.45 })
-  }
-
-  private igniteCatch(): void {
-    const a = this.enemy
-    this.stage.flash(a.x, a.y, { tint: TONE.ignite, size: 90, life: 0.3, alpha: 0.85, grow: 1.6 })
-    this.stage.ring(a.x, a.y, { tint: TONE.ignite, from: 20, to: 150, life: 0.36, alpha: 0.7 })
-    this.stage.burst(a.x, a.y, {
-      count: 20,
-      speed: [90, 300],
-      angle: [-Math.PI * 0.95, -Math.PI * 0.05],
-      life: [0.4, 0.85],
-      size: [7, 18],
-      tint: [TONE.ignite, TONE_DEEP.ignite, HOT],
-      gravity: -140,
-      drag: 1.5,
-    })
-    this.shaker.punch(3, 0.25)
-  }
-
-  private venomTouch(): void {
-    const a = this.player
-    this.stage.flash(a.x, a.y, { tint: VENOM, size: 76, life: 0.34, alpha: 0.6 })
-    this.stage.burst(a.x, a.y, {
-      count: 14,
-      speed: [40, 140],
-      life: [0.5, 1],
-      size: [5, 13],
-      tint: [VENOM, 0x4f8f2a],
-      gravity: 90,
-      drag: 1.4,
-    })
-  }
-
-  // ─── heal / defence ───
-
-  private heal(crit: boolean): void {
-    const a = this.player
-    const card = this.stage.anchors.playerCard
-    this.stage.flash(a.x, a.y, { tint: TONE.renew, size: 100, life: 0.42, alpha: 0.75, grow: 1.7 })
-    this.stage.ring(a.x, a.y, { tint: TONE.renew, from: 24, to: 170, life: 0.44, alpha: 0.6 })
-    // motes rise out of the card and settle into you
-    for (let i = 0; i < (crit ? 34 : 24); i++) {
-      const x = card.x + Math.random() * card.w
-      this.stage.burst(x, card.y + card.h, {
-        count: 1,
-        speed: [70, 190],
-        angle: [-Math.PI * 0.62, -Math.PI * 0.38],
-        life: [0.55, 1],
-        size: [5, 12],
-        tint: [TONE.renew, HOT],
-        gravity: -60,
-        drag: 0.9,
-      })
-    }
-  }
-
-  private barrierUp(): void {
-    const a = this.player
-    this.stage.flash(a.x, a.y, { tint: TONE.barrier, size: 120, life: 0.34, alpha: 0.8, grow: 1.3 })
-    this.stage.ring(a.x, a.y, { tint: TONE.barrier, from: 130, to: 78, life: 0.42, alpha: 0.95 })
-    this.stage.burst(a.x, a.y, {
-      count: 22,
-      speed: [10, 40],
-      life: [0.4, 0.8],
-      size: [4, 11],
-      tint: [TONE.barrier, HOT],
-      drag: 2,
-    })
-  }
-
-  private shieldSpark(): void {
-    const a = this.player
-    this.stage.ring(a.x, a.y, { tint: TONE.barrier, from: 70, to: 120, life: 0.24, alpha: 0.8 })
-    this.stage.burst(a.x, a.y, {
-      count: 10,
-      speed: [80, 240],
-      life: [0.2, 0.45],
-      size: [4, 10],
-      tint: [TONE.barrier, HOT],
-      drag: 2,
-      stretch: 1.4,
-    })
-  }
-
-  private barrierShatter(): void {
-    const a = this.player
-    this.stage.flash(a.x, a.y, { tint: TONE.barrier, size: 110, life: 0.16, alpha: 1, grow: 1.6 })
-    this.stage.burst(a.x, a.y, {
-      count: 26,
-      speed: [180, 520],
-      life: [0.45, 0.9],
-      size: [8, 20],
-      endScale: 0.4,
-      tint: [TONE.barrier, HOT, 0x8fb4ff],
-      gravity: 620,
-      drag: 0.9,
-      tex: 'shard',
-    })
-    this.shaker.punch(5)
-  }
-
-  private combustionUp(): void {
-    const a = this.player
-    this.stage.flash(a.x, a.y, { tint: TONE.combustion, size: 150, life: 0.5, alpha: 0.9, grow: 1.9 })
-    this.stage.ring(a.x, a.y, { tint: TONE.combustion, from: 26, to: 260, life: 0.55, alpha: 0.85 })
-    this.stage.ring(a.x, a.y, { tint: TONE_DEEP.fireball, from: 20, to: 340, life: 0.75, alpha: 0.5 })
-    this.stage.burst(a.x, a.y, {
-      count: 40,
-      speed: [140, 480],
-      life: [0.5, 1.1],
-      size: [7, 20],
-      tint: [TONE.combustion, TONE.fireball, HOT],
-      gravity: -90,
-      drag: 1.3,
-      stretch: 1.5,
-    })
-    this.shaker.punch(7)
-  }
-
-  private counterspell(): void {
-    const from = this.player
-    const to = this.enemy
-    this.stage.bolt(from, to, { tint: TONE.counterspell, life: 0.19, width: 3.5, jitter: 22, forks: 3 })
-    this.stage.flash(to.x, to.y, { tint: 0xffffff, size: 80, life: 0.11, alpha: 1, grow: 2.2 })
-    this.stage.ring(to.x, to.y, { tint: TONE.counterspell, from: 30, to: 190, life: 0.3, alpha: 0.9 })
-    // the enemy's gathered spell breaks apart
-    this.stage.burst(to.x, to.y, {
-      count: 22,
-      speed: [200, 560],
-      life: [0.3, 0.65],
-      size: [6, 16],
-      endScale: 0.35,
-      tint: [TONE.counterspell, HOT, 0xff8a3c],
-      gravity: 380,
-      drag: 1.4,
-      tex: 'shard',
-    })
-    this.shaker.punch(6, 0.3)
-    this.stage.hitStop(0.05)
-  }
-
-  private enemyBolt(dur: number, onArrive: () => void): void {
-    const from = this.enemy
-    const to = this.player
-    this.stage.flash(from.x, from.y, { tint: 0xff8a3c, size: 90, life: 0.2, alpha: 0.9, grow: 1.5 })
-    this.stage.projectile({
-      from,
-      to,
-      dur,
-      size: 24,
-      tint: 0xffd0a0,
-      halo: 0xff6a2a,
-      haloSize: 92,
-      arc: 22,
-      trailRate: 0.012,
-      onTrail: (x, y, vx, vy) => {
-        this.stage.burst(x, y, {
-          count: 2,
-          speed: [40, 160],
-          angle: [Math.atan2(-vy, -vx) - 0.8, Math.atan2(-vy, -vx) + 0.8],
-          life: [0.25, 0.55],
-          size: [6, 15],
-          tint: [0xff8a3c, 0xd93a1a],
-          gravity: 200,
-          drag: 1.5,
-        })
-      },
-      onArrive,
-    })
-  }
-
-  private slash(): void {
-    const a = this.player
-    // a claw drawn across you, corner to corner
-    const d = 42
-    this.stage.bolt({ x: a.x - d, y: a.y - d * 0.8 }, { x: a.x + d, y: a.y + d * 0.8 }, {
-      tint: WOUND,
-      life: 0.14,
-      width: 4,
-      jitter: 6,
-      forks: 0,
-    })
-  }
-
-  /** The player takes a hit: the world flinches red. */
-  private hurt(tint: number, absorbedOnly: boolean): void {
-    const a = this.player
-    if (absorbedOnly) return
-    this.stage.flash(a.x, a.y, { tint, size: 84, life: 0.2, alpha: 0.7, grow: 1.6 })
-    this.stage.ring(a.x, a.y, { tint, from: 24, to: 150, life: 0.28, alpha: 0.6 })
-    this.stage.burst(a.x, a.y, {
-      count: 16,
-      speed: [160, 460],
-      life: [0.28, 0.6],
-      size: [5, 14],
-      tint: [tint, 0xffb0a0],
-      gravity: 420,
-      drag: 1.8,
-      stretch: 1.8,
-    })
-  }
-
-  // ─── the body count ───
-
-  private materialize(): void {
-    const card = this.stage.anchors.enemyCard
-    const a = this.enemy
-    if (card.w === 0) return
-    for (let i = 0; i < 30; i++) {
-      const ang = Math.random() * Math.PI * 2
-      const r = 90 + Math.random() * 90
-      this.stage.burst(a.x + Math.cos(ang) * r, a.y + Math.sin(ang) * r, {
-        count: 1,
-        speed: [180, 320],
-        angle: [ang + Math.PI - 0.2, ang + Math.PI + 0.2],
-        life: [0.35, 0.6],
-        size: [4, 12],
-        tint: [0x8fa8d9, 0xffffff],
-        drag: 1,
-        stretch: 1.2,
-        alpha: 0.8,
-      })
-    }
-    this.stage.flash(a.x, a.y, { tint: 0x9fb8e0, size: 70, life: 0.45, alpha: 0.5, grow: 1.4 })
-  }
-
-  private disintegrate(): void {
-    const card = this.stage.anchors.enemyCard
-    const a = this.enemy
-    this.stage.dissolve(card, [0xffb070, 0xff7a3c, 0x9a7ad9, 0xffffff], 56)
-    this.stage.flash(a.x, a.y, { tint: HOT, size: 110, life: 0.3, alpha: 0.85, grow: 2 })
-    this.stage.ring(a.x, a.y, { tint: 0xffc07a, from: 30, to: 260, life: 0.5, alpha: 0.7 })
-    this.stage.smokePuff(a.x, a.y, 8)
-    this.shaker.punch(6, 0.5)
-  }
-
-  private playerDeath(): void {
-    const a = this.player
-    const card = this.stage.anchors.playerCard
-    this.stage.dissolve(card, [0x6a4a8a, 0x3a2a5a], 40)
-    this.stage.flash(a.x, a.y, { tint: 0x2a1030, size: 220, life: 0.7, alpha: 0.9, grow: 0.3 })
-    this.shaker.punch(12, 0.8)
-  }
-
-  private enrage(): void {
-    const a = this.enemy
-    this.stage.flash(a.x, a.y, { tint: WOUND, size: 140, life: 0.4, alpha: 0.9, grow: 1.8 })
-    this.stage.ring(a.x, a.y, { tint: WOUND, from: 24, to: 300, life: 0.6, alpha: 0.85 })
-    this.stage.burst(a.x, a.y, {
-      count: 34,
-      speed: [200, 620],
-      life: [0.4, 0.9],
-      size: [7, 19],
-      tint: [WOUND, 0xff9a80, 0xb01020],
-      gravity: 120,
-      drag: 1.3,
-      stretch: 1.6,
-    })
-    this.shaker.punch(9, 0.55)
-  }
-
-  private levelUp(): void {
-    const a = this.player
-    this.stage.flash(a.x, a.y, { tint: TONE.combustion, size: 180, life: 0.8, alpha: 0.9, grow: 2.2 })
-    this.stage.ring(a.x, a.y, { tint: TONE.combustion, from: 30, to: 420, life: 0.9, alpha: 0.8 })
-    this.stage.burst(a.x, a.y, {
-      count: 60,
-      speed: [120, 520],
-      life: [0.8, 1.6],
-      size: [6, 18],
-      tint: [TONE.combustion, HOT, 0xffe6a0],
-      gravity: -40,
-      drag: 0.8,
-    })
-    this.shaker.punch(6, 0.7)
-  }
-
-  private loot(epic: boolean): void {
-    const a = this.enemy
-    this.stage.burst(a.x, a.y, {
-      count: epic ? 34 : 16,
-      speed: [60, 260],
-      life: [0.6, 1.2],
-      size: [5, 14],
-      tint: epic ? [0xc07aff, 0xffffff] : [TONE.combustion, HOT],
-      gravity: -50,
-      drag: 1,
     })
   }
 }
+
+export type { FxSource }
