@@ -16,6 +16,22 @@ bosses, XP/levels 1–15, generated loot in 4 rarities across 5 slots, 6 talents
 8 h of real simulation), synthesized sound, and five dashboard views
 (Combat / Character / Talents / Atlas / Chronicle).
 
+**v1.1 (M7–M9) rebuilt how combat *feels*.** The combat page used to be two
+info panels — a number appeared and the card jiggled 1px. It is now a stage:
+spells gather in your hand, fly card-to-card, and detonate; DoTs visibly burn
+the card they're on; crits hurl the card and wash the room with light. The
+whole effects layer is **data-driven** — a new ability's look and sound is one
+row in `src/ui/fx/spells.ts` and nothing else. See "Combat FX" below; that is
+the part of this codebase most likely to be worked on next, and the part with
+the most non-obvious invariants.
+
+### Current branch state
+
+Work landed on branch **`combat-fx`** (pushed to origin), *not* on `master`.
+Three commits: M7 (the FX layer), M8 (effects-as-data refactor + WoW-style
+numbers), M9 (bloom, per-school sound, crit flash, float lanes). Merge to
+master when the owner is happy with it.
+
 v0 (one golem, three abilities) was milestones M0–M5; v1 replaced its rules
 wholesale — the v0 "frozen rules" are obsolete. Balance is pinned by
 `tests/balance.test.ts` instead: an auto-played campaign must clear in
@@ -212,6 +228,20 @@ it for free.
   reduced-motion users spin up a WebGL context and download Pixi for nothing.
 - Combustion sets `stage.intensity`, which multiplies particle counts: the buff
   is something you can *see* in every fire spell you cast while it's up.
+- **Three render layers, and the routing matters.** `bloom` is blurred and
+  composited additively — soft things (flashes, halos, shock rings, dissolve
+  motes) go there so they *bleed light*. Crisp things (sparks, rays, debris,
+  shards, bolts) go in `core` on top, where the blur can't smear them into
+  mush. Smoke goes in `back`. Put a spark in `bloom` and you erase it; put a
+  flash in `core` and it stops glowing. The contrast between the layers is the
+  whole effect.
+- `bloom.filterArea` is pinned to the canvas rect (and re-pinned on resize).
+  Don't remove it — with hundreds of moving particles, Pixi recomputing the
+  layer's bounds every frame costs more than the blur does.
+- **Damage numbers stack into lanes** (`Game.float`). A DoT tick and a
+  Pyroblast landing on the same frame would otherwise overlap into an
+  unreadable smear — "122" over "11" literally read as "1122". Newest goes
+  highest.
 
 Dependencies: **pixi.js** (the canvas) and **gsap** (the boss-intro timeline,
 and nothing else). Both dynamically imported — Pixi from `stage.mount()`, GSAP
@@ -228,8 +258,23 @@ keep them out of Vite's hashed pipeline.
   (see git history for the pattern), then delete it.
 - App level: throwaway Playwright drivers **inside the repo** (vite JS API,
   `port: 0`, `page.addInitScript` to inject a `mythreach-save-v1` blob for
-  mid/late-game states, screenshot to scratchpad, view the PNG).
-  `tools/shots.mjs` is the committed example of all of this.
+  mid/late-game states, screenshot to scratchpad, view the PNG). Delete the
+  driver when done. `tools/shots.mjs` is the committed example of all of this.
+- **Looking at the FX is the only way to verify the FX**, and it caught every
+  real bug in this work. Tricks that paid off:
+  - *Force the state you want.* Crits are rare — inject gear with `crit: 400`
+    and every hit crits. Want a hardcast? Challenge a boss and
+    `page.getByText('interrupt!').waitFor()`.
+  - *Step, don't guess.* Press the key, then screenshot every ~85 ms for a few
+    seconds and read the strip. Effects live 200–800 ms; a single timed
+    screenshot will miss them, and the combat log outlives the flash, so
+    "the log says crit" is **not** evidence you captured one.
+  - *Probe the DOM, not the pixels, for structural bugs.* `document.querySelector
+    ('.fx-host').contains(canvas)` is how the dead-canvas bug was found and
+    proven fixed — the page still *looked* animated because the DOM bars and
+    numbers kept moving.
+  - *Always run a `reducedMotion: 'reduce'` context too* and assert
+    `canvas count === 0`.
 - Perf/size: `npm run build`. The hard byte budget is **retired** (owner's call,
   2026-07-13) — richer effects are worth the bytes. The entry chunk is ~57 KB
   gzip; Pixi (~129 KB) and GSAP (~27 KB) stay *dynamically imported* anyway,
@@ -271,9 +316,32 @@ keep them out of Vite's hashed pipeline.
 
 ## Where the game goes next (when the user asks)
 
-Candidates, in rough order of leverage: non-combat skills that feed combat
-(the original dashboard-of-skills vision), prestige/rebirth, gear enchanting
-as a gold sink, more mechanics (dispellable enemy buffs, stacking debuffs),
-cloud saves, richer audio. The content pack + mechanics-union design means
-new zones/enemies are pure data; the balance suite tells you if they fit the
-curve.
+The owner likes the card-based combat framing and wants it pushed further, not
+replaced. Both the content pack *and* the FX layer are now data, so new
+zones, enemies and spells are cheap.
+
+Candidates, in rough order of leverage:
+
+- **New abilities.** The cheapest big win now. Engine ability + one `SPELL_FX`
+  row. A frost school (slows, shatter crits) or a shadow drain would give the
+  registry a second colour family to prove itself against.
+- **Non-combat skills that feed combat** — the original dashboard-of-skills
+  vision.
+- **Prestige/rebirth**, gear enchanting as a gold sink.
+- **More enemy mechanics**: dispellable enemy buffs, stacking debuffs,
+  add-summoning. Mechanics are a tagged union in the engine; the FX for a new
+  one is a `hold(...)` line in `director.sync` plus a recipe.
+- Cloud saves.
+
+Ideas considered and *not* done, with reasons:
+
+- **Real audio samples.** Rejected in favour of upgrading the synth — zero
+  asset bytes, no licensing surface, and layered noise+tone impacts got
+  genuinely punchy. Revisit only if the owner wants a composed soundtrack.
+- **Sizing damage numbers by share of target HP.** Tried, reverted: it draws a
+  *timid* number on a boss, because bosses have more health. Absolute damage
+  is correct. Don't re-derive this.
+- **Bigger crit flashes.** Tried, reverted. Light is additive; scaling it up
+  produces a white disc with the fight hidden behind it. The *number* is where
+  a crit shouts. `weigh()` keeps particle scale deliberately tamer than text
+  scale, and that comment is load-bearing.

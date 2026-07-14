@@ -51,6 +51,9 @@ export interface Impact {
 const SAVE_KEY = 'mythreach-save-v1'
 const LOG_CAP = 100
 const FLOAT_LIFETIME_MS = 950
+/** how far apart stacked damage numbers sit, and how close counts as a clash */
+const LANE_HEIGHT = 34
+const LANE_WIDTH = 68
 const SAVE_EVERY_MS = 5000
 
 const KEY_TO_ABILITY: ReadonlyMap<string, AbilityId> = new Map(
@@ -117,6 +120,8 @@ export class Game implements FxHost {
     enemy: { n: 0, power: 1, crit: false },
   })
   bloom = $state(0)
+  /** a crit landed: bump counter + how hard, for the screen-wide flash */
+  critFlash: { n: number; power: number; side: Side } = $state({ n: 0, power: 1, side: 'enemy' })
   pressed = new SvelteSet<string>()
   /** Last enemy seen — keeps the "Slain" card on screen between spawns. */
   lastEnemy: EnemySnapshot | null = $state(null)
@@ -183,16 +188,22 @@ export class Game implements FxHost {
     const id = this.nextId++
     // Lifted clear of the portrait it belongs to, with a little scatter so a
     // flurry of ticks reads as several numbers rather than one blur.
-    this.floats.push({
-      id,
-      side: f.side,
-      kind: f.kind,
-      amount: f.amount,
-      tone: f.tone,
-      scale: f.scale,
-      x: f.at.x + (Math.random() * 44 - 22),
-      y: f.at.y - 34 + (Math.random() * 18 - 9),
-    })
+    const x = f.at.x + (Math.random() * 44 - 22)
+    let y = f.at.y - 34 + (Math.random() * 18 - 9)
+
+    // A DoT tick and a Pyroblast landing on the same frame would otherwise
+    // overlap into an unreadable smear ("122" over "11" reads as "1122").
+    // Stack them into lanes instead, newest highest — the way every game
+    // client does it.
+    for (let guard = 0; guard < 6; guard++) {
+      const clash = this.floats.some(
+        (o) => o.side === f.side && Math.abs(o.y - y) < LANE_HEIGHT && Math.abs(o.x - x) < LANE_WIDTH,
+      )
+      if (!clash) break
+      y -= LANE_HEIGHT
+    }
+
+    this.floats.push({ id, side: f.side, kind: f.kind, amount: f.amount, tone: f.tone, scale: f.scale, x, y })
     setTimeout(() => {
       const i = this.floats.findIndex((f2) => f2.id === id)
       if (i !== -1) this.floats.splice(i, 1)
@@ -202,6 +213,8 @@ export class Game implements FxHost {
   bump(side: Side, power: number, crit: boolean): void {
     const cur = this.impacts[side]
     this.impacts[side] = { n: cur.n + 1, power, crit }
+    // A crit is felt past the card it landed on — the room flashes.
+    if (crit) this.critFlash = { n: this.critFlash.n + 1, power, side }
   }
 
   sfx(name: SfxName, gain = 1): void {

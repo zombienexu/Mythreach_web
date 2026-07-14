@@ -12,6 +12,9 @@ export type SfxName =
   | 'pyro-cast'
   | 'hit'
   | 'pyro-hit'
+  | 'claw'
+  | 'hit-arcane'
+  | 'hit-void'
   | 'crit'
   | 'crit-heavy'
   | 'burn'
@@ -74,6 +77,25 @@ const VOICES: Record<SfxName, Voice[]> = {
     { kind: 'tone', type: 'sine', freq: [95, 28], dur: 0.52, gain: 0.2 },
     { kind: 'noise', cut: [3200, 220], filter: 'lowpass', dur: 0.34, gain: 0.16 },
     { kind: 'noise', cut: [700, 90], filter: 'lowpass', dur: 0.6, gain: 0.08, delay: 0.06 },
+  ],
+  // physical: no ring, no sizzle. Meat and a leathery tear.
+  claw: [
+    { kind: 'tone', type: 'triangle', freq: [120, 40], dur: 0.13, gain: 0.15 },
+    { kind: 'noise', cut: [1600, 380], filter: 'bandpass', q: 0.7, dur: 0.11, gain: 0.13 },
+    { kind: 'noise', cut: [3800, 900], filter: 'highpass', dur: 0.07, gain: 0.05, delay: 0.01 },
+  ],
+  // arcane: glassy, tuned, a struck bell rather than an explosion
+  'hit-arcane': [
+    { kind: 'tone', type: 'sine', freq: [880, 300], dur: 0.22, gain: 0.1 },
+    { kind: 'tone', type: 'sine', freq: [1320, 660], dur: 0.18, gain: 0.05, delay: 0.01 },
+    { kind: 'noise', cut: [5000, 2200], filter: 'highpass', dur: 0.16, gain: 0.05 },
+    { kind: 'tone', type: 'triangle', freq: [160, 60], dur: 0.16, gain: 0.09 },
+  ],
+  // void: a swallowed thud, all body and no air
+  'hit-void': [
+    { kind: 'tone', type: 'sine', freq: [140, 32], dur: 0.34, gain: 0.18 },
+    { kind: 'noise', cut: [900, 120], filter: 'lowpass', dur: 0.26, gain: 0.12 },
+    { kind: 'tone', type: 'triangle', freq: [70, 30], dur: 0.4, gain: 0.08, delay: 0.03 },
   ],
   // body + crack + a bright rising "shing" that says *that one counted*
   crit: [

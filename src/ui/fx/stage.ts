@@ -33,7 +33,17 @@ export interface Anchors {
 }
 
 export type TexName = 'glow' | 'spark' | 'ring' | 'shard' | 'smoke'
-type Blend = 'add' | 'normal'
+
+/** Which of the three stacked layers a sprite is drawn into.
+ *
+ *  `bloom` is the point of the whole arrangement: it is blurred and composited
+ *  additively, so anything in it *bleeds light into its surroundings* instead
+ *  of merely being a bigger bright blob. Soft things (flashes, halos, shock
+ *  rings) go there. Crisp things (sparks, rays, debris, shards) stay in `core`
+ *  on top, where the blur can't smear them into mush. The contrast between the
+ *  two is what reads as "this is glowing", and it is the single cheapest way to
+ *  stop 2D particles looking like 2D particles. */
+type Layer = 'back' | 'bloom' | 'core'
 
 interface Particle {
   sp: Sprite
@@ -52,7 +62,7 @@ interface Particle {
   spin: number
   /** stretch along the velocity vector — turns a dot into a streak */
   stretch: number
-  blend: Blend
+  layer: Layer
 }
 
 interface Projectile {
@@ -109,7 +119,7 @@ export interface BurstOpts {
   fadeTo?: number
   tex?: TexName
   stretch?: number
-  blend?: Blend
+  layer?: Layer
 }
 
 const TAU = Math.PI * 2
@@ -172,8 +182,12 @@ function shardTexture(size: number): HTMLCanvasElement {
 export class FxStage {
   private pixi: PixiModule | null = null
   private app: Application | null = null
+  /** smoke and shadow, drawn under everything, normal blend */
   private back: Container | null = null
-  private add: Container | null = null
+  /** blurred + additive: the light bleed */
+  private bloom: Container | null = null
+  /** crisp + additive: the sparks that must stay sharp */
+  private core: Container | null = null
   private tex: Record<TexName, Texture> | null = null
 
   private readonly live: Particle[] = []
@@ -233,7 +247,7 @@ export class FxStage {
     if (!app) return
     host.appendChild(app.canvas) // moves it out of the dead host
     app.resizeTo = host
-    app.resize()
+    this.resize()
     this.resume()
   }
 
@@ -273,7 +287,11 @@ export class FxStage {
 
   /** The host can change size without the window doing so (sidebar, layout). */
   resize(): void {
-    this.app?.resize()
+    if (!this.app) return
+    this.app.resize()
+    if (this.bloom && this.pixi) {
+      this.bloom.filterArea = new this.pixi.Rectangle(0, 0, this.app.screen.width, this.app.screen.height)
+    }
   }
 
   private async create(host: HTMLElement): Promise<void> {
@@ -311,8 +329,17 @@ export class FxStage {
     }
 
     this.back = new PIXI.Container()
-    this.add = new PIXI.Container()
-    app.stage.addChild(this.back, this.add)
+    this.bloom = new PIXI.Container()
+    this.core = new PIXI.Container()
+
+    // The bloom pass. `filterArea` is pinned to the canvas so Pixi never has to
+    // recompute the layer's bounds — with hundreds of moving particles that
+    // measurement, not the blur, is what would cost us.
+    this.bloom.blendMode = 'add'
+    this.bloom.filters = [new PIXI.BlurFilter({ strength: 12, quality: 3 })]
+    this.bloom.filterArea = new PIXI.Rectangle(0, 0, app.screen.width, app.screen.height)
+
+    app.stage.addChild(this.back, this.bloom, this.core)
     this.app = app
     this.paused = false
 
@@ -368,7 +395,8 @@ export class FxStage {
     this.app?.destroy(true, { children: true, texture: true })
     this.app = null
     this.back = null
-    this.add = null
+    this.bloom = null
+    this.core = null
     this.tex = null
     this.mounting = null
     this.paused = false
@@ -482,16 +510,21 @@ export class FxStage {
 
   // ─────────────── sprite pool ───────────────
 
-  private take(name: TexName, blend: Blend, tint: number): Sprite | null {
-    if (!this.pixi || !this.tex || !this.add || !this.back) return null
+  private layerOf(l: Layer): Container | null {
+    return l === 'back' ? this.back : l === 'bloom' ? this.bloom : this.core
+  }
+
+  private take(name: TexName, layer: Layer, tint: number): Sprite | null {
+    const parent = this.layerOf(layer)
+    if (!this.pixi || !this.tex || !parent) return null
     const sp = this.pool.pop() ?? new this.pixi.Sprite()
     sp.texture = this.tex[name]
     sp.anchor.set(0.5)
-    sp.blendMode = blend === 'add' ? 'add' : 'normal'
+    sp.blendMode = layer === 'back' ? 'normal' : 'add'
     sp.tint = tint
     sp.visible = true
     sp.rotation = 0
-    ;(blend === 'add' ? this.add : this.back).addChild(sp)
+    parent.addChild(sp)
     return sp
   }
 
@@ -518,12 +551,13 @@ export class FxStage {
 
   burst(x: number, y: number, o: BurstOpts): void {
     if (!this.ready) return
-    const blend = o.blend ?? 'add'
     const tex = o.tex ?? 'spark'
+    // Debris must stay crisp — blurring a spark just erases it.
+    const layer: Layer = o.layer ?? (tex === 'smoke' ? 'back' : 'core')
     const [a0, a1] = o.angle ?? [0, TAU]
     const count = Math.round(o.count * (tex === 'smoke' ? 1 : this.intensity))
     for (let i = 0; i < count; i++) {
-      const sp = this.take(tex, blend, pick(o.tint))
+      const sp = this.take(tex, layer, pick(o.tint))
       if (!sp) return
       const ang = rand(a0, a1)
       const speed = rand(o.speed[0], o.speed[1])
@@ -539,7 +573,7 @@ export class FxStage {
         a1: o.fadeTo ?? 0,
         spin: rand(-6, 6),
         stretch: o.stretch ?? 0,
-        blend,
+        layer,
       })
     }
   }
@@ -547,7 +581,7 @@ export class FxStage {
   /** An expanding pressure ring — the shape the eye reads as "that hurt". */
   ring(x: number, y: number, o: { tint: number; from: number; to: number; life: number; alpha?: number }): void {
     if (!this.ready) return
-    const sp = this.take('ring', 'add', o.tint)
+    const sp = this.take('ring', 'bloom', o.tint)
     if (!sp) return
     this.spawn(sp, x, y, 0, 0, {
       ay: 0,
@@ -560,14 +594,14 @@ export class FxStage {
       a1: 0,
       spin: 0,
       stretch: 0,
-      blend: 'add',
+      layer: 'bloom',
     })
   }
 
-  /** A single soft pop of light. */
+  /** A single soft pop of light — the archetypal bloom citizen. */
   flash(x: number, y: number, o: { tint: number; size: number; life: number; alpha?: number; grow?: number }): void {
     if (!this.ready) return
-    const sp = this.take('glow', 'add', o.tint)
+    const sp = this.take('glow', 'bloom', o.tint)
     if (!sp) return
     this.spawn(sp, x, y, 0, 0, {
       ay: 0,
@@ -580,7 +614,7 @@ export class FxStage {
       a1: 0,
       spin: 0,
       stretch: 0,
-      blend: 'add',
+      layer: 'bloom',
     })
   }
 
@@ -601,15 +635,14 @@ export class FxStage {
       o.onArrive()
       return
     }
-    const head = this.take('spark', 'add', o.tint)
-    const halo = this.take('glow', 'add', o.halo)
+    // A bolt is the bloom trick in miniature: a hard bright core riding inside
+    // a soft blurred halo. That contrast is what makes it look *hot*.
+    const head = this.take('spark', 'core', o.tint)
+    const halo = this.take('glow', 'bloom', o.halo)
     if (!head || !halo) {
       o.onArrive()
       return
     }
-    // the halo rides under the core: bright centre, soft bloom around it
-    halo.removeFromParent()
-    this.add!.addChildAt(halo, 0)
     const hs = (o.haloSize ?? o.size * 2.6) / halo.texture.width
     halo.scale.set(hs)
     halo.alpha = 0.75
@@ -635,7 +668,7 @@ export class FxStage {
 
   /** Jagged lightning between two points — counterspell, enemy bolts. */
   bolt(from: Spot, to: Spot, o: { tint: number; life: number; width?: number; jitter?: number; forks?: number }): void {
-    if (!this.ready || !this.pixi || !this.add) return
+    if (!this.ready || !this.pixi || !this.core) return
     const PIXI = this.pixi
     const holder = new PIXI.Container()
     holder.blendMode = 'add'
@@ -672,7 +705,7 @@ export class FxStage {
       draw(bx, by, bx + Math.cos(ang) * reach, by + Math.sin(ang) * reach, w * 0.55, 0.8)
     }
 
-    this.add.addChild(holder)
+    this.core.addChild(holder)
     this.arcs.push({ gfx: holder, life: 0, max: o.life })
   }
 
@@ -697,7 +730,7 @@ export class FxStage {
   ): void {
     if (!this.ready) return
     for (let i = 0; i < o.count; i++) {
-      const sp = this.take('spark', 'add', pick(o.tint))
+      const sp = this.take('spark', 'core', pick(o.tint))
       if (!sp) return
       const ang = rand(0, TAU)
       const r = o.radius * rand(0.75, 1.15)
@@ -723,7 +756,7 @@ export class FxStage {
           a1: 0.2,
           spin: 0,
           stretch: 1.3,
-          blend: 'add',
+          layer: 'core',
         },
       )
     }
@@ -735,7 +768,7 @@ export class FxStage {
     if (!this.ready) return
     const count = Math.round(o.count * this.intensity)
     for (let i = 0; i < count; i++) {
-      const sp = this.take('spark', 'add', pick(o.tint))
+      const sp = this.take('spark', 'core', pick(o.tint))
       if (!sp) return
       // even fan with jitter, so it reads as a star and not as noise
       const ang = (i / count) * TAU + rand(-0.18, 0.18)
@@ -751,7 +784,7 @@ export class FxStage {
         a1: 0,
         spin: 0,
         stretch: 5,
-        blend: 'add',
+        layer: 'core',
       })
     }
   }
@@ -760,7 +793,7 @@ export class FxStage {
   dissolve(r: Region, tint: number | readonly number[], count = 48): void {
     if (!this.ready) return
     for (let i = 0; i < count; i++) {
-      const sp = this.take('glow', 'add', pick(tint))
+      const sp = this.take('glow', 'bloom', pick(tint))
       if (!sp) return
       const size = rand(4, 13)
       this.spawn(sp, rand(r.x, r.x + r.w), rand(r.y, r.y + r.h), rand(-24, 24), rand(-70, -20), {
@@ -774,7 +807,7 @@ export class FxStage {
         a1: 0,
         spin: 0,
         stretch: 0,
-        blend: 'add',
+        layer: 'bloom',
       })
     }
   }
@@ -796,7 +829,7 @@ export class FxStage {
       drag: 1.6,
       alpha: 0.34,
       tex: 'smoke',
-      blend: 'normal',
+      layer: 'back',
     })
   }
 }

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import Background from './ui/components/Background.svelte'
   import BossIntro from './ui/components/BossIntro.svelte'
+  import CritFlash from './ui/components/CritFlash.svelte'
   import LevelUpBanner from './ui/components/LevelUpBanner.svelte'
   import OfflineModal from './ui/components/OfflineModal.svelte'
   import Sidebar from './ui/components/Sidebar.svelte'
@@ -76,6 +77,12 @@
 </div>
 
 <Vignette combat={game.combat} />
+
+{#if game.critFlash.n > 0}
+  {#key game.critFlash.n}
+    <CritFlash power={game.critFlash.power} side={game.critFlash.side} />
+  {/key}
+{/if}
 
 {#if game.bossIntro}
   {#key game.bossIntro}

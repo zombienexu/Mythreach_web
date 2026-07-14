@@ -68,8 +68,11 @@ const save = {
   await page.keyboard.press('7') // Combustion
   await page.waitForTimeout(400)
   await page.keyboard.press('4') // Pyroblast
-  await page.waitForTimeout(2400)
-  await page.screenshot({ path: 'docs/shot-2.png' }) // boss card, buffs, pyro mid-cast
+  // The queue means Pyroblast doesn't start casting until the earlier GCDs
+  // clear, then 3.5 s of cast, then ~0.3 s of flight. Land just past the
+  // detonation, while the shockwave and debris are still in the air.
+  await page.waitForTimeout(4250)
+  await page.screenshot({ path: 'docs/shot-2.png' }) // the comet detonating on the boss
   await page.close()
 }
 

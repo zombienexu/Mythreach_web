@@ -239,7 +239,7 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
       { fx: 'shake', amp: 6, dur: 0.3 },
       { fx: 'hitStop', hold: 0.05 },
     ],
-    sfx: { release: 'interrupt' },
+    sfx: { release: 'interrupt', impact: 'hit-arcane' },
   },
 
   barrier: {
@@ -289,7 +289,7 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
       { fx: 'rays', tint: 'tone', count: 8, reach: 190, width: 12, life: 0.24 },
       { fx: 'shake', amp: 7 },
     ],
-    sfx: { impact: 'hit', crit: 'crit' },
+    sfx: { impact: 'claw', crit: 'crit' },
   },
 
   enemyCast: {
@@ -315,7 +315,7 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
       { fx: 'shake', amp: 8 },
     ],
     crit: CRIT_FLOURISH,
-    sfx: { impact: 'hit', crit: 'crit' },
+    sfx: { impact: 'hit-void', crit: 'crit-heavy' },
   },
 
   venom: {
@@ -360,6 +360,8 @@ export const DISINTEGRATE: Recipe = [
   { fx: 'rays', tint: 'hot', count: 8, reach: 200, width: 12, life: 0.3 },
   { fx: 'smoke', count: 8 },
   { fx: 'shake', amp: 6, dur: 0.5 },
+  // the world catches its breath on a kill
+  { fx: 'hitStop', hold: 0.06 },
 ]
 
 export const ENRAGE: Recipe = [

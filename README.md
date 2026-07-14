@@ -25,18 +25,24 @@ rotation, clutching a heal at 10% HP).
 
 Design pillars:
 
-1. **The dashboard is the world.** No 3D, no animation budget. Cards, bars,
-   floating numbers, and a log carry all feedback — an aesthetic commitment
-   that keeps information density high and runs on anything.
-2. **Hands-on combat is the differentiator.** The idle audience wants moments
+1. **The dashboard is the world.** No 3D, no sprites, no art pipeline. Two
+   cards, bars, floating numbers and a log carry the entire fight — an
+   aesthetic commitment that keeps information density high and runs anywhere.
+2. **But the cards are a stage, not a spreadsheet.** Spells are *thrown* from
+   one card to the other. They gather in your hand, cross the gap, and
+   detonate. Fire clings to what it burns. The presentation is austere by
+   design and violent on purpose.
+3. **Hands-on combat is the differentiator.** The idle audience wants moments
    of mastery. Active play (rotations, cooldown usage, interrupt timing)
    meaningfully beats passive play without being mandatory — the auto-battle
    echo runs a sensible priority, but it doesn't burst bosses like you do.
-3. **Never punish absence.** Your echo keeps fighting while you're away
+4. **Never punish absence.** Your echo keeps fighting while you're away
    (capped at 8 hours); death costs seconds; the observatory heals you
    between pulls.
-4. **Numbers you can feel.** Every point of damage is visible — splash, bar,
-   log line — and progression beats come frequently and legibly.
+5. **Numbers you can feel.** A damage number's *size is its value*. A burn tick
+   is a small violet 11; a Pyroblast crit is an enormous stroked 240 that
+   overshoots, snaps back and hangs in the air while the card it hit is still
+   reeling. You never have to read a number to know how hard it landed.
 
 The wedge, in one sentence: **the idle game where combat is real.**
 
@@ -99,11 +105,12 @@ npm run dev
 
 ## Architecture
 
-Two layers with a hard boundary, plus a test suite that acts as the spec:
+Three layers with hard boundaries, plus a test suite that acts as the spec:
 
 ```
 src/engine/   pure TypeScript simulation — no DOM, no Svelte, no window
 src/ui/       Svelte 5 (runes) presentation over the engine
+src/ui/fx/    the combat effects layer — declarative, data-driven
 tests/        the behavioral contract
 ```
 
@@ -147,11 +154,13 @@ Everything else follows from a few load-bearing ideas:
 
 ### The UI: a 60 fps view of a 20 Hz truth
 
-`src/ui/loop.ts` is a `requestAnimationFrame` accumulator stepping the sim
-once per elapsed 50 ms. `src/ui/game.svelte.ts` is the bridge: a runes-based
-`Game` store that owns the sim, publishes snapshots, fans events into the log
-/ floats / choreography counters / synthesized WebAudio cues, autosaves to
-`localStorage` every five seconds, and computes offline progress on boot.
+`src/ui/loop.ts` is a `requestAnimationFrame` accumulator stepping the sim once
+per elapsed 50 ms. `src/ui/game.svelte.ts` is the bridge: a runes-based `Game`
+store that owns the sim, publishes snapshots, writes the log, autosaves to
+`localStorage` every five seconds, and computes offline progress on boot. It
+hands every event to the FX director (below), which decides *when* each number,
+recoil and sound actually happens — a fireball's damage is dealt on the tick the
+sim says so, but it isn't *shown* until the bolt lands.
 
 Five views hang off a sidebar: **Combat** (zone banner with boss challenge,
 player and enemy cards, log, action bar), **Character** (stats, paper-doll,
@@ -159,22 +168,97 @@ bags with stat-delta compare), **Talents**, **Atlas** (travel and boss
 status), and **Chronicle** (lifetime stats, achievements). The sim never
 pauses while you shop.
 
+### The combat FX: effects as data
+
+The fight is staged on a PixiJS canvas laid across both cards. The interesting
+part isn't the particles — it's that **no code anywhere describes what a spell
+looks like**. Effects are declarative:
+
+```ts
+// src/ui/fx/spells.ts — the only file with opinions about a specific spell
+fireball: {
+  tone: TONE.fireball, deep: TONE_DEEP.fireball, css: 'var(--tone-fireball)',
+  charge:     { rate: 0.022, radius: 62, tighten: 0.55 },   // motes spiral into your hand
+  projectile: { flight: 0.14, size: 20, arc: -18, /* … */ },// it crosses the arena
+  impact:     [ ...DETONATE(78, 250), DEBRIS(32, 760, 19),
+                { fx: 'rays', tint: 'hot', count: 6, reach: 150, width: 10 },
+                { fx: 'shake', amp: 6 } ],
+  crit:       CRIT_FLOURISH,
+  sfx:        { release: 'cast', impact: 'hit', crit: 'crit' },
+},
+```
+
+Adding an ability is ~24 lines in that table plus a colour token. The director,
+the stage, the recipe engine and every component are untouched. Four strata:
+
+| | |
+|---|---|
+| `spells.ts` | **data.** One row per damage source: charge, release, projectile, impact, crit, aura, sounds. |
+| `recipe.ts` | the effect language — a `Step` union and `playRecipe()`. Knows nothing about spells. |
+| `director.ts` | timing, weight, standing state. Knows nothing about what a spell *looks* like. |
+| `stage.ts` | Pixi primitives: pooled additive particles, projectiles, shockwaves, bolts, emitters. |
+
+Three ideas do most of the work:
+
+- **Tints are symbolic.** A recipe says `'tone'`, never `0xff7a2f`. So shared
+  phrases (`DETONATE`, `CRIT_FLOURISH`) resolve against whichever spell is
+  playing them and come out orange for Fireball, violet for Ignite.
+- **Projectiles travel, and their consequences wait for them.** When the sim
+  resolves a Fireball, the bolt is launched and the number, the card recoil,
+  the shake and the sound are all *withheld* until it lands — which is also
+  when the health bar's trailing loss layer begins to drain. Cause and effect
+  line up, because they were made to.
+- **One weight drives everything.** A single factor derived from the damage
+  scales particle size, shockwave reach, screen shake and the size of the
+  number *together*, so they can never disagree. It measures absolute damage,
+  not a share of the target's health — a Pyroblast is a Pyroblast whether it
+  hits a wolf or a boss.
+
+Crits get their own grammar: the card is hurled rather than nudged, flashes
+white to the bone, the room washes with light, time stops for 80 ms, and a star
+of rays tears out of the impact. Combustion raises a global particle
+`intensity`, so the buff is something you can *see* in every spell you cast
+while it's up. Bright soft things render into a blurred additive bloom layer
+while sparks stay crisp on top — that contrast is what stops 2D particles from
+looking like 2D particles.
+
+Sound is synthesized WebAudio with no assets: impacts are layered from a body
+(a low sine thumping down), a crack (a filtered noise burst) and a sizzle. A
+claw doesn't sound like a fireball, and `play(name, gain)` means a heavy hit is
+a *loud* hit. A drone hangs under boss fights; a heartbeat starts when you're
+nearly dead.
+
+Everything above is gated behind `prefers-reduced-motion`, which is a hard
+off-switch: no canvas is created, no shake, and Pixi's chunk is never even
+downloaded — while every number, colour and sound survives.
+
 ### The design system: "Arcane Observatory"
 
-Luminous glass panes floating over a living void — deep, translucent, lit
-from within. Vanilla modern CSS with **zero runtime dependencies**: `oklch()`
-design tokens (`src/ui/styles/tokens.css` is the single source of truth),
-`color-mix()` interaction tints, conic-gradient cooldown wipes (a fainter one
-for the GCD), backdrop-filter glass with gradient 1 px edges, and a
-drifting-blob background. Type is variable Fraunces (display) and Inter (UI),
-self-hosted and preloaded; every number renders in tabular figures. The
-accent trio — teal *ether* for the player, violet *arcana* for magic and XP,
-gold *ember* strictly for rewards — keeps color meaningful, joined by four
-rarity hues that only ever mean rarity. Enemy portraits are one parametric
-duotone line-art component: eight creature families, tinted per creature,
-eyes that flare red on enrage. Sound is synthesized WebAudio (no assets),
-mutable, and off until your first gesture. Full `prefers-reduced-motion`
-support throughout.
+Luminous glass panes floating over a living void — deep, translucent, lit from
+within. The chrome is vanilla modern CSS: `oklch()` design tokens
+(`src/ui/styles/tokens.css` is the single source of truth), `color-mix()`
+interaction tints, conic-gradient cooldown wipes (a fainter one for the GCD),
+backdrop-filter glass with gradient 1 px edges, and a drifting-blob background.
+Type is variable Fraunces (display) and Inter (UI), self-hosted and preloaded;
+every number renders in tabular figures.
+
+**Every spell owns a hue**, and wears it everywhere it appears — its icon, its
+cast bar, its particles, its damage numbers. Charging a Fireball *looks* like
+fire gathering; charging a Barrier looks like ice. Around that, the accent trio
+— teal *ether* for the player, violet *arcana* for magic and XP, gold *ember*
+strictly for rewards — keeps colour meaningful, joined by four rarity hues that
+only ever mean rarity. Enemy portraits are one parametric duotone line-art
+component: eight creature families, tinted per creature, eyes that flare red on
+enrage.
+
+Motion follows one timing scale — fast (130 ms) for buttons, medium (240 ms)
+for panels, slow (480 ms) for navigation, epic (1100 ms) for level-ups and boss
+challenges. Nothing invents its own duration.
+
+Runtime dependencies are deliberately few: **PixiJS** for the effects canvas and
+**GSAP** for exactly one thing (the boss-challenge cinematic). Both are
+dynamically imported — the fight is playable before Pixi arrives, GSAP loads
+only when you challenge a boss, and a reduced-motion player downloads neither.
 
 ### The tests: the contract
 
@@ -187,18 +271,19 @@ auto-plays the whole campaign with a smart-player heuristic and asserts the
 arc (first boss inside 15 minutes with ≤2 deaths; full clear in 0.6–3 hours
 with <20 deaths). Balance changes that break the feel break the build.
 
-`npm test` and `npm run check` green is the bar for every change. The build
-ships at ~45 KB of gzipped JS.
+`npm test` and `npm run check` green is the bar for every change. The entry
+chunk ships at ~59 KB gzipped; Pixi and GSAP load asynchronously behind it.
 
 ## Where this goes next
 
-v1 proves the full loop. Candidate directions: non-combat skills that feed
-combat (the original dashboard-of-skills vision), prestige/rebirth systems,
-more zone mechanics (dispellable buffs, positioning-as-a-resource), gear
-enchanting as a gold sink, cloud saves, and sound design beyond synth blips.
-See `HANDOFF.md` for the working state of the codebase.
+v1 proves the full loop, and the FX layer is now data, so new spells are cheap.
+Candidate directions: non-combat skills that feed combat (the original
+dashboard-of-skills vision), prestige/rebirth systems, more zone mechanics
+(dispellable buffs, positioning-as-a-resource), gear enchanting as a gold sink,
+and cloud saves. See `HANDOFF.md` for the working state of the codebase and a
+recipe for adding an ability.
 
 ## More shots
 
-![Boss fight — Pyroblast into the Bramble Widow](docs/shot-2.png)
+![Pyroblast detonating on the Bramble Widow](docs/shot-2.png)
 ![Character and bags](docs/shot-3.png)
