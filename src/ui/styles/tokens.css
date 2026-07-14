@@ -32,12 +32,30 @@
   --rarity-rare: oklch(0.74 0.12 245);
   --rarity-epic: oklch(0.72 0.16 305);
 
+  /* Spell tones — each school of magic owns a hue, and every surface that
+     speaks for a spell (icon, cast bar, float, particles) uses its tone. */
+  --tone-fireball: oklch(0.7 0.19 40);
+  --tone-ignite: oklch(0.72 0.15 300);
+  --tone-renew: oklch(0.78 0.15 160);
+  --tone-pyroblast: oklch(0.75 0.18 55);
+  --tone-counterspell: oklch(0.8 0.11 195);
+  --tone-barrier: oklch(0.85 0.06 240);
+  --tone-combustion: oklch(0.8 0.13 80);
+
   --radius: 14px;
   --radius-sm: 8px;
 
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --dur-fast: 140ms;
-  --dur: 260ms;
+  /* ---- Motion language --------------------------------------------
+     One timing scale, four tiers. Every animation picks a tier; nothing
+     invents its own duration. Fast = micro-feedback, epic = ceremony. */
+  --dur-fast: 130ms; /* buttons, hovers, micro-interactions */
+  --dur: 240ms; /* cards, menus, panels */
+  --dur-slow: 480ms; /* major transitions, navigation */
+  --dur-epic: 1100ms; /* level-ups, boss kills, rare rewards */
+
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* overshoot, playful */
+  --ease-punch: cubic-bezier(0.2, 0.9, 0.1, 1); /* fast out, hard settle */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1); /* decelerate, cinematic */
 
   --font-display: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
   --font-ui: 'Inter Variable', system-ui, -apple-system, sans-serif;

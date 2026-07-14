@@ -13,6 +13,7 @@
     unlocked,
     mana,
     pressedKeys,
+    denied,
     onactivate,
   }: {
     cast: CastSnapshot | null
@@ -23,6 +24,7 @@
     unlocked: AbilityId[]
     mana: number
     pressedKeys: ReadonlySet<string>
+    denied: Record<AbilityId, number>
     onactivate?: (id: AbilityId) => void
   } = $props()
 
@@ -32,11 +34,22 @@
     if (cast !== null) lastCast = cast
   })
   const shown = $derived(cast ?? lastCast)
+
+  // The bar wears the colour of the spell in it. Charging Fireball should look
+  // like fire gathering; charging Barrier should look like ice.
+  const tone = $derived(shown ? `var(--tone-${shown.abilityId})` : 'var(--ether)')
+  const nearly = $derived((cast?.progress ?? 0) > 0.82)
 </script>
 
 <div class="action-area">
   <!-- space is always reserved; only opacity changes, so the bar never reflows -->
-  <div class="cast-slot" class:active={cast !== null} aria-hidden={cast === null}>
+  <div
+    class="cast-slot"
+    class:active={cast !== null}
+    class:nearly
+    style:--tone={tone}
+    aria-hidden={cast === null}
+  >
     <div class="cast-head">
       <span class="cast-name">{shown ? ABILITIES[shown.abilityId].name : ' '}</span>
       <span class="cast-time num">{shown ? `${ticksToSeconds(shown.remainingTicks)}s` : ' '}</span>
@@ -53,6 +66,7 @@
         locked={!unlocked.includes(id)}
         casting={cast?.abilityId === id}
         queued={queued === id}
+        denied={denied[id]}
         {gcd}
         {mana}
         pressed={pressedKeys.has(ABILITIES[id].key)}
@@ -73,11 +87,18 @@
   .cast-slot {
     width: 320px;
     opacity: 0;
-    transition: opacity var(--dur-fast) ease;
+    transition:
+      opacity var(--dur-fast) ease,
+      filter var(--dur-fast) ease;
   }
 
   .cast-slot.active {
     opacity: 1;
+  }
+
+  /* The last moments of a cast: the bar swells, and so does the tension. */
+  .cast-slot.nearly {
+    filter: drop-shadow(0 0 14px color-mix(in oklch, var(--tone) 65%, transparent));
   }
 
   .cast-head {
@@ -92,7 +113,8 @@
     font-family: var(--font-display);
     font-size: 14.5px;
     letter-spacing: 0.03em;
-    color: var(--ether);
+    color: var(--tone);
+    text-shadow: 0 0 16px color-mix(in oklch, var(--tone) 55%, transparent);
   }
 
   .cast-time {

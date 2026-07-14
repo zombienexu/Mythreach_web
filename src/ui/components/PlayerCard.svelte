@@ -1,24 +1,24 @@
 <script lang="ts">
   import type { PlayerSnapshot } from '../../engine'
-  import type { FloatText } from '../game.svelte'
   import { ticksToSeconds } from '../format'
+  import type { Impact } from '../game.svelte'
   import Bar from './Bar.svelte'
-  import FloatLayer from './FloatLayer.svelte'
   import HeroPortrait from './portraits/HeroPortrait.svelte'
 
   let {
     player,
     level,
-    floats = [],
-    impact = 0,
+    impact,
     bloom = 0,
   }: {
     player: PlayerSnapshot
     level: number
-    floats?: FloatText[]
-    impact?: number
+    impact: Impact
     bloom?: number
   } = $props()
+
+  const hpFrac = $derived(player.maxHp > 0 ? player.hp / player.maxHp : 1)
+  const critical = $derived(player.alive && hpFrac < 0.35)
 
   let el: HTMLElement | undefined = $state()
 
@@ -30,8 +30,12 @@
     el.classList.add(cls)
   }
 
+  // The blow's weight drives the recoil distance, and a crit gets its own,
+  // much more violent choreography.
   $effect(() => {
-    if (impact > 0) pulse('hit')
+    if (impact.n === 0 || !el) return
+    el.style.setProperty('--power', String(impact.power))
+    pulse(impact.crit ? 'crit-hit' : 'hit')
   })
 
   $effect(() => {
@@ -47,10 +51,21 @@
   })
 </script>
 
-<article class="glass card player" class:dead={!player.alive} bind:this={el}>
+<article
+  class="glass card player"
+  class:dead={!player.alive}
+  class:critical
+  class:shielded={player.shield > 0}
+  data-fx-card="player"
+  bind:this={el}
+>
   <div class="body">
-    <div class="portrait">
+    <div class="portrait" data-fx-anchor="player">
       <HeroPortrait />
+      <!-- Barrier is a thing you can see holding, and see break. -->
+      {#if player.shield > 0}
+        <span class="shell" aria-hidden="true"></span>
+      {/if}
     </div>
 
     <div class="info">
@@ -95,8 +110,6 @@
       <span class="veil-count num">{ticksToSeconds(player.respawnIn)}s</span>
     </div>
   {/if}
-
-  <FloatLayer {floats} />
 </article>
 
 <style>
@@ -118,6 +131,7 @@
   }
 
   .portrait {
+    position: relative;
     width: 84px;
     height: 84px;
     flex: none;
@@ -125,6 +139,41 @@
     padding: 10px;
     background: radial-gradient(circle, oklch(0.8 0.02 260 / 0.07) 0%, transparent 72%);
     border: 1px solid oklch(0.85 0.03 260 / 0.1);
+  }
+
+  /* A faceted shell of starlight, slowly turning. It reads as *held*. */
+  .shell {
+    position: absolute;
+    inset: -7px;
+    border-radius: 50%;
+    border: 1.5px solid oklch(0.85 0.06 240 / 0.55);
+    box-shadow:
+      inset 0 0 18px oklch(0.85 0.06 240 / 0.28),
+      0 0 22px -2px oklch(0.85 0.06 240 / 0.45);
+    background: conic-gradient(
+      from 0deg,
+      oklch(0.85 0.06 240 / 0.02),
+      oklch(0.9 0.08 240 / 0.22),
+      oklch(0.85 0.06 240 / 0.02),
+      oklch(0.9 0.08 240 / 0.2),
+      oklch(0.85 0.06 240 / 0.02)
+    );
+    animation:
+      shell-in 260ms var(--ease-spring) both,
+      shell-turn 7s linear infinite;
+  }
+
+  @keyframes shell-in {
+    from {
+      opacity: 0;
+      transform: scale(1.35);
+    }
+  }
+
+  @keyframes shell-turn {
+    to {
+      rotate: 360deg;
+    }
   }
 
   .info {
@@ -287,32 +336,97 @@
     color: var(--text);
   }
 
-  /* one-shot choreography, classes re-armed from script */
-  :global(.card.hit) {
-    animation: hit-shake 240ms ease-out;
+  /* Nearly dead: the card itself starts to bleed at the edges. */
+  .critical {
+    box-shadow:
+      0 0 0 1px oklch(0.68 0.17 25 / 0.35),
+      0 0 30px -10px oklch(0.68 0.17 25 / 0.5),
+      0 18px 40px -18px oklch(0.05 0.02 280 / 0.9);
+    animation: critical-throb 1.15s ease-in-out infinite;
+  }
+
+  @keyframes critical-throb {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px oklch(0.68 0.17 25 / 0.25),
+        0 0 24px -12px oklch(0.68 0.17 25 / 0.4),
+        0 18px 40px -18px oklch(0.05 0.02 280 / 0.9);
+    }
+    22% {
+      box-shadow:
+        0 0 0 1px oklch(0.68 0.17 25 / 0.6),
+        0 0 40px -6px oklch(0.68 0.17 25 / 0.65),
+        0 18px 40px -18px oklch(0.05 0.02 280 / 0.9);
+    }
+  }
+
+  /* one-shot choreography, classes re-armed from script.
+     A hit is a *recoil*: the body is knocked back and springs in, as far as
+     the blow was heavy — --power is set from the impact before arming. */
+  .card {
+    --power: 1;
+    --knock: calc(-9px * var(--power));
+  }
+
+  :global(.card.player.hit) {
+    animation: recoil-left 300ms var(--ease-punch);
+  }
+
+  /* A crit is a different event. The card is *hurled*, overshoots coming back,
+     and the whole thing flares white before it settles. */
+  :global(.card.player.crit-hit) {
+    animation: crit-left 520ms var(--ease-punch);
   }
 
   :global(.card.bloomed) {
     animation: heal-bloom 520ms ease-out;
   }
 
-  @keyframes hit-shake {
+  @keyframes recoil-left {
     0% {
-      transform: translateX(0);
-      box-shadow: 0 0 0 1px oklch(0.68 0.17 25 / 0.55), 0 0 22px -4px oklch(0.68 0.17 25 / 0.5);
+      transform: translate3d(0, 0, 0) scale(1);
+      box-shadow: 0 0 0 2px oklch(0.68 0.17 25 / 0.7), 0 0 34px -4px oklch(0.68 0.17 25 / 0.6);
     }
-    25% {
-      transform: translateX(-1px);
+    18% {
+      transform: translate3d(var(--knock), 2px, 0) scale(0.982);
     }
-    50% {
-      transform: translateX(1px);
-      box-shadow: 0 0 0 1px oklch(0.68 0.17 25 / 0.3), 0 0 16px -6px oklch(0.68 0.17 25 / 0.3);
+    45% {
+      transform: translate3d(4px, -1px, 0) scale(1.006);
+      box-shadow: 0 0 0 1px oklch(0.68 0.17 25 / 0.28), 0 0 18px -8px oklch(0.68 0.17 25 / 0.3);
     }
-    75% {
-      transform: translateX(-1px);
+    70% {
+      transform: translate3d(-2px, 0, 0) scale(1);
     }
     100% {
-      transform: translateX(0);
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  @keyframes crit-left {
+    0% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(2.6) saturate(0.4);
+      box-shadow: 0 0 0 3px oklch(0.95 0.1 30), 0 0 60px 4px oklch(0.7 0.19 28 / 0.9);
+    }
+    12% {
+      transform: translate3d(calc(var(--knock) * 2.1), 5px, 0) scale(0.95) rotate(-1.1deg);
+      filter: brightness(1.6);
+    }
+    34% {
+      transform: translate3d(calc(var(--knock) * -0.7), -3px, 0) scale(1.03) rotate(0.6deg);
+      filter: brightness(1.15);
+      box-shadow: 0 0 0 2px oklch(0.68 0.17 25 / 0.5), 0 0 34px -2px oklch(0.68 0.17 25 / 0.55);
+    }
+    56% {
+      transform: translate3d(calc(var(--knock) * 0.35), 1px, 0) scale(0.995) rotate(-0.25deg);
+    }
+    78% {
+      transform: translate3d(-2px, 0, 0) scale(1);
+    }
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: brightness(1);
     }
   }
 
@@ -326,9 +440,12 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    :global(.card.hit),
+    :global(.card.player.hit),
+    :global(.card.player.crit-hit),
     :global(.card.bloomed),
-    :global(.card.reborn) {
+    :global(.card.reborn),
+    .critical,
+    .shell {
       animation: none;
     }
   }

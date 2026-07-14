@@ -4,10 +4,13 @@
   let { floats }: { floats: FloatText[] } = $props()
 </script>
 
-<!-- floating damage/heal numbers; shared by both cards -->
+<!-- Floating numbers live in arena space, not card space: a number is the
+     receipt for an impact, so it belongs where the impact happened — and its
+     size *is* the information. A chip tick and a Pyroblast crit should never
+     need to be read to tell them apart. -->
 <div class="fx" aria-hidden="true">
   {#each floats as f (f.id)}
-    <span class="float {f.kind}" style:left="{f.x}%">
+    <span class="float {f.kind}" style:left="{f.x}px" style:top="{f.y}px" style:--tone={f.tone} style:--s={f.scale}>
       {#if f.kind === 'heal'}+{f.amount}{:else if f.kind === 'absorb'}({f.amount}){:else}{f.amount}{/if}
     </span>
   {/each}
@@ -16,93 +19,117 @@
 <style>
   .fx {
     position: absolute;
-    inset: 0;
+    inset: -40px;
     pointer-events: none;
+    z-index: 4;
     overflow: visible;
   }
 
   .float {
     position: absolute;
-    top: 42%;
-    font-size: 21px;
-    font-weight: 720;
+    font-size: calc(21px * var(--s));
+    font-weight: 760;
+    line-height: 1;
     letter-spacing: 0.01em;
     font-variant-numeric: tabular-nums;
-    text-shadow: 0 2px 10px oklch(0.1 0.025 280 / 0.8);
-    animation: float-pop 950ms cubic-bezier(0.2, 0.7, 0.4, 1) both;
+    color: var(--tone);
+    text-shadow:
+      0 0 calc(9px * var(--s)) color-mix(in oklch, var(--tone) 75%, transparent),
+      0 2px 10px oklch(0.1 0.025 280 / 0.9);
+    animation: float-pop 980ms var(--ease-punch) both;
     will-change: transform, opacity;
   }
 
-  :global(.card.enemy) .float.damage,
-  :global(.card.enemy) .float.crit {
-    color: oklch(0.93 0.07 195);
-  }
-
-  :global(.card.player) .float.damage,
-  :global(.card.player) .float.crit {
-    color: var(--wound);
-  }
-
+  /* A crit is not a bigger number. It is a different event: white-hot, struck
+     in off-axis, ringed in its own colour, and it hangs there. */
   .float.crit {
-    font-size: 29px;
-    animation: crit-pop 1050ms cubic-bezier(0.2, 0.7, 0.4, 1) both;
+    font-weight: 830;
+    color: oklch(0.98 0.05 92);
+    -webkit-text-stroke: calc(1px * var(--s)) color-mix(in oklch, var(--tone) 85%, black);
+    paint-order: stroke fill;
+    text-shadow:
+      0 0 calc(8px * var(--s)) var(--tone),
+      0 0 calc(22px * var(--s)) color-mix(in oklch, var(--tone) 80%, transparent),
+      0 0 calc(52px * var(--s)) color-mix(in oklch, var(--tone) 55%, transparent),
+      0 3px 12px oklch(0.1 0.025 280 / 0.9);
+    animation: crit-pop 1250ms var(--ease-punch) both;
   }
 
   .float.heal {
-    color: var(--life);
+    font-weight: 700;
   }
 
   .float.absorb {
-    color: var(--shield);
-    font-size: 17px;
+    font-weight: 680;
+    opacity: 0.9;
   }
 
   @keyframes float-pop {
     0% {
       opacity: 0;
-      transform: translate(-50%, 2px) scale(0.6);
-    }
-    14% {
-      opacity: 1;
-      transform: translate(-50%, -4px) scale(1.14);
-    }
-    26% {
-      transform: translate(-50%, -8px) scale(1);
-    }
-    72% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-      transform: translate(-50%, -42px) scale(0.95);
-    }
-  }
-
-  @keyframes crit-pop {
-    0% {
-      opacity: 0;
-      transform: translate(-50%, 2px) scale(0.5) rotate(-4deg);
+      transform: translate(-50%, 0) scale(0.5);
     }
     12% {
       opacity: 1;
-      transform: translate(-50%, -6px) scale(1.3) rotate(2deg);
+      transform: translate(-50%, -8px) scale(1.22);
     }
-    26% {
-      transform: translate(-50%, -10px) scale(1.05) rotate(0);
+    24% {
+      transform: translate(-50%, -13px) scale(1);
     }
-    72% {
+    68% {
       opacity: 1;
     }
     100% {
       opacity: 0;
-      transform: translate(-50%, -52px) scale(1);
+      transform: translate(-50%, -56px) scale(0.9);
+    }
+  }
+
+  /* Overshoot hard, snap back, then a second smaller swell — the double-punch
+     is what makes a crit feel like it *hit* something. */
+  @keyframes crit-pop {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, 10px) scale(0.3) rotate(-10deg);
+    }
+    9% {
+      opacity: 1;
+      transform: translate(-50%, -12px) scale(1.7) rotate(5deg);
+    }
+    20% {
+      transform: translate(-50%, -18px) scale(1.02) rotate(-2deg);
+    }
+    30% {
+      transform: translate(-50%, -21px) scale(1.22) rotate(0deg);
+    }
+    42% {
+      transform: translate(-50%, -24px) scale(1.08);
+    }
+    70% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -78px) scale(1);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .float {
-      animation: none;
-      opacity: 0;
+    .float,
+    .float.crit {
+      animation: float-still 900ms linear both;
+    }
+
+    @keyframes float-still {
+      0%,
+      70% {
+        opacity: 1;
+        transform: translate(-50%, -14px);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -14px);
+      }
     }
   }
 </style>

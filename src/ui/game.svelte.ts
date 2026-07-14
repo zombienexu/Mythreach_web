@@ -19,8 +19,10 @@ import {
 } from '../engine'
 import type { LogEntry } from './components/CombatLog.svelte'
 import { ticksToClock } from './format'
+import { FxDirector, type FxHost } from './fx/director'
+import type { Spot } from './fx/stage'
 import { startLoop, type LoopHandle } from './loop'
-import { Sfx } from './sfx'
+import { Sfx, type SfxName } from './sfx'
 
 export type View = 'combat' | 'character' | 'talents' | 'atlas' | 'chronicle'
 
@@ -29,13 +31,29 @@ export interface FloatText {
   side: Side
   kind: 'damage' | 'crit' | 'heal' | 'absorb'
   amount: number
-  /** horizontal jitter, % of the card width */
+  /** position in arena-stage px — where the spell actually landed */
   x: number
+  y: number
+  /** CSS colour of the spell that caused it */
+  tone: string
+  /** how big to draw it: derived from the damage as a share of the target's
+   *  max HP, so the number *is* the readout. A chip is small, a crit is huge. */
+  scale: number
+}
+
+/** A card taking a blow. `power` and `crit` decide how hard it recoils. */
+export interface Impact {
+  n: number
+  power: number
+  crit: boolean
 }
 
 const SAVE_KEY = 'mythreach-save-v1'
 const LOG_CAP = 100
 const FLOAT_LIFETIME_MS = 950
+/** how far apart stacked damage numbers sit, and how close counts as a clash */
+const LANE_HEIGHT = 34
+const LANE_WIDTH = 68
 const SAVE_EVERY_MS = 5000
 
 const KEY_TO_ABILITY: ReadonlyMap<string, AbilityId> = new Map(
@@ -63,8 +81,12 @@ function boot(): { sim: GameSim; offline: OfflineSummary | null } {
 
 /** Reactive bridge between the pure sim and the Svelte UI.
  *  Sim events are drained exactly once, inside step(); everything the UI
- *  shows is either a snapshot or an effect spawned from those events. */
-export class Game {
+ *  shows is either a snapshot or an effect spawned from those events.
+ *
+ *  Game is also the FxDirector's host: the director decides *when* a number,
+ *  a card recoil or a sound happens (a fireball's lands when the bolt does),
+ *  and calls back in here to actually make it happen. */
+export class Game implements FxHost {
   private readonly booted = boot()
   readonly sim = this.booted.sim
 
@@ -79,23 +101,42 @@ export class Game {
     barrier: false,
     combustion: false,
   })
+  /** bump counters: a press the sim refused, per ability */
+  denied: Record<AbilityId, number> = $state({
+    fireball: 0,
+    ignite: 0,
+    renew: 0,
+    pyroblast: 0,
+    counterspell: 0,
+    barrier: 0,
+    combustion: 0,
+  })
   view: View = $state('combat')
   log: LogEntry[] = $state([])
   floats: FloatText[] = $state([])
-  /** bump counters driving hit-shake / heal-bloom choreography */
-  impacts: Record<Side, number> = $state({ player: 0, enemy: 0 })
+  /** bump counters driving hit-recoil / heal-bloom choreography */
+  impacts: Record<Side, Impact> = $state({
+    player: { n: 0, power: 1, crit: false },
+    enemy: { n: 0, power: 1, crit: false },
+  })
   bloom = $state(0)
+  /** a crit landed: bump counter + how hard, for the screen-wide flash */
+  critFlash: { n: number; power: number; side: Side } = $state({ n: 0, power: 1, side: 'enemy' })
   pressed = new SvelteSet<string>()
   /** Last enemy seen — keeps the "Slain" card on screen between spawns. */
   lastEnemy: EnemySnapshot | null = $state(null)
   offline: OfflineSummary | null = $state(this.booted.offline)
   banner: { level: number; unlocked: AbilityId[] } | null = $state(null)
   toast: { id: number; title: string; body: string } | null = $state(null)
+  /** the boss's name, while the challenge cinematic is on screen */
+  bossIntro: string | null = $state(null)
   victory = $state(false)
   muted = $state(this.sim.muted)
   auto = $state(this.sim.autoBattle)
 
-  private readonly sfx = new Sfx()
+  readonly fx = new FxDirector()
+
+  private readonly audio = new Sfx()
   private nextId = 1
   private loop: LoopHandle | null = null
   private saveTimer: ReturnType<typeof setInterval> | null = null
@@ -104,7 +145,8 @@ export class Game {
   private progressDirty = false
 
   start(): void {
-    this.sfx.muted = this.muted
+    this.audio.muted = this.muted
+    this.fx.bind(this)
     if (this.offline) {
       this.append(`While you were away, your echo kept fighting.`, 'info')
     }
@@ -135,13 +177,61 @@ export class Game {
     window.removeEventListener('keydown', this.unlockAudio)
     document.removeEventListener('visibilitychange', this.onVisibility)
     window.removeEventListener('beforeunload', this.saveNow)
+    this.fx.destroy()
+    this.audio.dispose()
     this.saveNow()
+  }
+
+  // ─────────────── FxHost — the director calls back in here ───────────────
+
+  float(f: { side: Side; kind: FloatText['kind']; amount: number; tone: string; scale: number; at: Spot }): void {
+    const id = this.nextId++
+    // Lifted clear of the portrait it belongs to, with a little scatter so a
+    // flurry of ticks reads as several numbers rather than one blur.
+    const x = f.at.x + (Math.random() * 44 - 22)
+    let y = f.at.y - 34 + (Math.random() * 18 - 9)
+
+    // A DoT tick and a Pyroblast landing on the same frame would otherwise
+    // overlap into an unreadable smear ("122" over "11" reads as "1122").
+    // Stack them into lanes instead, newest highest — the way every game
+    // client does it.
+    for (let guard = 0; guard < 6; guard++) {
+      const clash = this.floats.some(
+        (o) => o.side === f.side && Math.abs(o.y - y) < LANE_HEIGHT && Math.abs(o.x - x) < LANE_WIDTH,
+      )
+      if (!clash) break
+      y -= LANE_HEIGHT
+    }
+
+    this.floats.push({ id, side: f.side, kind: f.kind, amount: f.amount, tone: f.tone, scale: f.scale, x, y })
+    setTimeout(() => {
+      const i = this.floats.findIndex((f2) => f2.id === id)
+      if (i !== -1) this.floats.splice(i, 1)
+    }, FLOAT_LIFETIME_MS)
+  }
+
+  bump(side: Side, power: number, crit: boolean): void {
+    const cur = this.impacts[side]
+    this.impacts[side] = { n: cur.n + 1, power, crit }
+    // A crit is felt past the card it landed on — the room flashes.
+    if (crit) this.critFlash = { n: this.critFlash.n + 1, power, side }
+  }
+
+  sfx(name: SfxName, gain = 1): void {
+    this.audio.play(name, gain)
   }
 
   // ─────────────── player intents ───────────────
 
   use(id: AbilityId): void {
-    if (this.sim.useAbility(id)) this.publish()
+    if (this.sim.useAbility(id)) {
+      this.publish()
+    } else {
+      // The sim said no — out of mana, on cooldown, nothing to hit. The button
+      // should refuse visibly rather than swallow the press in silence.
+      this.denied[id]++
+      this.audio.play('denied')
+    }
   }
 
   setView(view: View): void {
@@ -158,7 +248,7 @@ export class Game {
   toggleMute(): void {
     this.muted = !this.muted
     this.sim.muted = this.muted
-    this.sfx.muted = this.muted
+    this.audio.muted = this.muted
   }
 
   travel(zoneId: string): void {
@@ -174,10 +264,16 @@ export class Game {
       this.lastEnemy = null
       const zone = this.progress.zones.find((z) => z.current)
       this.append(`You call the challenge. ${zone?.bossName ?? 'The boss'} answers.`, 'boss')
-      this.sfx.play('boss')
+      this.audio.play('boss')
+      // The name lands before the body does — the fight is announced.
+      this.bossIntro = zone?.bossName ?? 'The Boss'
       this.view = 'combat'
       this.publishAll()
     }
+  }
+
+  dismissBossIntro(): void {
+    this.bossIntro = null
   }
 
   equip(item: Item): void {
@@ -237,9 +333,12 @@ export class Game {
         gold?.kind === 'goldGained' ? `+${gold.amount} gold` : null,
       ].filter(Boolean)
       this.append(`${died.name} is slain. ${bits.join(', ')}.`, died.rank === 'boss' ? 'boss' : 'gold')
-      this.sfx.play('kill')
+      this.audio.play('kill')
     }
-    for (const event of events) this.onEvent(event)
+    for (const event of events) {
+      this.onEvent(event)
+      this.fx.handle(event)
+    }
   }
 
   private publish(): void {
@@ -250,6 +349,13 @@ export class Game {
       this.progressDirty = false
       this.progress = this.sim.progressSnapshot()
     }
+
+    // Standing effects follow the snapshot — a burn that expires quietly still
+    // has to stop burning, and no event says so.
+    this.fx.sync(this.combat)
+    const p = this.combat.player
+    this.audio.drone(this.combat.enemy?.rank === 'boss')
+    this.audio.heartbeat(p.alive && p.maxHp > 0 && p.hp / p.maxHp < 0.35)
   }
 
   private publishAll(): void {
@@ -263,17 +369,16 @@ export class Game {
         this.append(`You begin casting ${ABILITIES[event.abilityId].name}.`, 'info')
         break
       case 'castFinished':
-        this.sfx.play('cast')
-        break
+        break // the release is the director's — sound lands with the bolt
       case 'castFizzled':
         this.append(`${ABILITIES[event.abilityId].name} fizzles into the dark.`, 'info')
         break
       case 'abilityQueued':
         break // the button glow tells the story
       case 'damage': {
+        // The log is a chronicle and writes now; the float, the recoil, the
+        // shake and the sound are the director's, and may be in flight.
         if (event.target === 'enemy') {
-          this.spawnFloat('enemy', event.crit ? 'crit' : 'damage', event.amount)
-          this.impacts.enemy++
           const name = this.combat.enemy?.name ?? this.lastEnemy?.name ?? 'the enemy'
           const verb = event.source === 'ignite' ? 'burns' : event.source === 'pyroblast' ? 'crushes' : 'slams'
           const spell = event.source === 'ignite' ? 'Ignite' : ABILITIES[event.source as AbilityId]?.name ?? 'Your spell'
@@ -281,14 +386,7 @@ export class Game {
             `${spell} ${verb} ${name} for ${event.amount}${event.crit ? ' — critical!' : '.'}`,
             event.source === 'ignite' ? 'arcana' : 'player',
           )
-          this.sfx.play(event.crit ? 'crit' : 'hit')
         } else {
-          if (event.amount > 0) {
-            this.spawnFloat('player', 'damage', event.amount)
-            this.impacts.player++
-          } else if (event.absorbed > 0) {
-            this.spawnFloat('player', 'absorb', event.absorbed)
-          }
           const who = this.combat.enemy?.name ?? 'The enemy'
           const hit =
             event.source === 'enemySwing'
@@ -298,31 +396,25 @@ export class Game {
                 : `${event.label ?? 'A spell'} strikes you`
           const soak = event.absorbed > 0 ? ` (${event.absorbed} absorbed)` : ''
           this.append(`${hit} for ${event.amount}${soak}.`, 'enemy')
-          if (event.amount > 0) this.sfx.play('hit')
         }
         break
       }
       case 'heal':
-        this.spawnFloat('player', 'heal', event.amount)
         this.bloom++
         this.append(`Renew restores ${event.amount} health${event.crit ? ' — critical!' : '.'}`, 'heal')
-        this.sfx.play('heal')
         break
       case 'dotApplied':
         if (event.target === 'enemy') {
           this.append(`Ignite sears ${this.combat.enemy?.name ?? 'the enemy'}.`, 'arcana')
         } else {
           this.append(`${event.name} seeps into your veins.`, 'enemy')
-          this.sfx.play('warn')
         }
         break
       case 'buffApplied':
         if (event.id === 'barrier') {
           this.append(`A barrier of starlight surrounds you (${event.amount ?? 0}).`, 'player')
-          this.sfx.play('cast')
         } else {
           this.append('Combustion! Your fire runs wild.', 'player')
-          this.sfx.play('epic')
         }
         break
       case 'buffExpired':
@@ -333,21 +425,17 @@ export class Game {
         break
       case 'interrupted':
         this.append(`Counterspell! ${event.name} dies on their lips.`, 'player')
-        this.sfx.play('interrupt')
         break
       case 'enemyCastStarted':
         this.append(`${this.combat.enemy?.name ?? 'The enemy'} begins casting ${event.name}!`, 'enemy')
-        this.sfx.play('warn')
         break
       case 'enemyEnraged':
         this.append(`${event.name} flies into a frenzy!`, 'enemy')
-        this.impacts.enemy++
-        this.sfx.play('boss')
+        this.bump('enemy', 1.6, false)
         break
       case 'enemySpawned':
         this.lastEnemy = null
         this.append(event.intro, event.rank === 'boss' ? 'boss' : 'info')
-        if (event.rank === 'boss') this.sfx.play('boss')
         break
       case 'enemyDied':
         this.progressDirty = true
@@ -355,7 +443,6 @@ export class Game {
       case 'playerDied':
         this.progressDirty = true
         this.append('You fall. The observatory dims…', 'enemy')
-        this.sfx.play('death')
         break
       case 'playerRespawned':
         this.append('You awaken restored. The hunt resumes.', 'info')
@@ -371,7 +458,7 @@ export class Game {
         } else {
           this.append(`You loot ${event.item.name}.`, `loot-${event.item.rarity}`)
         }
-        this.sfx.play(event.item.rarity === 'epic' ? 'epic' : 'loot')
+        this.audio.play(event.item.rarity === 'epic' ? 'epic' : 'loot')
         break
       }
       case 'levelUp': {
@@ -382,13 +469,13 @@ export class Game {
           `You reach level ${event.level}!${unlocks ? ` New spell: ${unlocks}.` : ''}`,
           'boss',
         )
-        this.sfx.play('level')
+        this.audio.play('level')
         break
       }
       case 'bossReady':
         this.progressDirty = true
         this.append('The way to the boss lies open. Challenge it from the zone banner.', 'boss')
-        this.sfx.play('warn')
+        this.audio.play('warn')
         break
       case 'bossDefeated': {
         this.progressDirty = true
@@ -408,13 +495,13 @@ export class Game {
         const def = ACHIEVEMENT_BY_ID[event.id]
         this.showToast(event.name, def?.description ?? '')
         this.append(`Achievement: ${event.name}`, 'gold')
-        this.sfx.play('loot')
+        this.audio.play('loot')
         break
       }
       case 'gameCompleted':
         this.progressDirty = true
         this.victory = true
-        this.sfx.play('level')
+        this.audio.play('level')
         break
     }
   }
@@ -429,15 +516,6 @@ export class Game {
     this.toast = { id: this.nextId++, title, body }
     if (this.toastTimer) clearTimeout(this.toastTimer)
     this.toastTimer = setTimeout(() => (this.toast = null), 4200)
-  }
-
-  private spawnFloat(side: Side, kind: FloatText['kind'], amount: number): void {
-    const id = this.nextId++
-    this.floats.push({ id, side, kind, amount, x: 30 + Math.random() * 30 })
-    setTimeout(() => {
-      const i = this.floats.findIndex((f) => f.id === id)
-      if (i !== -1) this.floats.splice(i, 1)
-    }, FLOAT_LIFETIME_MS)
   }
 
   private append(text: string, tone: LogEntry['tone']): void {
@@ -458,7 +536,7 @@ export class Game {
   }
 
   private unlockAudio = (): void => {
-    this.sfx.unlock()
+    this.audio.unlock()
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
