@@ -1,15 +1,12 @@
+import { ABILITY_IDS } from './abilities'
 import { Combatant } from './combatant'
 import type { Dot } from './dot'
 import type { AbilityId, BuffSnapshot, DerivedStats, PlayerSnapshot } from './types'
 
-const ZERO_COOLDOWNS: Record<AbilityId, number> = {
-  fireball: 0,
-  ignite: 0,
-  renew: 0,
-  pyroblast: 0,
-  counterspell: 0,
-  barrier: 0,
-  combustion: 0,
+/** Derived from ABILITY_IDS, never hand-listed: a new ability must not be able
+ *  to ship with a missing cooldown slot. */
+function zeroCooldowns(): Record<AbilityId, number> {
+  return Object.fromEntries(ABILITY_IDS.map((id) => [id, 0])) as Record<AbilityId, number>
 }
 
 /** The hero's combat-side state. Progression (level/gear/talents) lives in the sim;
@@ -20,7 +17,7 @@ export class PlayerUnit {
   cast: { id: AbilityId; elapsed: number; total: number } | null = null
   queued: AbilityId | null = null
   gcd = 0
-  cooldowns: Record<AbilityId, number> = { ...ZERO_COOLDOWNS }
+  cooldowns: Record<AbilityId, number> = zeroCooldowns()
   /** Barrier absorb; expires on time or when consumed. */
   shield: { amount: number; remaining: number } | null = null
   /** Remaining combustion ticks (0 = inactive). */

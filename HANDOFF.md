@@ -27,10 +27,9 @@ the most non-obvious invariants.
 
 ### Current branch state
 
-Work landed on branch **`combat-fx`** (pushed to origin), *not* on `master`.
-Three commits: M7 (the FX layer), M8 (effects-as-data refactor + WoW-style
-numbers), M9 (bloom, per-school sound, crit flash, float lanes). Merge to
-master when the owner is happy with it.
+**`master` is the truth.** `combat-fx` (M7: the FX layer, M8: effects-as-data +
+WoW-style numbers, M9: bloom, per-school sound, crit flash, float lanes) was
+merged into master and pushed. There is no live feature branch.
 
 v0 (one golem, three abilities) was milestones M0–M5; v1 replaced its rules
 wholesale — the v0 "frozen rules" are obsolete. Balance is pinned by
@@ -55,7 +54,7 @@ wholesale — the v0 "frozen rules" are obsolete. Balance is pinned by
 ## The contract (keep these green at all times)
 
 ```sh
-npm test        # 86 Vitest cases — rules, content envelope, campaign balance
+npm test        # 88 Vitest cases — rules, content envelope, campaign balance
 npm run check   # svelte-check + tsc, strict, 0 errors 0 warnings
 ```
 
@@ -117,6 +116,11 @@ src/ui/
                        noise), boss drone, low-HP heartbeat. Still zero assets.
   format.ts            ticksToSeconds/cooldownLabel/Clock/Duration, stat labels
   fx/                  the combat effects layer (see "Combat FX" below)
+    spells.ts          THE FILE YOU EDIT. One row per damage source: charge,
+                       release, projectile, impact, crit, aura, sfx. The only
+                       file in the repo with opinions about a specific spell.
+    recipe.ts          the effect language: the Step union + playRecipe().
+                       Symbolic tints, one scale factor. No spell knowledge.
     stage.ts           Pixi canvas over the arena; pooled additive particles,
                        projectiles, shockwaves, bolts, standing emitters;
                        procedural textures; timeScale (hit-stop), intensity
@@ -137,6 +141,8 @@ src/ui/
 
 tests/                 helpers.ts (testContent/makeSim/advance…) + 11 spec files
 tools/shots.mjs        npm run shots — README screenshots (fresh fight, boss, bags)
+docs/EXTENDING.md      the cookbook: how to add abilities, effects, enemies,
+                       mechanics, zones, talents, achievements, sounds
 ```
 
 Data flow: `loop` ticks sim → `Game` drains events once per tick → snapshots
@@ -175,24 +181,25 @@ stage.ts     Pixi primitives: particles, projectiles, rings, bolts, emitters.
 The rule: **`spells.ts` is the only file with opinions about a specific spell.**
 If you find yourself adding `if (id === 'fireball')` anywhere else, stop.
 
-### Adding an ability
+### Adding things → **`docs/EXTENDING.md`**
 
-1. Define it in the engine (`abilities.ts`, `ABILITY_EFFECTS`, `ABILITY_IDS`).
-2. Add a `--tone-<id>` CSS token in `tokens.css` and a `TONE`/`TONE_DEEP` entry
-   in `fx/palette.ts`.
-3. Add one row to `SPELL_FX` in `fx/spells.ts`: `charge`, `release`,
-   `projectile` (omit ⇒ instant), `impact`, `crit`, `aura`, `sfx`.
+That is the cookbook: abilities, ability-effect kinds, new visual `Step`
+primitives, enemies, enemy mechanics, zones, talents, achievements, sounds. Each
+recipe is a complete, verified file list with the traps marked. **Read it before
+adding anything, and update it when you change what a recipe touches** — it is
+the file that stops this codebase from needing archaeology.
 
-That's it. No director, stage, recipe or component changes. Reuse the shared
-phrases (`DETONATE`, `DEBRIS`, `CRIT_FLOURISH`) — because tints are symbolic
-(`'tone'`, `'deep'`, `'hot'`, `'mix'`), the same phrase comes out orange for
-Fireball and violet for Ignite.
+The short version for an ability: engine (`types.ts` union → `abilities.ts` ×3 →
+`autoAct()` rotation), then look (`tokens.css` tone → `palette.ts` → one row in
+`spells.ts` → an icon glyph). No director, stage, recipe or component changes.
+Reuse the shared phrases (`DETONATE`, `DEBRIS`, `CRIT_FLOURISH`) — because tints
+are symbolic (`'tone'`, `'deep'`, `'hot'`, `'mix'`), the same phrase comes out
+orange for Fireball and violet for Ignite.
 
-### Adding a *kind* of effect
-
-Only if no combination of existing Steps will do: add a primitive to `stage.ts`,
-then a `Step` variant to `recipe.ts` that drives it. Everything downstream gets
-it for free.
+Two registration sites the compiler *cannot* guard, and both have bitten:
+`ABILITY_IDS` (a plain array — a test now covers it) and the `{:else}` fallback
+in `AbilityIcon.svelte` (a new ability with no branch silently renders
+Combustion's sun).
 
 ### Rules that matter
 

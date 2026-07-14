@@ -99,7 +99,7 @@ npm run dev
 |--------|--------------|
 | `npm run dev` | dev server with HMR |
 | `npm run build` / `preview` | production build / serve it |
-| `npm test` | the engine contract — 86 Vitest cases incl. a campaign balance envelope |
+| `npm test` | the engine contract — 88 Vitest cases incl. a campaign balance envelope |
 | `npm run check` | svelte-check + tsc, strict mode |
 | `npm run shots` | build + headless Playwright screenshots into `docs/` (first run: `npx playwright install chromium`) |
 
@@ -188,8 +188,11 @@ fireball: {
 },
 ```
 
-Adding an ability is ~24 lines in that table plus a colour token. The director,
-the stage, the recipe engine and every component are untouched. Four strata:
+Adding an ability is ~24 lines in that table plus a colour token — the director,
+the stage, the recipe engine and every component are untouched.
+**[`docs/EXTENDING.md`](docs/EXTENDING.md) is the cookbook** for that and for
+every other kind of content: new abilities, new effect primitives, enemies, enemy
+mechanics, zones, talents, achievements, sounds. Four strata:
 
 | | |
 |---|---|
@@ -262,7 +265,7 @@ only when you challenge a boss, and a reduced-motion player downloads neither.
 
 ### The tests: the contract
 
-`tests/` holds 86 cases across eleven files: the unit rules (combatant, DoT,
+`tests/` holds 88 cases across eleven files: the unit rules (combatant, DoT,
 RNG), every ability's exact timing (GCD, queueing, fizzle refunds,
 cooldown-at-resolve), enemy mechanics on custom content packs, progression
 math pinned to formulas, item generation budgets, the boss/zone/campaign

@@ -60,6 +60,11 @@ const KEY_TO_ABILITY: ReadonlyMap<string, AbilityId> = new Map(
   ABILITY_IDS.map((id) => [ABILITIES[id].key, id]),
 )
 
+/** One slot per ability, seeded with `v`. */
+function byAbility<T>(v: T): Record<AbilityId, T> {
+  return Object.fromEntries(ABILITY_IDS.map((id) => [id, v])) as Record<AbilityId, T>
+}
+
 function boot(): { sim: GameSim; offline: OfflineSummary | null } {
   try {
     const raw = localStorage.getItem(SAVE_KEY)
@@ -92,25 +97,11 @@ export class Game implements FxHost {
 
   combat: CombatSnapshot = $state(this.sim.combatSnapshot())
   progress: ProgressSnapshot = $state(this.sim.progressSnapshot())
-  usable: Record<AbilityId, boolean> = $state({
-    fireball: false,
-    ignite: false,
-    renew: false,
-    pyroblast: false,
-    counterspell: false,
-    barrier: false,
-    combustion: false,
-  })
+  /** Both derived from ABILITY_IDS, never hand-listed — adding an ability must
+   *  not require remembering to add a slot here. */
+  usable: Record<AbilityId, boolean> = $state(byAbility(false))
   /** bump counters: a press the sim refused, per ability */
-  denied: Record<AbilityId, number> = $state({
-    fireball: 0,
-    ignite: 0,
-    renew: 0,
-    pyroblast: 0,
-    counterspell: 0,
-    barrier: 0,
-    combustion: 0,
-  })
+  denied: Record<AbilityId, number> = $state(byAbility(0))
   view: View = $state('combat')
   log: LogEntry[] = $state([])
   floats: FloatText[] = $state([])

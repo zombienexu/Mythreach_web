@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ABILITIES, ABILITY_EFFECTS, ABILITY_IDS } from '../src/engine/abilities'
 import { GCD_TICKS } from '../src/engine/types'
 import { advance, advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
 
@@ -138,5 +139,29 @@ describe('casting and the GCD', () => {
       sim.tick()
     }
     expect(refused).toBe(true)
+  })
+})
+
+// The registration contract. ABILITY_IDS is a plain array, so an ability that
+// exists in ABILITIES but was never added to it fails *silently* — it simply
+// never appears on the action bar, and its cooldown/usable/denied slots (all
+// derived from ABILITY_IDS) go missing. These assertions turn that into a
+// build failure, which is what the "adding an ability" guide promises.
+describe('ability registration', () => {
+  it('ABILITY_IDS lists every ability in ABILITIES, exactly once', () => {
+    expect([...ABILITY_IDS].sort()).toEqual(Object.keys(ABILITIES).sort())
+    expect(new Set(ABILITY_IDS).size).toBe(ABILITY_IDS.length)
+  })
+
+  it('every ability has an effect, a unique hotkey, and a sane unlock level', () => {
+    for (const id of ABILITY_IDS) {
+      expect(ABILITY_EFFECTS[id], `${id} has no effect`).toBeDefined()
+      expect(ABILITIES[id].id, `${id} key mismatch`).toBe(id)
+      expect(ABILITIES[id].unlockLevel).toBeGreaterThanOrEqual(1)
+      expect(ABILITIES[id].castTicks).toBeGreaterThanOrEqual(0)
+      expect(ABILITIES[id].cooldownTicks).toBeGreaterThanOrEqual(0)
+    }
+    const keys = ABILITY_IDS.map((id) => ABILITIES[id].key)
+    expect(new Set(keys).size, 'two abilities share a hotkey').toBe(keys.length)
   })
 })
