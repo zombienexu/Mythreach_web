@@ -22,8 +22,9 @@
     { id: 'combat', label: 'Combat' },
     { id: 'character', label: 'Character' },
     { id: 'talents', label: 'Talents' },
-    { id: 'atlas', label: 'Atlas' },
+    { id: 'regions', label: 'Regions' },
     { id: 'chronicle', label: 'Chronicle' },
+    { id: 'settings', label: 'Settings' },
   ]
 </script>
 

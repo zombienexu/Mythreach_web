@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import type { CombatEvent } from '../src/engine/events'
+import type { GameSim } from '../src/engine/sim'
 import type { EncounterDef, EnemyDef } from '../src/engine/types'
+import { NODE_SPAWN_TICKS, PLAYER_RESPAWN_TICKS } from '../src/engine/types'
 import { advance, advanceToSpawn, dummyEnemy, eventsOf, makeSim, targetOf, testContent } from './helpers'
 
 /** A 3-mob vanguard: two grunts up front, one bruiser behind. */
@@ -21,8 +24,20 @@ function vanguardMobs(over: Partial<EnemyDef> = {}): EnemyDef[] {
 function vanguardSim(over: Partial<EnemyDef> = {}, level = 10) {
   return makeSim({
     level,
-    content: testContent({}, { enemies: vanguardMobs(over), zone1Encounters: VANGUARD }),
+    content: testContent({}, { enemies: vanguardMobs(over), region1Encounters: VANGUARD }),
   })
+}
+
+/** Cast fireball at every opportunity, ticking, until `stop` returns true or the
+ *  tick budget runs out. Collects every event seen. */
+function fight(sim: GameSim, stop: (events: CombatEvent[]) => boolean, budget = 4000): CombatEvent[] {
+  const events: CombatEvent[] = []
+  for (let i = 0; i < budget && !stop(events); i++) {
+    const s = sim.combatSnapshot()
+    if (s.enemies.length > 0 && s.cast === null && s.queued === null) sim.useAbility('fireball')
+    events.push(...sim.tick())
+  }
+  return events
 }
 
 describe('encounter spawning', () => {
@@ -42,6 +57,88 @@ describe('encounter spawning', () => {
     const sim = vanguardSim()
     advanceToSpawn(sim)
     expect(targetOf(sim)?.defId).toBe('grunt-a')
+  })
+})
+
+describe('endless combat', () => {
+  it('combat starts with a spawn already scheduled', () => {
+    const sim = makeSim()
+    expect(sim.combatSnapshot().phase).toBe('combat')
+    advance(sim, NODE_SPAWN_TICKS + 1)
+    expect(sim.combatSnapshot().enemies.length).toBeGreaterThanOrEqual(1)
+    expect(sim.combatSnapshot().phase).toBe('combat')
+  })
+
+  it('clearing a pack schedules the next one — the hunt never ends', () => {
+    const sim = makeSim({ level: 15, content: testContent({ hp: 1 }) })
+    let prevIid = -1
+    for (let round = 0; round < 2; round++) {
+      advanceToSpawn(sim)
+      const iid = sim.combatSnapshot().enemies[0]!.iid
+      expect(iid).not.toBe(prevIid)
+      prevIid = iid
+      // Clear it and confirm the field empties, then refills.
+      fight(sim, (ev) => eventsOf(ev, 'encounterCleared').length > 0)
+      expect(sim.combatSnapshot().enemies).toHaveLength(0)
+    }
+    // A third pack is on its way without any prompting.
+    advanceToSpawn(sim)
+    expect(sim.combatSnapshot().enemies[0]!.iid).not.toBe(prevIid)
+  })
+
+  it('enterRegion switches the mob table', () => {
+    const sim = makeSim({ level: 15, content: testContent({ hp: 1 }) })
+    expect(sim.enterRegion('r1')).toBe(false) // already here
+    expect(sim.enterRegion('nope')).toBe(false)
+    expect(sim.enterRegion('r2')).toBe(true)
+    advanceToSpawn(sim)
+    expect(sim.combatSnapshot().enemies.every((e) => e.defId === 'dummy2')).toBe(true)
+  })
+
+  it('enterRegion is refused during a world-boss assault', () => {
+    const sim = makeSim({ level: 12 })
+    expect(sim.assaultWorldBoss()).toBe(true)
+    expect(sim.enterRegion('r2')).toBe(false)
+  })
+
+  it('player death respawns and combat carries on', () => {
+    const sim = makeSim({
+      level: 1,
+      content: testContent({ hp: 5000, swingTicks: 40, dmgMin: 9999, dmgMax: 9999 }),
+    })
+    // Wait for the first death.
+    let died = false
+    for (let i = 0; i < 2000 && !died; i++) {
+      if (sim.tick().some((e) => e.kind === 'playerDied')) died = true
+    }
+    expect(died).toBe(true)
+    advance(sim, PLAYER_RESPAWN_TICKS + NODE_SPAWN_TICKS + 2)
+    const snap = sim.combatSnapshot()
+    expect(snap.player.alive).toBe(true)
+    expect(snap.enemies.length).toBeGreaterThanOrEqual(1)
+    expect(snap.phase).toBe('combat')
+  })
+})
+
+describe('materials', () => {
+  it('drop, accumulate, and belong to the current region', () => {
+    const sim = makeSim({ seed: 7, level: 15, content: testContent({ hp: 1, dropPct: 0 }) })
+    fight(sim, () => sim.progressSnapshot().materials.length > 0, 8000)
+    const mats = sim.progressSnapshot().materials
+    expect(mats.length).toBeGreaterThan(0)
+    expect(mats[0]!.count).toBeGreaterThanOrEqual(1)
+    for (const m of mats) expect(m.id).toBe('test-scrap') // r1's only material
+  })
+
+  it('sellMaterial converts a stack to gold and clears it', () => {
+    const sim = makeSim({ seed: 7, level: 15, content: testContent({ hp: 1, dropPct: 0 }) })
+    fight(sim, () => sim.progressSnapshot().materials.length > 0, 8000)
+    const stack = sim.progressSnapshot().materials[0]!
+    const goldBefore = sim.progressSnapshot().gold
+    expect(sim.sellMaterial(stack.id)).toBe(true)
+    expect(sim.progressSnapshot().gold).toBe(goldBefore + stack.value)
+    expect(sim.progressSnapshot().materials.find((m) => m.id === stack.id)).toBeUndefined()
+    expect(sim.sellMaterial('does-not-exist')).toBe(false)
   })
 })
 
@@ -132,7 +229,7 @@ describe('multiple attackers', () => {
               ],
             }),
           ],
-          zone1Encounters: [
+          region1Encounters: [
             { weight: 1, slots: [{ enemyId: 'silent' }, { enemyId: 'chanter', row: 'back' }] },
           ],
         },
@@ -165,37 +262,15 @@ describe('encounter lifecycle', () => {
     expect(snap.enemies.filter((e) => !e.alive)).toHaveLength(1)
   })
 
-  it('clearing the pack pays each mob and resolves the node', () => {
+  it('clearing the pack pays each mob and empties the field', () => {
     const sim = vanguardSim({ hp: 1 }, 15)
-    sim.embark()
-    const events: ReturnType<typeof advance> = []
-    for (let i = 0; i < 2000 && eventsOf(events, 'encounterCleared').length === 0; i++) {
-      const s = sim.combatSnapshot()
-      if (s.enemies.length > 0 && s.cast === null && s.queued === null) sim.useAbility('fireball')
-      events.push(...sim.tick())
-    }
+    const events = fight(sim, (ev) => eventsOf(ev, 'encounterCleared').length > 0)
     expect(eventsOf(events, 'enemyDied')).toHaveLength(3)
     expect(eventsOf(events, 'encounterCleared')).toHaveLength(1)
     const xp = eventsOf(events, 'xpGained').reduce((sum, e) => sum + e.amount, 0)
     expect(xp).toBe(30) // 5 + 5 + 20 — every mob pays
-    expect(eventsOf(events, 'nodeResolved').some((e) => e.index === 0)).toBe(true)
     const snap = sim.combatSnapshot()
     expect(snap.enemies).toHaveLength(0)
     expect(snap.target).toBeNull()
-    expect(snap.expedition!.nodeResolved).toBe(true)
-  })
-
-  it('the boss node spawns the zone boss alone', () => {
-    const sim = makeSim({ level: 12, content: testContent({ hp: 1 }) })
-    sim.autoBattle = true
-    let bossSpawn: number | null = null
-    for (let i = 0; i < 20_000 && bossSpawn === null; i++) {
-      for (const e of sim.tick()) {
-        if (e.kind === 'enemySpawned' && e.rank === 'boss') bossSpawn = e.iid
-      }
-    }
-    expect(bossSpawn).not.toBeNull()
-    expect(sim.combatSnapshot().enemies.filter((e) => e.alive)).toHaveLength(1)
-    expect(sim.combatSnapshot().enemies[0]!.rank).toBe('boss')
   })
 })

@@ -64,9 +64,19 @@ describe('world boss — the Rift Colossus', () => {
     expect(prog.worldBoss.hp).toBe(WORLD_BOSS_MAX_HP) // pool reset
   })
 
-  it('assault is refused mid-expedition', () => {
+  it('assault is refused while already assaulting', () => {
     const sim = makeSim({ level: 12 })
-    sim.embark()
+    expect(sim.assaultWorldBoss()).toBe(true)
     expect(sim.assaultWorldBoss()).toBe(false)
+  })
+
+  it('ending an assault drops you back into region combat', () => {
+    const sim = makeSim({ level: 12 })
+    sim.assaultWorldBoss()
+    expect(sim.retreat()).toBe(true)
+    expect(sim.combatSnapshot().phase).toBe('combat')
+    // A region pack is scheduled again.
+    advance(sim, 30)
+    expect(sim.combatSnapshot().enemies.length).toBeGreaterThanOrEqual(1)
   })
 })

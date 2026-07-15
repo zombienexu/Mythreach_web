@@ -30,12 +30,9 @@ export type TalentId =
   | 'swiftRenewal'
 export type BuffId = 'barrier' | 'combustion'
 
-/** A stop on an expedition trail. `boss` is always the last node; the rest are
- *  drawn from a weighted table and interpreted as data (like enemy mechanics). */
-export type NodeKind = 'battle' | 'elite' | 'cache' | 'shrine' | 'rest' | 'boss'
-
-/** Expedition-scoped blessings, cleared when the expedition ends. */
-export type BlessingId = 'emberheart' | 'stoneskin' | 'springstep' | 'manatide' | 'keeneye'
+/** Difficulty band of a region and the tier of material it yields. */
+export type RegionTier = 'low' | 'medium' | 'hard'
+export type MaterialTier = RegionTier
 
 /** The engine runs at 20 ticks per second; one tick is 50 ms. */
 export const TICKS_PER_SECOND = 20
@@ -44,19 +41,12 @@ export const MS_PER_TICK = 1000 / TICKS_PER_SECOND
 /** Global cooldown triggered by (almost) every ability. 1.2 s — snappier than the classic 1.5. */
 export const GCD_TICKS = 24
 export const PLAYER_RESPAWN_TICKS = 100
-export const BOSS_APPROACH_TICKS = 70
 export const REGEN_INTERVAL_TICKS = 20
 export const LEVEL_CAP = 15
 export const INVENTORY_CAP = 24
 export const RESPEC_COST = 50
 
-/** An expedition is a trail of `ROUTE_STEPS` nodes plus a final boss node. */
-export const ROUTE_STEPS = 8
-/** Ticks spent travelling between two nodes (4.5 s at 20 tps). */
-export const TRAVEL_TICKS = 90
-/** Auto-battle pause at camp / a resolved node before it embarks / advances. */
-export const AUTO_BREATHER_TICKS = 30
-/** Delay between arriving at a combat node and the encounter appearing. */
+/** Breather between one pack falling and the next arriving (1 s at 20 tps). */
 export const NODE_SPAWN_TICKS = 20
 
 export interface Item {
@@ -66,6 +56,26 @@ export interface Item {
   ilvl: number
   rarity: Rarity
   stats: Partial<Record<StatId, number>>
+}
+
+/** An inert crafting material. Does nothing yet; drops, stacks, and sells. */
+export interface MaterialDef {
+  id: string
+  name: string
+  tier: MaterialTier
+  /** Gold each stack unit sells for. */
+  value: number
+  flavor: string
+}
+
+/** A material line in the player's bags, for the Character screen. */
+export interface MaterialStackView {
+  id: string
+  name: string
+  tier: MaterialTier
+  count: number
+  /** Gold the whole stack sells for. */
+  value: number
 }
 
 export interface EnemyMechanicEnrage {
@@ -134,30 +144,46 @@ export interface EncounterDef {
   weight: number
 }
 
+/** Raw zone data — kept as the source the three regions are built from. Its
+ *  `bossId`/`travelLines` fields are now unused legacy data. */
 export interface ZoneDef {
   id: string
   name: string
   epithet: string
-  /** Recommended level — display only; unlocks are gated by the previous boss. */
   minLevel: number
-  /** Accent hue for the zone's ambience (oklch hue angle). */
   hue: number
-  /** Weighted table of encounters (packs of 1–3 mobs). */
   encounters: EncounterDef[]
-  /** Weighted table for `elite` nodes — a tougher spawn than the normal table. */
   eliteEncounters: EncounterDef[]
-  /** Flavor lines shown while travelling between nodes; one is picked per hop. */
   travelLines: string[]
   bossId: string
   intro: string
 }
 
+/** A free-choice hunting ground. Pick one and its mobs spawn endlessly. */
+export interface RegionDef {
+  id: string
+  name: string
+  epithet: string
+  tier: RegionTier
+  /** Recommended level band (display only — regions are never gated). */
+  minLevel: number
+  maxLevel: number
+  /** Accent hue for the region's ambience (oklch hue angle). */
+  hue: number
+  /** Weighted table of encounters (packs of 1–3 mobs). */
+  encounters: EncounterDef[]
+  /** Weighted table for the occasional elite spawn. */
+  eliteEncounters: EncounterDef[]
+  /** Material ids that can drop here. */
+  materials: string[]
+  intro: string
+}
+
 export interface ContentPack {
-  /** Zone order is progression order; zone n+1 unlocks when zone n's boss dies. */
-  zones: readonly ZoneDef[]
+  /** The three difficulty regions, low → hard. All selectable from the start. */
+  regions: readonly RegionDef[]
   enemies: Record<string, EnemyDef>
-  /** Defeating this enemy completes the campaign. */
-  finalBossId: string
+  materials: Record<string, MaterialDef>
 }
 
 /** Everything the combat math needs, derived from level + talents + gear. */
@@ -234,41 +260,17 @@ export interface EnemySnapshot {
   dot: DotSnapshot | null
 }
 
-/** One node on the trail ribbon. `kind` is masked to 'unknown' until revealed
- *  (the boss is never masked). */
-export interface ExpeditionNodeView {
-  kind: NodeKind | 'unknown'
-  state: 'done' | 'current' | 'ahead'
-}
-
-export interface ExpeditionSnapshot {
-  /** Current/target node index. */
-  index: number
-  /** ROUTE_STEPS + 1. */
-  total: number
-  traveling: boolean
-  travelRemaining: number
-  travelTotal: number
-  nodeResolved: boolean
-  nodes: ExpeditionNodeView[]
-  pendingShrine: BlessingId[] | null
-  blessings: BlessingId[]
-}
-
 export interface CombatSnapshot {
   tick: number
-  /** Where the hero is: at camp, walking the trail, resolving a node, or
-   *  assaulting the world boss. */
-  phase: 'camp' | 'travel' | 'node' | 'assault'
+  /** Fighting in a region, or assaulting the world boss. */
+  phase: 'combat' | 'assault'
   player: PlayerSnapshot
   /** The current pack, dead mobs included until it's cleared; empty between spawns. */
   enemies: EnemySnapshot[]
   /** iid of the targeted enemy, or null when the field is empty. */
   target: number | null
-  /** Ticks until the current node's encounter arrives (0 once on the field). */
+  /** Ticks until the next pack arrives (0 once on the field). */
   spawnIn: number
-  /** The live expedition, or null at camp / during a world-boss assault. */
-  expedition: ExpeditionSnapshot | null
   cast: CastSnapshot | null
   queued: AbilityId | null
   cooldowns: Record<AbilityId, number>
@@ -278,26 +280,22 @@ export interface CombatSnapshot {
   companion: { name: string; swingProgress: number } | null
 }
 
-export interface ZoneProgress {
+export interface RegionProgress {
   id: string
   name: string
   epithet: string
+  tier: RegionTier
   minLevel: number
+  maxLevel: number
   hue: number
-  unlocked: boolean
   current: boolean
-  bossDefeated: boolean
-  bossName: string
   enemyNames: string[]
 }
 
 /** Leaderboard scaffold — local now, server-owned someday. */
 export interface Records {
-  expeditionsCompleted: number
   worldBossFells: number
   bestAssaultDamage: number
-  /** zoneId → fewest ticks from boss spawn to boss kill. */
-  fastestBossKills: Record<string, number>
 }
 
 export interface LifetimeStats {
@@ -320,20 +318,21 @@ export interface ProgressSnapshot {
   talentRanks: Record<TalentId, number>
   inventory: Item[]
   equipped: Partial<Record<ItemSlot, Item>>
-  zoneId: string
-  zones: ZoneProgress[]
+  regionId: string
+  regions: RegionProgress[]
+  /** Inert crafting materials in the bags, sorted low → hard then by name. */
+  materials: MaterialStackView[]
   achievements: string[]
   lifetime: LifetimeStats
   records: Records
-  /** The persistent world-boss pool, for the Atlas panel. */
+  /** The persistent world-boss pool, for the Regions panel. */
   worldBoss: { name: string; hp: number; maxHp: number; fells: number }
   /** The hired companion, or null. */
   companion: { id: string; name: string } | null
-  completed: boolean
 }
 
 export interface SaveData {
-  version: 2
+  version: 3
   level: number
   xp: number
   gold: number
@@ -341,8 +340,9 @@ export interface SaveData {
   equipped: Partial<Record<ItemSlot, Item>>
   inventory: Item[]
   nextUid: number
-  zoneId: string
-  bossesDefeated: string[]
+  regionId: string
+  /** Inert crafting materials: materialId → count. */
+  materials: Record<string, number>
   achievements: string[]
   lifetime: LifetimeStats
   records: Records
@@ -351,5 +351,4 @@ export interface SaveData {
   /** Hired companion id, or null. */
   companionId: string | null
   autoBattle: boolean
-  completed: boolean
 }

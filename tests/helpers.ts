@@ -6,8 +6,9 @@ import type {
   EncounterDef,
   EnemyDef,
   EnemySnapshot,
+  MaterialDef,
+  RegionDef,
   SaveData,
-  ZoneDef,
 } from '../src/engine/types'
 
 /** A fully controllable enemy. Defaults to a harmless, drop-less training dummy. */
@@ -32,50 +33,61 @@ export function dummyEnemy(over: Partial<EnemyDef> = {}): EnemyDef {
   }
 }
 
-/** Two-zone content pack: z1 (dummy → boss1) unlocks z2 (dummy2 → boss2 = final). */
+/** Two-region content pack: r1 (dummy, low) and r2 (dummy2, medium). Both are
+ *  freely selectable — regions are never gated. */
 export function testContent(
   enemyOverrides: Partial<EnemyDef> = {},
-  extra: { enemies?: EnemyDef[]; zone1Encounters?: EncounterDef[] } = {},
+  extra: { enemies?: EnemyDef[]; region1Encounters?: EncounterDef[] } = {},
 ): ContentPack {
   const enemies: EnemyDef[] = [
     dummyEnemy(enemyOverrides),
     dummyEnemy({ id: 'dummy2', name: 'Second Dummy', level: 5, xp: 20 }),
-    dummyEnemy({ id: 'boss1', name: 'First Boss', rank: 'boss', hp: 300, xp: 100, dropPct: 100 }),
-    dummyEnemy({ id: 'boss2', name: 'Final Boss', rank: 'boss', hp: 300, xp: 200, dropPct: 100 }),
     ...(extra.enemies ?? []),
   ]
-  const zones: ZoneDef[] = [
+  const materials: MaterialDef[] = [
+    { id: 'test-scrap', name: 'Test Scrap', tier: 'low', value: 5, flavor: 'test junk' },
+    { id: 'test-relic', name: 'Test Relic', tier: 'medium', value: 12, flavor: 'test relic' },
+  ]
+  const regions: RegionDef[] = [
     {
-      id: 'z1',
-      name: 'Zone One',
+      id: 'r1',
+      name: 'Region One',
       epithet: 'test grounds',
+      tier: 'low',
       minLevel: 1,
+      maxLevel: 6,
       hue: 200,
-      encounters: extra.zone1Encounters ?? [{ slots: [{ enemyId: 'dummy' }], weight: 1 }],
-      eliteEncounters: [{ slots: [{ enemyId: 'dummy' }], weight: 1 }],
-      travelLines: ['the road stretches on'],
-      bossId: 'boss1',
-      intro: 'zone one',
+      encounters: extra.region1Encounters ?? [{ slots: [{ enemyId: 'dummy' }], weight: 1 }],
+      // Mirror the normal table so the ~12% elite roll spawns the same pack —
+      // keeps encounter tests deterministic.
+      eliteEncounters: extra.region1Encounters ?? [{ slots: [{ enemyId: 'dummy' }], weight: 1 }],
+      materials: ['test-scrap'],
+      intro: 'region one',
     },
     {
-      id: 'z2',
-      name: 'Zone Two',
+      id: 'r2',
+      name: 'Region Two',
       epithet: 'more test grounds',
-      minLevel: 5,
+      tier: 'medium',
+      minLevel: 7,
+      maxLevel: 12,
       hue: 100,
       encounters: [{ slots: [{ enemyId: 'dummy2' }], weight: 1 }],
       eliteEncounters: [{ slots: [{ enemyId: 'dummy2' }], weight: 1 }],
-      travelLines: ['the road stretches on'],
-      bossId: 'boss2',
-      intro: 'zone two',
+      materials: ['test-relic'],
+      intro: 'region two',
     },
   ]
-  return { zones, enemies: Object.fromEntries(enemies.map((e) => [e.id, e])), finalBossId: 'boss2' }
+  return {
+    regions,
+    enemies: Object.fromEntries(enemies.map((e) => [e.id, e])),
+    materials: Object.fromEntries(materials.map((m) => [m.id, m])),
+  }
 }
 
 export function blankSave(over: Partial<SaveData> = {}): SaveData {
   return {
-    version: 2,
+    version: 3,
     level: 1,
     xp: 0,
     gold: 0,
@@ -83,15 +95,14 @@ export function blankSave(over: Partial<SaveData> = {}): SaveData {
     equipped: {},
     inventory: [],
     nextUid: 1,
-    zoneId: 'z1',
-    bossesDefeated: [],
+    regionId: 'r1',
+    materials: {},
     achievements: [],
     lifetime: { kills: 0, deaths: 0, goldEarned: 0, interrupts: 0, epicsFound: 0, bossKills: 0 },
-    records: { expeditionsCompleted: 0, worldBossFells: 0, bestAssaultDamage: 0, fastestBossKills: {} },
+    records: { worldBossFells: 0, bestAssaultDamage: 0 },
     worldBossHp: 40_000,
     companionId: null,
     autoBattle: false,
-    completed: false,
     ...over,
   }
 }
@@ -138,11 +149,10 @@ export function makeSim(opts: MakeSimOptions = {}): GameSim {
   return new GameSim({ content, rng })
 }
 
-/** Embark (if at camp) and advance until the first encounter is on the field.
- *  Node 0 of every route is a battle, so this always lands on a fight. */
+/** Advance until the next pack is on the field. Combat is endless: a spawn is
+ *  always scheduled, so this always lands on a fight. */
 export function advanceToSpawn(sim: GameSim): CombatEvent[] {
   const events: CombatEvent[] = []
-  if (sim.combatSnapshot().phase === 'camp') sim.embark()
   for (let i = 0; i < 400; i++) {
     events.push(...sim.tick())
     if (sim.combatSnapshot().enemies.length > 0) return events

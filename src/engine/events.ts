@@ -1,4 +1,4 @@
-import type { AbilityId, BlessingId, BuffId, EnemyRank, Item, NodeKind, Side } from './types'
+import type { AbilityId, BuffId, EnemyRank, Item, Side } from './types'
 
 export type DamageSource = AbilityId | 'enemySwing' | 'enemyCast' | 'venom' | 'companion'
 
@@ -39,20 +39,10 @@ export type CombatEvent =
   | { kind: 'goldGained'; amount: number; source: 'kill' | 'sale' }
   | { kind: 'lootDropped'; item: Item; autoSold: boolean; goldValue: number }
   | { kind: 'levelUp'; level: number; unlocked: AbilityId[] }
-  | { kind: 'bossDefeated'; zoneId: string; nextZoneId: string | null }
-  | { kind: 'zoneEntered'; zoneId: string; name: string }
   | { kind: 'achievementUnlocked'; id: string; name: string }
-  | { kind: 'gameCompleted' }
-  // ── expeditions ──
-  | { kind: 'expeditionStarted'; zoneId: string; nodes: number }
-  | { kind: 'travelStarted'; toIndex: number; flavor: string }
-  | { kind: 'nodeArrived'; index: number; nodeKind: NodeKind }
-  | { kind: 'nodeResolved'; index: number }
-  | { kind: 'cacheOpened'; gold: number; item: Item | null }
-  | { kind: 'shrineOffered'; choices: BlessingId[] }
-  | { kind: 'blessingGained'; id: BlessingId }
-  | { kind: 'rested'; hpRestored: number; manaRestored: number }
-  | { kind: 'expeditionEnded'; outcome: 'completed' | 'retreat' | 'death' }
+  // ── regions & materials ──
+  | { kind: 'regionEntered'; regionId: string; name: string }
+  | { kind: 'materialDropped'; id: string; count: number }
   // ── world boss (async scaffold, local) ──
   | { kind: 'worldBossAssaultEnded'; damageDealt: number; remaining: number }
   | { kind: 'worldBossFelled' }

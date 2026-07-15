@@ -1,11 +1,8 @@
 <script lang="ts">
   import { ACHIEVEMENTS } from '../../engine'
-  import { ticksToClock } from '../format'
   import type { Game } from '../game.svelte'
 
   let { game }: { game: Game } = $props()
-
-  let confirmReset = $state(false)
 
   const life = $derived(game.progress.lifetime)
   const tiles = $derived([
@@ -18,12 +15,6 @@
   ])
   const unlocked = $derived(new Set(game.progress.achievements))
   const records = $derived(game.progress.records)
-  // Only zones with a recorded kill get a row, named from the zone list.
-  const fastestBoss = $derived(
-    game.progress.zones
-      .filter((z) => records.fastestBossKills[z.id] !== undefined)
-      .map((z) => ({ name: z.name, ticks: records.fastestBossKills[z.id]! })),
-  )
 </script>
 
 <div class="stack">
@@ -43,10 +34,6 @@
     <h2>Records <span class="count">the ledger of firsts</span></h2>
     <div class="stat-grid">
       <div class="stat-tile">
-        <span class="stat-value num">{records.expeditionsCompleted}</span>
-        <span class="stat-label">Expeditions walked</span>
-      </div>
-      <div class="stat-tile">
         <span class="stat-value num">{records.worldBossFells}</span>
         <span class="stat-label">Colossus fells</span>
       </div>
@@ -55,16 +42,6 @@
         <span class="stat-label">Best assault damage</span>
       </div>
     </div>
-    {#if fastestBoss.length > 0}
-      <div class="fastest">
-        {#each fastestBoss as row (row.name)}
-          <div class="fast-row">
-            <span class="fast-zone">{row.name}</span>
-            <span class="fast-time num">{ticksToClock(row.ticks)}</span>
-          </div>
-        {/each}
-      </div>
-    {/if}
   </section>
 
   <section class="glass pane" aria-label="Achievements">
@@ -85,20 +62,13 @@
     </div>
   </section>
 
-  <section class="glass pane danger" aria-label="Dangerous things">
+  <section class="glass pane" aria-label="Save management">
     <div class="danger-row">
       <div>
-        <h3>Abandon this fate</h3>
-        <p class="warn-text">Erase the save and begin again at level 1. There is no undo.</p>
+        <h3>Start over</h3>
+        <p class="warn-text">Manage or erase this character from the Settings screen.</p>
       </div>
-      {#if confirmReset}
-        <div class="confirm">
-          <button class="btn wound" onclick={() => game.resetSave()}>Yes, erase everything</button>
-          <button class="btn" onclick={() => (confirmReset = false)}>Keep playing</button>
-        </div>
-      {:else}
-        <button class="btn wound" onclick={() => (confirmReset = true)}>Reset save</button>
-      {/if}
+      <button class="btn" onclick={() => game.setView('settings')}>Open Settings</button>
     </div>
   </section>
 </div>
@@ -160,31 +130,6 @@
     color: var(--text-dim);
   }
 
-  .fastest {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .fast-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    border: 1px solid oklch(0.85 0.03 260 / 0.08);
-    font-size: 12.5px;
-  }
-
-  .fast-zone {
-    color: var(--text-dim);
-  }
-
-  .fast-time {
-    font-weight: 640;
-    color: var(--ember);
-  }
-
   .deeds {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -230,10 +175,6 @@
     color: var(--text-dim);
   }
 
-  .danger {
-    border: 1px solid oklch(0.68 0.17 25 / 0.2);
-  }
-
   .danger-row {
     display: flex;
     justify-content: space-between;
@@ -252,11 +193,6 @@
     color: var(--text-dim);
   }
 
-  .confirm {
-    display: flex;
-    gap: 8px;
-  }
-
   .btn {
     padding: 7px 16px;
     border-radius: 99px;
@@ -269,13 +205,7 @@
     transition: box-shadow var(--dur-fast) ease;
   }
 
-  .btn.wound {
-    color: var(--wound);
-    border-color: oklch(0.68 0.17 25 / 0.45);
-    background: oklch(0.68 0.17 25 / 0.07);
-  }
-
-  .btn.wound:hover {
-    box-shadow: 0 0 16px -4px oklch(0.68 0.17 25 / 0.5);
+  .btn:hover {
+    box-shadow: 0 0 16px -4px oklch(0.8 0.11 195 / 0.4);
   }
 </style>

@@ -24,7 +24,7 @@ describe('companion — the hireling', () => {
   it('the companion swings at the player target on its own clock', () => {
     const sim = makeSim({ level: 5, content: testContent({ hp: 5000 }), save: { gold: 200, level: 5 } })
     expect(sim.hireCompanion()).toBe(true)
-    advanceToSpawn(sim) // embark + reach the node-0 battle
+    advanceToSpawn(sim) // reach the first pack
     const events = advance(sim, WREN.swingTicks + 2)
     const hits = eventsOf(events, 'damage').filter((e) => e.source === 'companion')
     expect(hits.length).toBeGreaterThanOrEqual(1)
@@ -35,17 +35,13 @@ describe('companion — the hireling', () => {
     }
   })
 
-  it('the companion is idle at camp and during travel', () => {
+  it('the companion is idle between packs, with no target', () => {
     const sim = makeSim({ level: 5, content: testContent({ hp: 5000 }), save: { gold: 200, level: 5 } })
     sim.hireCompanion()
-    // At camp: no swings.
-    const atCamp = advance(sim, 100)
-    expect(eventsOf(atCamp, 'damage').filter((e) => e.source === 'companion')).toHaveLength(0)
-    // Embark and stay in travel (well short of the spawn): still no swings.
-    sim.embark()
-    const traveling = advance(sim, 60)
+    // Before the first pack arrives the field is empty: no swings.
+    const idle = advance(sim, 10) // NODE_SPAWN_TICKS is 20
     expect(sim.combatSnapshot().enemies).toHaveLength(0)
-    expect(eventsOf(traveling, 'damage').filter((e) => e.source === 'companion')).toHaveLength(0)
+    expect(eventsOf(idle, 'damage').filter((e) => e.source === 'companion')).toHaveLength(0)
   })
 
   it('companion damage can finish a kill and rewards flow normally', () => {

@@ -1,5 +1,4 @@
-import type { ContentPack, EncounterDef, ZoneDef } from '../types'
-import { ENEMIES } from './enemies'
+import type { EncounterDef, ZoneDef } from '../types'
 
 /** Encounter templates. An encounter is just slots with mobs plugged in —
  *  adding a new one to a zone is a single line built from these. */
@@ -147,9 +146,3 @@ export const ZONES: readonly ZoneDef[] = [
     intro: 'Reality frays here. Mind the edges.',
   },
 ]
-
-export const DEFAULT_CONTENT: ContentPack = {
-  zones: ZONES,
-  enemies: ENEMIES,
-  finalBossId: 'malgrath',
-}

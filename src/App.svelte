@@ -7,13 +7,13 @@
   import Sidebar from './ui/components/Sidebar.svelte'
   import Toast from './ui/components/Toast.svelte'
   import TopBar from './ui/components/TopBar.svelte'
-  import VictoryModal from './ui/components/VictoryModal.svelte'
   import Vignette from './ui/components/Vignette.svelte'
   import { Game } from './ui/game.svelte'
   import AtlasView from './ui/views/AtlasView.svelte'
   import CharacterView from './ui/views/CharacterView.svelte'
   import ChronicleView from './ui/views/ChronicleView.svelte'
   import CombatView from './ui/views/CombatView.svelte'
+  import SettingsView from './ui/views/SettingsView.svelte'
   import TalentsView from './ui/views/TalentsView.svelte'
 
   const game = new Game()
@@ -31,11 +31,12 @@
     combat: 'Combat',
     character: 'Character',
     talents: 'Talents',
-    atlas: 'Atlas',
+    regions: 'Regions',
     chronicle: 'Chronicle',
+    settings: 'Settings',
   }
 
-  const zone = $derived(game.progress.zones.find((z) => z.current))
+  const region = $derived(game.progress.regions.find((r) => r.current))
 </script>
 
 <Background />
@@ -51,8 +52,8 @@
   <main class="main">
     <TopBar
       title={TITLES[game.view]}
-      zoneName={zone?.name ?? ''}
-      zoneHue={zone?.hue ?? 260}
+      zoneName={region?.name ?? ''}
+      zoneHue={region?.hue ?? 260}
       kills={game.progress.lifetime.kills}
       gold={game.progress.gold}
       auto={game.auto}
@@ -67,8 +68,10 @@
       <CharacterView {game} />
     {:else if game.view === 'talents'}
       <TalentsView {game} />
-    {:else if game.view === 'atlas'}
+    {:else if game.view === 'regions'}
       <AtlasView {game} />
+    {:else if game.view === 'settings'}
+      <SettingsView {game} />
     {:else}
       <ChronicleView {game} />
     {/if}
@@ -101,10 +104,6 @@
   {#key game.toast.id}
     <Toast title={game.toast.title} body={game.toast.body} />
   {/key}
-{/if}
-
-{#if game.victory}
-  <VictoryModal lifetime={game.progress.lifetime} onclose={() => game.dismissVictory()} />
 {/if}
 
 <style>

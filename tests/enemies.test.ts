@@ -125,23 +125,29 @@ describe('hardcast', () => {
   })
 })
 
-describe('camp recovery', () => {
-  it('the hero mends at camp — but not on the trail', () => {
-    const sim = makeSim({ content: testContent({ hp: 1000, swingTicks: 20, dmgMin: 15, dmgMax: 15 }) })
+describe('between-pack recovery', () => {
+  it('the hero mends after clearing a pack', () => {
+    // A single mob that hits but has few HP: clear it, then recover in the lull.
+    const sim = makeSim({ content: testContent({ hp: 1, swingTicks: 20, dmgMin: 15, dmgMax: 15 }) })
     advanceToSpawn(sim)
-    advance(sim, 80) // eat a few swings on the trail
+    advance(sim, 40) // eat a swing or two
     const hurt = sim.combatSnapshot().player.hp
     expect(hurt).toBeLessThan(sim.combatSnapshot().player.maxHp)
-    // Retreat to camp; there the observatory knits you back together.
-    sim.retreat()
-    expect(sim.combatSnapshot().phase).toBe('camp')
-    advance(sim, 65) // several regen intervals at camp
-    expect(sim.combatSnapshot().player.hp).toBeGreaterThan(hurt)
+    // Kill the mob; the clear-heal + breather regen lift HP above the low.
+    // Sample the peak before the next pack can swing back.
+    let peak = hurt
+    for (let i = 0; i < 120; i++) {
+      const s = sim.combatSnapshot()
+      if (s.enemies.some((e) => e.alive) && s.cast === null && s.queued === null) sim.useAbility('fireball')
+      sim.tick()
+      peak = Math.max(peak, sim.combatSnapshot().player.hp)
+    }
+    expect(peak).toBeGreaterThan(hurt)
   })
 })
 
 describe('death and respawn', () => {
-  it('the hero dies, the field clears, and they revive at full at camp after 100 ticks', () => {
+  it('the hero dies, the field clears, and they revive at full and keep hunting', () => {
     const sim = makeSim({ content: testContent({ swingTicks: 10, dmgMin: 40, dmgMax: 40 }) })
     advanceToSpawn(sim)
     const events = advance(sim, 40) // three swings kill a 100 HP hero
@@ -152,9 +158,8 @@ describe('death and respawn', () => {
     expect(eventsOf(later, 'playerRespawned')).toHaveLength(1)
     const snap = sim.combatSnapshot()
     expect(snap.player.hp).toBe(snap.player.maxHp)
-    expect(snap.phase).toBe('camp')
-    // A fresh fight comes only when you embark again.
-    sim.embark()
+    expect(snap.phase).toBe('combat')
+    // The next pack arrives on its own — no need to embark.
     const respawned = advanceToSpawn(sim)
     expect(eventsOf(respawned, 'enemySpawned').length).toBeGreaterThanOrEqual(1)
   })

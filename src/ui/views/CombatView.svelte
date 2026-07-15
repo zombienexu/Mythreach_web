@@ -1,100 +1,71 @@
 <script lang="ts">
-  import { BLESSINGS } from '../../engine'
   import { ticksToSeconds } from '../format'
   import type { Game, Impact } from '../game.svelte'
   import ActionBar from '../components/ActionBar.svelte'
   import ArenaFx from '../components/ArenaFx.svelte'
-  import CombatLog from '../components/CombatLog.svelte'
   import EnemyCard from '../components/EnemyCard.svelte'
   import FloatLayer from '../components/FloatLayer.svelte'
   import PlayerCard from '../components/PlayerCard.svelte'
-  import TrailRibbon from '../components/TrailRibbon.svelte'
 
   let { game }: { game: Game } = $props()
 
-  const zone = $derived(game.progress.zones.find((z) => z.current))
-  const phase = $derived(game.combat.phase)
-  const exp = $derived(game.combat.expedition)
+  const region = $derived(game.progress.regions.find((r) => r.current))
+  const assault = $derived(game.combat.phase === 'assault')
 
   // The live pack, or the corpses of the last one while we wait.
   const live = $derived(game.combat.enemies.length > 0)
   const shown = $derived(live ? game.combat.enemies : game.lastEnemies)
 
-  const atCamp = $derived(phase === 'camp')
-  const traveling = $derived(phase === 'travel')
-  const shrinePending = $derived(exp?.pendingShrine != null)
-  const nodeResolved = $derived(phase === 'node' && exp?.nodeResolved === true && !live)
-  const travelPct = $derived(
-    exp && exp.travelTotal > 0 ? 1 - exp.travelRemaining / exp.travelTotal : 0,
-  )
+  // Formation: a back rank drawn above and smaller, the front rank ahead of it.
+  const back = $derived(shown.filter((e) => e.row === 'back'))
+  const front = $derived(shown.filter((e) => e.row !== 'back'))
+  const solo = $derived(shown.length === 1)
 
+  const TIER_LABEL: Record<string, string> = { low: 'Low', medium: 'Medium', hard: 'Hard' }
   const IDLE_IMPACT: Impact = { n: 0, power: 1, crit: false }
 </script>
 
-{#if zone}
-  <section class="glass banner" style:--zh={zone.hue} aria-label="Zone">
+{#if region}
+  <section class="glass banner" style:--zh={region.hue} aria-label="Region">
     <div class="banner-text">
-      <h2 class="zone-name">{zone.name}</h2>
-      <span class="zone-epithet">{zone.epithet}</span>
+      <h2 class="zone-name">{assault ? 'The Rift Colossus' : region.name}</h2>
+      <span class="zone-epithet">{assault ? 'a wound in the sky' : region.epithet}</span>
     </div>
-    <div class="banner-trail">
-      {#if exp}
-        <TrailRibbon expedition={exp} />
-      {:else}
-        <span class="at-rest">At rest — the Wayfarer's Rest</span>
-      {/if}
-    </div>
+    <span class="tier" class:assault>
+      {assault ? 'World Boss' : `${TIER_LABEL[region.tier]} · Lv ${region.minLevel}–${region.maxLevel}`}
+    </span>
   </section>
 {/if}
 
-<section class="arena" aria-label="Combatants" style:--zh={zone?.hue ?? 260}>
-  <div class="foes" data-fx-row="enemies" role="group" aria-label="Enemies — click or Tab to target">
-    {#if live}
-      {#each shown as enemy (enemy.iid)}
-        <EnemyCard
-          {enemy}
-          {live}
-          targeted={game.combat.target === enemy.iid}
-          compact={shown.length > 1}
-          impact={game.enemyImpacts[enemy.iid] ?? IDLE_IMPACT}
-          ontarget={() => game.target(enemy.iid)}
-        />
-      {/each}
-    {:else if atCamp}
-      <div class="glass card rest-card">
-        <span class="rest-title">The Wayfarer's Rest</span>
-        <span class="rest-note">The world waits while you do. Set out when you're ready.</span>
-        <div class="rest-actions">
-          <button class="seal" onclick={() => game.embark()}>Embark</button>
-          {#if !game.progress.companion}
-            <button class="seal quiet" onclick={() => game.hire()}>Hire a companion (150g)</button>
-          {/if}
-          <button class="seal quiet" onclick={() => game.assault()}>Assault the Colossus</button>
-        </div>
-      </div>
-    {:else if shrinePending && exp?.pendingShrine}
-      <div class="glass card shrine-card">
-        <span class="rest-title">A shrine offers its blessing</span>
-        <div class="shrine-choices">
-          {#each exp.pendingShrine as id (id)}
-            <button class="seal blessing" onclick={() => game.chooseBlessing(id)}>
-              <span class="bless-name">{BLESSINGS[id].name}</span>
-              <span class="bless-desc">{BLESSINGS[id].description}</span>
-            </button>
+<section class="arena" aria-label="Combatants" style:--zh={region?.hue ?? 260}>
+  <div class="field" class:solo>
+    {#if live || shown.length > 0}
+      <div class="foes" data-fx-row="enemies" role="group" aria-label="Enemies — click or Tab to target">
+        {#if back.length > 0}
+          <div class="rank back">
+            {#each back as enemy (enemy.iid)}
+              <EnemyCard
+                {enemy}
+                {live}
+                targeted={game.combat.target === enemy.iid}
+                compact={!solo}
+                impact={game.enemyImpacts[enemy.iid] ?? IDLE_IMPACT}
+                ontarget={() => game.target(enemy.iid)}
+              />
+            {/each}
+          </div>
+        {/if}
+        <div class="rank front">
+          {#each front as enemy (enemy.iid)}
+            <EnemyCard
+              {enemy}
+              {live}
+              targeted={game.combat.target === enemy.iid}
+              compact={!solo}
+              impact={game.enemyImpacts[enemy.iid] ?? IDLE_IMPACT}
+              ontarget={() => game.target(enemy.iid)}
+            />
           {/each}
-        </div>
-      </div>
-    {:else if traveling}
-      <div class="glass card travel-card">
-        <span class="travel-line">{game.lastFlavor}</span>
-        <div class="travel-bar" aria-hidden="true"><div class="travel-fill" style:width="{travelPct * 100}%"></div></div>
-      </div>
-    {:else if nodeResolved}
-      <div class="glass card resolved-card">
-        <span class="rest-note">The way ahead is clear.</span>
-        <div class="rest-actions">
-          <button class="seal" onclick={() => game.advance()}>Press on</button>
-          <button class="turn-back" onclick={() => game.retreat()}>Turn back</button>
         </div>
       </div>
     {:else}
@@ -105,10 +76,6 @@
     {/if}
   </div>
 
-  <div class="chronicle">
-    <CombatLog entries={game.log} />
-  </div>
-
   <div class="hero-row">
     <PlayerCard
       player={game.combat.player}
@@ -117,6 +84,12 @@
       bloom={game.bloom}
     />
   </div>
+
+  {#if assault}
+    <div class="assault-foot">
+      <button class="turn-back" onclick={() => game.retreat()}>Break off the assault</button>
+    </div>
+  {/if}
 
   <ArenaFx {game} />
   <FloatLayer floats={game.floats} />
@@ -169,18 +142,21 @@
     text-overflow: ellipsis;
   }
 
-  .banner-trail {
-    display: flex;
-    align-items: center;
-    flex: 1;
-    max-width: 460px;
-    justify-content: flex-end;
+  .tier {
+    flex: none;
+    font-size: 11px;
+    font-weight: 640;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border: 1px solid oklch(0.72 0.13 calc(var(--zh) * 1) / 0.35);
+    border-radius: 99px;
+    padding: 3px 11px;
   }
 
-  .at-rest {
-    font-size: 12px;
-    font-style: italic;
-    color: var(--text-dim);
+  .tier.assault {
+    color: var(--ember);
+    border-color: oklch(0.72 0.16 40 / 0.5);
   }
 
   .arena {
@@ -205,13 +181,41 @@
       linear-gradient(180deg, oklch(0.5 0.06 calc(var(--zh) * 1) / 0.05) 0%, transparent 40%);
   }
 
+  /* The freed log space: the field now grows to fill it and centres the pack. */
+  .field {
+    flex: 1;
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .foes {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    width: 100%;
+  }
+
+  .rank {
     display: flex;
     justify-content: center;
     align-items: stretch;
     gap: 14px;
-    min-height: 150px;
+  }
+
+  /* The back rank sits higher, a touch smaller and dimmer — depth without 3D. */
+  .rank.back {
+    transform: scale(0.86);
+    opacity: 0.86;
+    margin-bottom: -6px;
+  }
+
+  .solo .foes {
+    max-width: 460px;
+    margin-inline: auto;
   }
 
   .card {
@@ -225,89 +229,7 @@
     gap: 8px;
     padding: 18px 22px;
     text-align: center;
-  }
-
-  .rest-title {
-    font-family: var(--font-display);
-    font-size: 19px;
-    letter-spacing: 0.04em;
-    color: var(--text);
-  }
-
-  .rest-note {
-    font-size: 12.5px;
-    color: var(--text-dim);
-  }
-
-  .rest-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-    margin-top: 4px;
-  }
-
-  .shrine-choices {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    justify-content: center;
-  }
-
-  .blessing {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 10px 14px;
-    max-width: 200px;
-  }
-
-  .bless-name {
-    font-family: var(--font-display);
-    font-size: 13px;
-  }
-
-  .bless-desc {
-    font-size: 11px;
-    text-transform: none;
-    letter-spacing: 0;
-    color: var(--text-dim);
-    line-height: 1.4;
-  }
-
-  .travel-line {
-    font-family: var(--font-display);
-    font-style: italic;
-    font-size: 15px;
-    color: var(--text);
-  }
-
-  .travel-bar {
-    width: min(280px, 80%);
-    height: 4px;
-    border-radius: 99px;
-    background: oklch(0.2 0.02 270 / 0.75);
-    overflow: hidden;
-  }
-
-  .travel-fill {
-    height: 100%;
-    background: var(--gilt, oklch(0.78 0.1 85));
-    transition: width 120ms linear;
-  }
-
-  .turn-back {
-    background: none;
-    border: 0;
-    color: var(--text-dim);
-    font-size: 12px;
-    cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-
-  .turn-back:hover {
-    color: var(--text);
+    margin-inline: auto;
   }
 
   .lull {
@@ -327,10 +249,6 @@
     color: var(--text);
   }
 
-  .chronicle > :global(section) {
-    height: clamp(130px, 20vh, 320px);
-  }
-
   .hero-row {
     margin-top: auto;
     display: flex;
@@ -342,13 +260,32 @@
     max-width: 560px;
   }
 
+  .assault-foot {
+    display: flex;
+    justify-content: center;
+  }
+
+  .turn-back {
+    background: none;
+    border: 0;
+    color: var(--text-dim);
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .turn-back:hover {
+    color: var(--text);
+  }
+
   .foot {
     margin-top: auto;
     padding-block: 10px 4px;
   }
 
   @media (max-width: 1000px) {
-    .foes {
+    .rank {
       gap: 10px;
     }
   }

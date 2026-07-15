@@ -3,11 +3,8 @@ import {
   ABILITIES,
   ABILITY_IDS,
   ACHIEVEMENT_BY_ID,
-  BLESSINGS,
   GameSim,
-  sellValue,
   type AbilityId,
-  type BlessingId,
   type CombatEvent,
   type CombatSnapshot,
   type EnemySnapshot,
@@ -17,14 +14,13 @@ import {
   type Side,
   type TalentId,
 } from '../engine'
-import type { LogEntry } from './components/CombatLog.svelte'
-import { ticksToClock } from './format'
 import { FxDirector, type FxHost } from './fx/director'
 import type { Spot } from './fx/stage'
 import { startLoop, type LoopHandle } from './loop'
+import { SaveStore } from './persistence'
 import { Sfx, type SfxName } from './sfx'
 
-export type View = 'combat' | 'character' | 'talents' | 'atlas' | 'chronicle'
+export type View = 'combat' | 'character' | 'talents' | 'regions' | 'chronicle' | 'settings'
 
 export interface FloatText {
   id: number
@@ -53,7 +49,8 @@ export interface Impact {
 const SAVE_KEY = 'mythreach-save-v1'
 /** UI-owned settings, kept out of the engine save entirely. */
 const SETTINGS_KEY = 'mythreach-settings-v1'
-const LOG_CAP = 100
+/** Owns read/write/wipe of the save; the wipe guard lives here. */
+const store = new SaveStore(localStorage, SAVE_KEY)
 const FLOAT_LIFETIME_MS = 950
 /** how far apart stacked damage numbers sit, and how close counts as a clash */
 const LANE_HEIGHT = 34
@@ -75,7 +72,7 @@ function byAbility<T>(v: T): Record<AbilityId, T> {
 
 function boot(): GameSim {
   try {
-    const raw = localStorage.getItem(SAVE_KEY)
+    const raw = store.load()
     if (raw) {
       const data = JSON.parse(raw) as SaveData
       return GameSim.deserialize(data, { rng: Math.random })
@@ -123,7 +120,6 @@ export class Game implements FxHost {
   /** bump counters: a press the sim refused, per ability */
   denied: Record<AbilityId, number> = $state(byAbility(0))
   view: View = $state('combat')
-  log: LogEntry[] = $state([])
   floats: FloatText[] = $state([])
   /** bump counters driving hit-recoil / heal-bloom choreography */
   impacts: Record<Side, Impact> = $state({
@@ -142,9 +138,6 @@ export class Game implements FxHost {
   toast: { id: number; title: string; body: string } | null = $state(null)
   /** the boss's name, while the challenge cinematic is on screen */
   bossIntro: string | null = $state(null)
-  victory = $state(false)
-  /** The most recent travel flavor line, shown on the travel card. */
-  lastFlavor = $state('')
   muted = $state(loadMuted())
   auto = $state(this.sim.autoBattle)
 
@@ -161,8 +154,6 @@ export class Game implements FxHost {
   start(): void {
     this.audio.muted = this.muted
     this.fx.bind(this)
-    const zone = this.progress.zones.find((z) => z.current)
-    if (zone) this.append(`${zone.name} — ${zone.epithet}.`, 'info')
 
     this.loop = startLoop(
       () => this.step(),
@@ -278,7 +269,6 @@ export class Game implements FxHost {
   toggleAuto(): void {
     this.sim.autoBattle = !this.sim.autoBattle
     this.auto = this.sim.autoBattle
-    this.append(this.auto ? 'Your echo takes over the fight.' : 'You take back control.', 'info')
     this.publish()
   }
 
@@ -288,26 +278,11 @@ export class Game implements FxHost {
     saveMuted(this.muted)
   }
 
-  travel(zoneId: string): void {
-    if (this.sim.travelTo(zoneId)) {
+  enterRegion(regionId: string): void {
+    if (this.sim.enterRegion(regionId)) {
       this.lastEnemies = []
       this.view = 'combat'
       this.publishAll()
-    }
-  }
-
-  embark(): void {
-    if (this.sim.embark()) {
-      this.lastEnemies = []
-      this.view = 'combat'
-      this.publishAll()
-    }
-  }
-
-  advance(): void {
-    if (this.sim.advance()) {
-      this.lastEnemies = []
-      this.publish()
     }
   }
 
@@ -318,17 +293,11 @@ export class Game implements FxHost {
     }
   }
 
-  chooseBlessing(id: BlessingId): void {
-    if (this.sim.chooseBlessing(id)) this.publishAll()
-  }
-
   assault(): void {
     if (this.sim.assaultWorldBoss()) {
       this.lastEnemies = []
-      const name = 'The Rift Colossus'
-      this.append(`You throw yourself at ${name}.`, 'boss')
       this.audio.play('boss')
-      this.bossIntro = name
+      this.bossIntro = 'The Rift Colossus'
       this.view = 'combat'
       this.publishAll()
     }
@@ -344,15 +313,21 @@ export class Game implements FxHost {
 
   equip(item: Item): void {
     if (this.sim.equipItem(item.uid)) {
-      this.append(`Equipped ${item.name}.`, `loot-${item.rarity}`)
+      this.audio.play('target')
       this.publishAll()
     }
   }
 
   sell(item: Item): void {
-    const value = sellValue(item)
     if (this.sim.sellItem(item.uid)) {
-      this.append(`Sold ${item.name} for ${value} gold.`, 'gold')
+      this.audio.play('loot')
+      this.publishAll()
+    }
+  }
+
+  sellMaterial(id: string): void {
+    if (this.sim.sellMaterial(id)) {
+      this.audio.play('loot')
       this.publishAll()
     }
   }
@@ -362,22 +337,24 @@ export class Game implements FxHost {
   }
 
   respec(): void {
-    if (this.sim.respec()) {
-      this.append('Your talents drift back into potential.', 'arcana')
-      this.publishAll()
-    }
+    if (this.sim.respec()) this.publishAll()
   }
 
-  dismissVictory(): void {
-    this.victory = false
+  /** Wipe the save and reload into a fresh level-1 character. Detaches the save
+   *  timer and unload handler first so nothing re-writes the erased save. */
+  private wipeAndReload(): void {
+    if (this.saveTimer) clearInterval(this.saveTimer)
+    window.removeEventListener('beforeunload', this.saveNow)
+    store.wipe()
+    location.reload()
   }
 
-  resetSave(): void {
-    try {
-      localStorage.removeItem(SAVE_KEY)
-    } finally {
-      location.reload()
-    }
+  newCharacter(): void {
+    this.wipeAndReload()
+  }
+
+  deleteSave(): void {
+    this.wipeAndReload()
   }
 
   // ─────────────── internals ───────────────
@@ -385,41 +362,11 @@ export class Game implements FxHost {
   private step(): void {
     const events = this.sim.tick()
     if (events.length === 0) return
-    // A kill and its rewards land on the same tick — fold them into one line.
-    const died = events.find((e) => e.kind === 'enemyDied')
-    if (died && died.kind === 'enemyDied') {
-      const xp = events.find((e) => e.kind === 'xpGained')
-      const gold = events.find((e) => e.kind === 'goldGained' && e.source === 'kill')
-      const bits = [
-        xp?.kind === 'xpGained' ? `+${xp.amount} XP` : null,
-        gold?.kind === 'goldGained' ? `+${gold.amount} gold` : null,
-      ].filter(Boolean)
-      this.append(`${died.name} is slain. ${bits.join(', ')}.`, died.rank === 'boss' ? 'boss' : 'gold')
-      this.audio.play('kill')
-    }
-    // A pack arrives as one breath, not three separate introductions.
-    const spawns = events.filter((e) => e.kind === 'enemySpawned')
-    if (spawns.length > 1) {
-      const names = spawns.map((s) => s.name)
-      const line = `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} come at you together.`
-      this.append(line, 'enemy')
-    } else if (spawns[0]) {
-      this.append(spawns[0].intro, spawns[0].rank === 'boss' ? 'boss' : 'info')
-    }
+    if (events.some((e) => e.kind === 'enemyDied')) this.audio.play('kill')
     for (const event of events) {
       this.onEvent(event)
       this.fx.handle(event)
     }
-  }
-
-  /** Name an enemy by iid — from the live pack, or the one just cleared. */
-  private enemyName(iid?: number): string | null {
-    if (iid === undefined) return null
-    return (
-      this.combat.enemies.find((e) => e.iid === iid)?.name ??
-      this.lastEnemies.find((e) => e.iid === iid)?.name ??
-      null
-    )
   }
 
   private publish(): void {
@@ -451,208 +398,57 @@ export class Game implements FxHost {
   }
 
   private onEvent(event: CombatEvent): void {
+    // The floats, recoils, shakes and spell sounds are all the FxDirector's job
+    // (fx.handle, called alongside this). Here we only keep reactive UI state:
+    // banners, toasts, the heal bloom, and marking progression dirty.
     switch (event.kind) {
-      case 'castStarted':
-        this.append(`You begin casting ${ABILITIES[event.abilityId].name}.`, 'info')
-        break
-      case 'castFinished':
-        break // the release is the director's — sound lands with the bolt
-      case 'castFizzled':
-        this.append(`${ABILITIES[event.abilityId].name} fizzles into the dark.`, 'info')
-        break
-      case 'abilityQueued':
-        break // the button glow tells the story
-      case 'damage': {
-        // The log is a chronicle and writes now; the float, the recoil, the
-        // shake and the sound are the director's, and may be in flight.
-        if (event.target === 'enemy') {
-          const name = this.enemyName(event.iid) ?? 'the enemy'
-          const verb = event.source === 'ignite' ? 'burns' : event.source === 'pyroblast' ? 'crushes' : 'slams'
-          const spell = event.source === 'ignite' ? 'Ignite' : ABILITIES[event.source as AbilityId]?.name ?? 'Your spell'
-          this.append(
-            `${spell} ${verb} ${name} for ${event.amount}${event.crit ? ' — critical!' : '.'}`,
-            event.source === 'ignite' ? 'arcana' : 'player',
-          )
-        } else {
-          const who = this.enemyName(event.iid) ?? 'The enemy'
-          const hit =
-            event.source === 'enemySwing'
-              ? `${who} hits you`
-              : event.source === 'venom'
-                ? `${event.label ?? 'Venom'} sears you`
-                : `${event.label ?? 'A spell'} strikes you`
-          const soak = event.absorbed > 0 ? ` (${event.absorbed} absorbed)` : ''
-          this.append(`${hit} for ${event.amount}${soak}.`, 'enemy')
-        }
-        break
-      }
       case 'heal':
         this.bloom++
-        this.append(`Renew restores ${event.amount} health${event.crit ? ' — critical!' : '.'}`, 'heal')
-        break
-      case 'dotApplied':
-        if (event.target === 'enemy') {
-          this.append(`Ignite sears ${this.enemyName(event.iid) ?? 'the enemy'}.`, 'arcana')
-        } else {
-          this.append(`${event.name} seeps into your veins.`, 'enemy')
-        }
-        break
-      case 'buffApplied':
-        if (event.id === 'barrier') {
-          this.append(`A barrier of starlight surrounds you (${event.amount ?? 0}).`, 'player')
-        } else {
-          this.append('Combustion! Your fire runs wild.', 'player')
-        }
-        break
-      case 'buffExpired':
-        this.append(event.id === 'barrier' ? 'The barrier fades.' : 'Combustion gutters out.', 'info')
-        break
-      case 'shieldBroken':
-        this.append('Your barrier shatters.', 'info')
-        break
-      case 'interrupted':
-        this.append(`Counterspell! ${event.name} dies on their lips.`, 'player')
-        break
-      case 'enemyCastStarted':
-        this.append(`${this.enemyName(event.iid) ?? 'The enemy'} begins casting ${event.name}!`, 'enemy')
         break
       case 'enemyEnraged':
-        this.append(`${event.name} flies into a frenzy!`, 'enemy')
         this.bump('enemy', 1.6, false, event.iid)
         break
       case 'enemySpawned':
         this.lastEnemies = []
-        break // narrated (solo intro or pack line) in step()
+        break
       case 'enemyDied':
-        this.progressDirty = true
-        break // folded into the kill line in step()
-      case 'encounterCleared':
-        if (this.combat.enemies.length > 1) this.append('The pack is broken.', 'gold')
-        break
       case 'playerDied':
-        this.progressDirty = true
-        this.append('You fall. The observatory dims…', 'enemy')
-        break
-      case 'playerRespawned':
-        this.append('You awaken restored. The hunt resumes.', 'info')
-        break
       case 'xpGained':
       case 'goldGained':
+      case 'companionHired':
         this.progressDirty = true
-        break // folded into the kill line / action lines
-      case 'lootDropped': {
+        break
+      case 'materialDropped':
         this.progressDirty = true
-        if (event.autoSold) {
-          this.append(`Bags full — ${event.item.name} sold for ${event.goldValue} gold.`, 'gold')
-        } else {
-          this.append(`You loot ${event.item.name}.`, `loot-${event.item.rarity}`)
-        }
+        this.audio.play('loot')
+        break
+      case 'regionEntered':
+        this.progressDirty = true
+        this.lastEnemies = []
+        break
+      case 'lootDropped':
+        this.progressDirty = true
         this.audio.play(event.item.rarity === 'epic' ? 'epic' : 'loot')
         break
-      }
-      case 'levelUp': {
+      case 'levelUp':
         this.progressDirty = true
         this.showBanner(event.level, event.unlocked)
-        const unlocks = event.unlocked.map((id) => ABILITIES[id].name).join(', ')
-        this.append(
-          `You reach level ${event.level}!${unlocks ? ` New spell: ${unlocks}.` : ''}`,
-          'boss',
-        )
         this.audio.play('level')
-        break
-      }
-      case 'bossDefeated': {
-        this.progressDirty = true
-        const next = this.progress.zones.find((z) => z.id === event.nextZoneId)
-        if (next) this.append(`New land unlocked: ${next.name}. Travel there from the Atlas.`, 'boss')
-        break
-      }
-      case 'expeditionStarted':
-        this.progressDirty = true
-        this.append('You set out from the Rest.', 'info')
-        break
-      case 'travelStarted':
-        this.lastFlavor = event.flavor
-        this.append(event.flavor, 'info')
-        break
-      case 'nodeArrived':
-        if (event.nodeKind === 'elite') this.audio.play('warn')
-        if (event.nodeKind === 'boss') {
-          this.audio.play('boss')
-          const zone = this.progress.zones.find((z) => z.current)
-          this.bossIntro = zone?.bossName ?? 'The Boss'
-        }
-        break
-      case 'nodeResolved':
-        break
-      case 'cacheOpened':
-        this.append(
-          event.item
-            ? `A cache yields ${event.gold} gold and ${event.item.name}.`
-            : `A cache yields ${event.gold} gold.`,
-          'gold',
-        )
-        this.audio.play('loot')
-        break
-      case 'shrineOffered':
-        this.append('A shrine offers its blessing.', 'arcana')
-        break
-      case 'blessingGained': {
-        this.progressDirty = true
-        const bless = BLESSINGS[event.id]
-        this.append(`Blessing gained: ${bless.name}. ${bless.description}`, 'arcana')
-        this.audio.play('loot')
-        break
-      }
-      case 'rested':
-        this.append(`You rest. +${event.hpRestored} health, +${event.manaRestored} mana.`, 'heal')
-        break
-      case 'expeditionEnded':
-        this.progressDirty = true
-        if (event.outcome === 'completed') {
-          this.append('The trail is walked. The Rest welcomes you back.', 'boss')
-          this.audio.play('level')
-        } else if (event.outcome === 'retreat') {
-          this.append('You turn back for camp.', 'info')
-        }
         break
       case 'worldBossAssaultEnded':
         this.progressDirty = true
-        this.append(
-          event.remaining > 0
-            ? `You break off. ${event.damageDealt} damage banked against the Colossus.`
-            : 'The Rift Colossus is felled!',
-          'boss',
-        )
         break
       case 'worldBossFelled':
         this.progressDirty = true
         this.audio.play('level')
         break
-      case 'companionHired':
-        this.progressDirty = true
-        this.append(`${event.name} joins you.`, 'gold')
-        break
-      case 'zoneEntered': {
-        this.progressDirty = true
-        this.lastEnemies = []
-        const zone = this.sim.progressSnapshot().zones.find((z) => z.id === event.zoneId)
-        this.append(`You travel to ${event.name}${zone ? ` — ${zone.epithet}` : ''}.`, 'info')
-        break
-      }
       case 'achievementUnlocked': {
         this.progressDirty = true
         const def = ACHIEVEMENT_BY_ID[event.id]
         this.showToast(event.name, def?.description ?? '')
-        this.append(`Achievement: ${event.name}`, 'gold')
         this.audio.play('loot')
         break
       }
-      case 'gameCompleted':
-        this.progressDirty = true
-        this.victory = true
-        this.audio.play('level')
-        break
     }
   }
 
@@ -668,14 +464,9 @@ export class Game implements FxHost {
     this.toastTimer = setTimeout(() => (this.toast = null), 4200)
   }
 
-  private append(text: string, tone: LogEntry['tone']): void {
-    this.log.push({ id: this.nextId++, time: ticksToClock(this.combat.tick), text, tone })
-    if (this.log.length > LOG_CAP) this.log.splice(0, this.log.length - LOG_CAP)
-  }
-
   private saveNow = (): void => {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(this.sim.serialize()))
+      store.save(JSON.stringify(this.sim.serialize()))
     } catch {
       // storage full or unavailable — the run continues unsaved
     }
@@ -699,14 +490,6 @@ export class Game implements FxHost {
     }
     if (e.key === 'a') {
       this.toggleAuto()
-      return
-    }
-    // Space walks the trail: embark from camp, press on from a resolved node.
-    if (e.key === ' ') {
-      e.preventDefault()
-      const exp = this.combat.expedition
-      if (this.combat.phase === 'camp') this.embark()
-      else if (exp && exp.nodeResolved && !exp.traveling) this.advance()
       return
     }
     const id = KEY_TO_ABILITY.get(e.key)

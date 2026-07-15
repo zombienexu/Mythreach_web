@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mulberry32 } from '../src/engine/rng'
 import { GameSim } from '../src/engine/sim'
 import type { SaveData } from '../src/engine/types'
-import { advance, makeSim, testContent, v1Save } from './helpers'
+import { advance, blankSave, makeSim, testContent, v1Save } from './helpers'
 
 describe('serialize / deserialize', () => {
   it('round-trips progression exactly', () => {
@@ -24,21 +24,42 @@ describe('serialize / deserialize', () => {
     expect(after.equipped).toEqual(before.equipped)
     expect(after.achievements.sort()).toEqual(before.achievements.sort())
     expect(after.lifetime).toEqual(before.lifetime)
-    expect(after.zoneId).toBe(before.zoneId)
+    expect(after.regionId).toBe(before.regionId)
     expect(restored.autoBattle).toBe(true)
   })
 
-  it('comes back at full strength, at camp', () => {
+  it('comes back at full strength, already hunting', () => {
     const content = testContent({ swingTicks: 20, dmgMin: 10, dmgMax: 10 })
     const sim = makeSim({ content })
-    sim.embark()
-    advance(sim, 200) // walk to the fight and take some hits
+    advance(sim, 200) // take some hits from the pack
     expect(sim.combatSnapshot().player.hp).toBeLessThan(sim.combatSnapshot().player.maxHp)
     const restored = GameSim.deserialize(sim.serialize(), { content, rng: mulberry32(3) })
     const snap = restored.combatSnapshot()
     expect(snap.player.hp).toBe(snap.player.maxHp)
     expect(snap.enemies).toHaveLength(0)
-    expect(snap.phase).toBe('camp')
+    expect(snap.phase).toBe('combat')
+    // A spawn is already scheduled — combat resumes.
+    advance(restored, 30)
+    expect(restored.combatSnapshot().enemies.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('v3 round-trips the region and the materials bag', () => {
+    const content = testContent({ hp: 1, dropPct: 0 })
+    const sim = makeSim({ content, level: 15 })
+    expect(sim.enterRegion('r2')).toBe(true)
+    // Grind until a material stack lands.
+    for (let i = 0; i < 8000 && sim.progressSnapshot().materials.length === 0; i++) {
+      const s = sim.combatSnapshot()
+      if (s.enemies.length > 0 && s.cast === null && s.queued === null) sim.useAbility('fireball')
+      sim.tick()
+    }
+    const before = sim.progressSnapshot()
+    expect(before.materials.length).toBeGreaterThan(0)
+    const restored = GameSim.deserialize(sim.serialize(), { content, rng: mulberry32(2) })
+    const after = restored.progressSnapshot()
+    expect(after.regionId).toBe('r2')
+    expect(after.materials).toEqual(before.materials)
+    expect(restored.combatSnapshot().phase).toBe('combat')
   })
 
   it('rejects unknown save versions', () => {
@@ -48,8 +69,6 @@ describe('serialize / deserialize', () => {
   })
 
   it('accepts a version-1 save and ignores its dead fields', () => {
-    // A v1 blob still carries savedAt, muted and zoneKills. Deserialize must
-    // round-trip the live progression and simply drop the rest.
     const legacy = v1Save({ level: 7, gold: 250, xp: 12 })
     let restored: GameSim | undefined
     expect(() => {
@@ -59,16 +78,35 @@ describe('serialize / deserialize', () => {
     expect(progress.level).toBe(7)
     expect(progress.gold).toBe(250)
     expect(progress.xp).toBe(12)
-    // Re-serializing yields a clean v2 blob with none of the dead fields.
+    // Re-serializing yields a clean v3 blob with none of the dead fields.
     const reserialized = restored!.serialize() as unknown as Record<string, unknown>
-    expect(reserialized.version).toBe(2)
+    expect(reserialized.version).toBe(3)
     expect(reserialized.savedAt).toBeUndefined()
-    expect(reserialized.muted).toBeUndefined()
+    expect(reserialized.zoneId).toBeUndefined()
+    expect(reserialized.materials).toEqual({})
+  })
+
+  it('maps a legacy v2 zone to the region that contains it', () => {
+    // A v2 blob predates regions: its zoneId must resolve to a region.
+    const v2 = blankSave() as unknown as Record<string, unknown>
+    v2.version = 2
+    delete v2.regionId
+    delete v2.materials
+    v2.zoneId = 'stormcrag' // → emberwild on real content
+    v2.bossesDefeated = ['hollowroot']
+    v2.completed = false
+    let restored: GameSim | undefined
+    expect(() => {
+      restored = GameSim.deserialize(v2 as unknown as SaveData, { rng: mulberry32(1) })
+    }).not.toThrow()
+    const progress = restored!.progressSnapshot()
+    expect(progress.regionId).toBe('emberwild')
+    expect(progress.materials).toEqual([])
   })
 })
 
 describe('auto-battle on real content', () => {
-  it('a fresh level-1 hero survives and progresses in Hollowroot Cavern', () => {
+  it('a fresh level-1 hero survives and progresses in the Verdant Reach', () => {
     const sim = new GameSim({ rng: mulberry32(42) })
     sim.autoBattle = true
     let kills = 0
@@ -81,10 +119,9 @@ describe('auto-battle on real content', () => {
       }
     }
     expect(kills).toBeGreaterThanOrEqual(15)
-    // Auto-battle now walks to the zone boss at the end of every expedition, so a
-    // level-1 hero pays a few deaths learning it under-levelled (a real player
-    // would out-level first — see the balance envelope). It still progresses.
-    expect(deaths).toBeLessThanOrEqual(6)
+    // Endless mode has no camp; a naive level-1 auto-player pays a few more deaths
+    // learning the low region under-levelled. It still progresses.
+    expect(deaths).toBeLessThanOrEqual(10)
     expect(sim.progressSnapshot().level).toBeGreaterThanOrEqual(3)
   })
 })

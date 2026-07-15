@@ -4,46 +4,40 @@
 
   let { game }: { game: Game } = $props()
 
-  const onExpedition = $derived(game.combat.phase !== 'camp')
+  const assaulting = $derived(game.combat.phase === 'assault')
   const wb = $derived(game.progress.worldBoss)
+
+  const TIER_LABEL: Record<string, string> = { low: 'Low', medium: 'Medium', hard: 'Hard' }
 </script>
 
-<section class="atlas" aria-label="Zone atlas">
-  {#each game.progress.zones as zone, i (zone.id)}
-    <article class="glass zone" class:locked={!zone.unlocked} class:current={zone.current} style:--zh={zone.hue}>
+<section class="atlas" aria-label="Regions">
+  {#each game.progress.regions as region (region.id)}
+    <article class="glass zone" class:current={region.current} style:--zh={region.hue}>
       <header class="zone-head">
         <div>
-          <h2>{zone.name}</h2>
-          <p class="epithet">{zone.epithet}</p>
+          <h2>{region.name}</h2>
+          <p class="epithet">{region.epithet}</p>
         </div>
-        <span class="reco num">Lv {zone.minLevel}+</span>
+        <span class="reco num" data-tier={region.tier}>{TIER_LABEL[region.tier]}</span>
       </header>
 
+      <p class="band num">Recommended Lv {region.minLevel}–{region.maxLevel}</p>
+
       <p class="roster">
-        {zone.enemyNames.join(' · ')}
+        {region.enemyNames.join(' · ')}
       </p>
 
-      <div class="boss-row">
-        <span class="boss-name" class:dead={zone.bossDefeated}>
-          {zone.bossDefeated ? '✦' : '☠'} {zone.bossName}
-        </span>
-      </div>
-
       <div class="zone-foot">
-        {#if !zone.unlocked}
-          <span class="lock-note">
-            {i > 0 ? `Defeat ${game.progress.zones[i - 1]?.bossName ?? 'the previous boss'} to enter` : 'Locked'}
-          </span>
-        {:else if zone.current}
+        {#if region.current}
           <span class="here">You are here</span>
         {:else}
           <button
             class="btn"
-            disabled={onExpedition}
-            title={onExpedition ? 'Return to camp first' : ''}
-            onclick={() => game.travel(zone.id)}
+            disabled={assaulting}
+            title={assaulting ? 'Break off the assault first' : ''}
+            onclick={() => game.enterRegion(region.id)}
           >
-            Travel
+            Venture in
           </button>
         {/if}
       </div>
@@ -64,8 +58,8 @@
     <span class="col-hp num">{wb.hp.toLocaleString()} / {wb.maxHp.toLocaleString()}</span>
     <button
       class="seal"
-      disabled={onExpedition}
-      title={onExpedition ? 'Return to camp first' : ''}
+      disabled={assaulting}
+      title={assaulting ? 'Already assaulting' : ''}
       onclick={() => game.assault()}
     >
       Assault
@@ -88,10 +82,6 @@
     gap: 10px;
     border-top: 2px solid oklch(0.72 0.13 calc(var(--zh) * 1) / 0.55);
     transition: filter var(--dur) ease, box-shadow var(--dur) ease;
-  }
-
-  .zone.locked {
-    filter: saturate(0.25) brightness(0.75);
   }
 
   .zone.current {
@@ -123,12 +113,33 @@
 
   .reco {
     flex: none;
-    font-size: 11px;
-    font-weight: 640;
+    font-size: 10px;
+    font-weight: 660;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--text-dim);
     border: 1px solid oklch(0.68 0.02 260 / 0.3);
     border-radius: 99px;
     padding: 2px 9px;
+  }
+
+  .reco[data-tier='low'] {
+    color: oklch(0.8 0.11 150);
+    border-color: oklch(0.72 0.12 150 / 0.45);
+  }
+  .reco[data-tier='medium'] {
+    color: oklch(0.82 0.13 60);
+    border-color: oklch(0.75 0.14 60 / 0.45);
+  }
+  .reco[data-tier='hard'] {
+    color: oklch(0.78 0.15 305);
+    border-color: oklch(0.7 0.16 305 / 0.45);
+  }
+
+  .band {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-dim);
   }
 
   .roster {
@@ -139,37 +150,12 @@
     flex: 1;
   }
 
-  .boss-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  .boss-name {
-    font-size: 13px;
-    font-weight: 620;
-    color: var(--ember);
-  }
-
-  .boss-name.dead {
-    color: var(--text-dim);
-    text-decoration: line-through;
-    text-decoration-color: oklch(0.68 0.02 260 / 0.5);
-  }
-
   .zone-foot {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 10px;
     min-height: 32px;
-  }
-
-  .lock-note {
-    font-size: 12px;
-    color: var(--text-dim);
-    font-style: italic;
   }
 
   .here {

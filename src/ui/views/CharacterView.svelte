@@ -5,6 +5,7 @@
 
   let { game }: { game: Game } = $props()
 
+  const TIER_LABEL: Record<string, string> = { low: 'Low', medium: 'Medium', hard: 'Hard' }
   const SLOTS: ItemSlot[] = ['staff', 'hood', 'robe', 'ring', 'trinket']
   const SLOT_LABEL: Record<ItemSlot, string> = {
     staff: 'Staff',
@@ -69,6 +70,22 @@
               <button class="act equip" onclick={() => game.equip(item)}>Equip</button>
               <button class="act sell" onclick={() => game.sell(item)}>Sell {sellValue(item)}g</button>
             </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <h3>Materials</h3>
+    {#if game.progress.materials.length === 0}
+      <p class="hint">No materials yet — the wilds are stingy. (Someday: crafting.)</p>
+    {:else}
+      <div class="mat-list">
+        {#each game.progress.materials as mat (mat.id)}
+          <div class="mat-row" data-tier={mat.tier}>
+            <span class="mat-name">{mat.name}</span>
+            <span class="mat-tier">{TIER_LABEL[mat.tier]}</span>
+            <span class="mat-count num">×{mat.count}</span>
+            <button class="act sell" onclick={() => game.sellMaterial(mat.id)}>Sell {mat.value}g</button>
           </div>
         {/each}
       </div>
@@ -222,6 +239,56 @@
   .act.sell:hover {
     border-color: oklch(0.8 0.13 80 / 0.5);
     box-shadow: 0 0 14px -4px oklch(0.8 0.13 80 / 0.4);
+  }
+
+  .mat-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .mat-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid oklch(0.85 0.03 260 / 0.1);
+    background: oklch(0.8 0.02 260 / 0.03);
+    border-left: 3px solid var(--mat-hue, oklch(0.7 0.05 150));
+  }
+
+  .mat-row[data-tier='low'] {
+    --mat-hue: oklch(0.72 0.12 150);
+  }
+  .mat-row[data-tier='medium'] {
+    --mat-hue: oklch(0.75 0.14 60);
+  }
+  .mat-row[data-tier='hard'] {
+    --mat-hue: oklch(0.7 0.16 305);
+  }
+
+  .mat-name {
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .mat-tier {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .mat-count {
+    font-size: 12.5px;
+    font-weight: 640;
+    color: var(--ether);
+  }
+
+  .mat-row .act.sell {
+    padding: 4px 10px;
+    flex: none;
   }
 
   @media (max-width: 1000px) {

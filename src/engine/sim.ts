@@ -6,16 +6,14 @@ import {
   COMBUSTION_FIRE_BONUS_PCT,
 } from './abilities'
 import { ACHIEVEMENT_BY_ID } from './content/achievements'
-import { BLESSING_IDS, BLESSINGS } from './content/blessings'
 import { COMPANIONS } from './content/companions'
 import { generateItem, sellValue } from './content/items'
+import { DEFAULT_CONTENT } from './content/regions'
 import { TALENTS } from './content/talents'
 import { WORLD_BOSS, WORLD_BOSS_MAX_HP } from './content/worldboss'
-import { DEFAULT_CONTENT } from './content/zones'
 import { Dot } from './dot'
 import { EnemyUnit } from './enemyUnit'
 import type { CombatEvent, DamageSource } from './events'
-import { generateRoute } from './expedition'
 import { PlayerUnit } from './playerUnit'
 import {
   abilitiesUnlockedAt,
@@ -28,29 +26,25 @@ import {
 import { pickOne, pickWeighted, rollInt, rollPct, type Rng } from './rng'
 import type {
   AbilityId,
-  BlessingId,
   CombatSnapshot,
   ContentPack,
   DerivedStats,
   EncounterSlot,
   EnemyDef,
-  ExpeditionNodeView,
-  ExpeditionSnapshot,
   Item,
   ItemSlot,
   LifetimeStats,
-  NodeKind,
+  MaterialStackView,
   ProgressSnapshot,
   Rarity,
   Records,
+  RegionDef,
+  RegionProgress,
   SaveData,
   School,
   TalentId,
-  ZoneDef,
 } from './types'
 import {
-  AUTO_BREATHER_TICKS,
-  BOSS_APPROACH_TICKS,
   GCD_TICKS,
   INVENTORY_CAP,
   LEVEL_CAP,
@@ -58,7 +52,6 @@ import {
   PLAYER_RESPAWN_TICKS,
   REGEN_INTERVAL_TICKS,
   RESPEC_COST,
-  TRAVEL_TICKS,
 } from './types'
 
 export interface SimOptions {
@@ -84,8 +77,9 @@ export class GameSim {
   private equipped: Partial<Record<ItemSlot, Item>> = {}
   private inventory: Item[] = []
   private nextUid = 1
-  private zone: ZoneDef
-  private readonly bossesDefeated = new Set<string>()
+  private region: RegionDef
+  /** Inert crafting materials: materialId → count. */
+  private materials: Record<string, number> = {}
   private readonly achievements = new Set<string>()
   private lifetime: LifetimeStats = {
     kills: 0,
@@ -96,29 +90,14 @@ export class GameSim {
     bossKills: 0,
   }
   private records: Records = {
-    expeditionsCompleted: 0,
     worldBossFells: 0,
     bestAssaultDamage: 0,
-    fastestBossKills: {},
   }
-  private completed = false
   autoBattle = false
 
-  // ── expedition ──
-  /** camp: at the Wayfarer's Rest. travel: walking a trail. node: resolving a
-   *  node (combat or resolved-and-waiting). assault: fighting the world boss. */
-  private phase: 'camp' | 'travel' | 'node' | 'assault' = 'camp'
-  private route: NodeKind[] | null = null
-  private nodeIndex = 0
-  private nodeResolvedFlag = false
-  /** Highest node index whose kind has been revealed (fog of war). */
-  private revealedThrough = 0
-  private travelRemaining = 0
-  private travelTotal = 0
-  private pendingShrine: BlessingId[] | null = null
-  private readonly blessings = new Set<BlessingId>()
-  /** Auto-battle pause counter at camp / a resolved node. */
-  private autoBreather = 0
+  // ── phase ──
+  /** combat: hunting in a region (endless). assault: fighting the world boss. */
+  private phase: 'combat' | 'assault' = 'combat'
 
   // ── world boss (scaffold) ──
   private worldBossHp = WORLD_BOSS_MAX_HP
@@ -135,22 +114,28 @@ export class GameSim {
   /** iid of the targeted enemy. Always a living enemy while any are alive. */
   private targetIid: number | null = null
   private nextIid = 1
-  /** Arrival countdown for the current node's encounter (0 once on the field). */
+  /** Breather countdown before the next pack arrives (0 once on the field). */
   private spawnIn = 0
   /** What the pending spawn will be, when `spawnIn` reaches 0. */
-  private pendingSpawn: 'battle' | 'elite' | 'boss' | null = null
-  /** Tick the current boss/world-boss spawned, for fastest-kill records. */
-  private bossFightStart: number | null = null
+  private pendingSpawn: 'battle' | 'elite' | null = null
   private pending: CombatEvent[] = []
 
   constructor(opts: SimOptions) {
     this.content = opts.content ?? DEFAULT_CONTENT
     this.rng = opts.rng
-    const first = this.content.zones[0]
-    if (!first) throw new Error('content pack has no zones')
-    this.zone = first
+    const first = this.content.regions[0]
+    if (!first) throw new Error('content pack has no regions')
+    this.region = first
     this.stats = deriveStats(this.level, this.talents, this.equipped)
     this.player = new PlayerUnit(this.stats)
+    this.scheduleSpawn()
+  }
+
+  /** Queue the next pack: mostly a normal encounter, occasionally an elite. */
+  private scheduleSpawn(): void {
+    const elite = this.region.eliteEncounters.length > 0 && rollPct(this.rng, 12)
+    this.pendingSpawn = elite ? 'elite' : 'battle'
+    this.spawnIn = NODE_SPAWN_TICKS
   }
 
   private enemyDef(id: string): EnemyDef {
@@ -229,19 +214,15 @@ export class GameSim {
     if (p.regenElapsed >= REGEN_INTERVAL_TICKS) {
       p.regenElapsed = 0
       p.mana = Math.min(this.stats.maxMana, p.mana + this.stats.regenPerInterval)
-      // The Wayfarer's Rest knits you back together — but only at camp. The
-      // trail offers no such mercy.
-      if (this.phase === 'camp') {
-        p.combatant.heal(Math.max(1, Math.round((p.combatant.maxHp * 7) / 100)))
+      // You catch your breath between packs — flesh knits back a little while
+      // the field is empty. There is no such mercy mid-fight.
+      if (this.phase === 'combat' && this.enemies.length === 0) {
+        p.combatant.heal(Math.max(1, Math.round((p.combatant.maxHp * 8) / 100)))
       }
     }
 
-    // Walk the trail; on arrival, resolve the node.
-    if (this.phase === 'travel') {
-      this.travelRemaining--
-      if (this.travelRemaining <= 0) this.arriveAtNode()
-    } else if (this.pendingSpawn !== null && this.enemies.length === 0) {
-      // A combat node's encounter closes in.
+    // Between packs, the next one closes in.
+    if (this.pendingSpawn !== null && this.enemies.length === 0) {
       this.spawnIn--
       if (this.spawnIn <= 0) this.spawnPending()
     }
@@ -365,32 +346,8 @@ export class GameSim {
   }
 
   private autoThenDrain(): CombatEvent[] {
-    if (this.autoBattle) {
-      this.autoExpedition()
-      this.autoAct()
-    }
+    if (this.autoBattle) this.autoAct()
     return this.drain()
-  }
-
-  /** Auto-battle also walks the trail hands-free: it embarks from camp, presses
-   *  on from resolved nodes (after a short breather), and takes the first
-   *  blessing a shrine offers. It never assaults the world boss. */
-  private autoExpedition(): void {
-    if (this.phase === 'assault' || !this.player.alive) return
-    if (this.pendingShrine && this.pendingShrine.length > 0) {
-      this.chooseBlessing(this.pendingShrine[0]!)
-      return
-    }
-    if (this.phase === 'camp') {
-      if (++this.autoBreather >= AUTO_BREATHER_TICKS) this.embark()
-      return
-    }
-    if (this.phase === 'node' && this.nodeResolvedFlag && !this.isLastNode) {
-      if (++this.autoBreather >= AUTO_BREATHER_TICKS) this.advance()
-      return
-    }
-    // Travelling or mid-combat: no breather accrues.
-    this.autoBreather = 0
   }
 
   // ─────────────────────── abilities ───────────────────────
@@ -591,33 +548,12 @@ export class GameSim {
     this.addGold(rollInt(this.rng, def.goldMin, def.goldMax), 'kill')
     this.addXp(def.xp)
     if (rollPct(this.rng, def.dropPct)) this.dropLoot(def)
+    this.rollMaterial()
 
-    if (def.rank === 'boss') {
-      this.lifetime.bossKills++
-      if (this.phase === 'assault') {
-        // The world boss lives in its own pool; nothing here applies to it.
-        this.onWorldBossFelled()
-        return
-      }
-      const zoneIdx = this.content.zones.findIndex((z) => z.bossId === def.id)
-      const zone = this.content.zones[zoneIdx]
-      if (zone && !this.bossesDefeated.has(zone.id)) {
-        this.bossesDefeated.add(zone.id)
-        const next = this.content.zones[zoneIdx + 1] ?? null
-        this.push({ kind: 'bossDefeated', zoneId: zone.id, nextZoneId: next?.id ?? null })
-      }
-      // Fastest-kill record: the time from the boss appearing to its death.
-      if (this.bossFightStart !== null) {
-        const elapsed = this.tickCount - this.bossFightStart
-        const best = this.records.fastestBossKills[this.zone.id]
-        this.records.fastestBossKills[this.zone.id] = best === undefined ? elapsed : Math.min(best, elapsed)
-        this.bossFightStart = null
-      }
-      this.checkAchievement(`boss-${def.id}`, true)
-      if (def.id === this.content.finalBossId && !this.completed) {
-        this.completed = true
-        this.push({ kind: 'gameCompleted' })
-      }
+    // The world boss lives in its own pool; its death runs a different path.
+    if (this.phase === 'assault') {
+      this.onWorldBossFelled()
+      return
     }
 
     this.checkAchievement('first-blood', true)
@@ -632,33 +568,27 @@ export class GameSim {
     }
   }
 
-  /** The whole pack is down. A combat node is now resolved. */
+  /** The whole pack is down. Catch your breath, then the next pack is on its
+   *  way — the hunt never ends. */
   private onEncounterCleared(): void {
     this.push({ kind: 'encounterCleared' })
     if (this.player.queued && ABILITIES[this.player.queued].offensive) this.player.queued = null
     this.enemies = []
     this.targetIid = null
-
-    // Elite nodes always drop something worth carrying.
-    if (this.route && this.route[this.nodeIndex] === 'elite') {
-      this.grantLoot(this.zone.minLevel + 1, 'uncommon')
-    }
-    this.resolveCurrentNode()
+    // Clearing a pack mends a quarter of your health — the reward for a clean win.
+    if (this.player.alive) this.player.combatant.heal(Math.round((this.player.combatant.maxHp * 25) / 100))
+    this.scheduleSpawn()
   }
 
-  /** Mark the current node resolved — or, if it was the boss, complete the run. */
-  private resolveCurrentNode(): void {
-    if (this.route === null) return
-    const kind = this.route[this.nodeIndex]
-    if (kind === 'boss') {
-      this.push({ kind: 'nodeResolved', index: this.nodeIndex })
-      this.records.expeditionsCompleted++
-      this.checkAchievement('expeditions-10', this.records.expeditionsCompleted >= 10)
-      this.endExpedition('completed')
-      return
-    }
-    this.nodeResolvedFlag = true
-    this.push({ kind: 'nodeResolved', index: this.nodeIndex })
+  /** ~35% of kills cough up a stack of one of the current region's materials. */
+  private rollMaterial(): void {
+    if (!rollPct(this.rng, 35)) return
+    const ids = this.region.materials
+    if (ids.length === 0) return
+    const id = pickOne(this.rng, ids)
+    const count = rollInt(this.rng, 1, 3)
+    this.materials[id] = (this.materials[id] ?? 0) + count
+    this.push({ kind: 'materialDropped', id, count })
   }
 
   private onPlayerDied(): void {
@@ -671,15 +601,13 @@ export class GameSim {
     // An assault banks its damage before the field is torn down, so endAssault
     // must read the colossus's HP first.
     if (this.phase === 'assault') {
-      this.endAssault('death')
+      this.endAssault()
       return
     }
-    // The field clears; you wake at camp.
+    // The field clears; combat resumes when you revive.
     this.enemies = []
     this.targetIid = null
-    this.pendingSpawn = null
-    this.spawnIn = 0
-    if (this.route !== null) this.endExpedition('death')
+    this.scheduleSpawn()
   }
 
   private revivePlayer(): void {
@@ -696,24 +624,17 @@ export class GameSim {
     if (kind === null) return
     this.pendingSpawn = null
     this.spawnIn = 0
-    let slots: EncounterSlot[]
-    if (kind === 'boss') {
-      slots = [{ enemyId: this.zone.bossId }]
-    } else if (kind === 'elite') {
-      slots = pickWeighted(
-        this.rng,
-        this.zone.eliteEncounters.map((e) => ({ value: e.slots, weight: e.weight })),
-      )
-    } else {
-      slots = pickWeighted(
-        this.rng,
-        this.zone.encounters.map((e) => ({ value: e.slots, weight: e.weight })),
-      )
-    }
+    const table =
+      kind === 'elite' && this.region.eliteEncounters.length > 0
+        ? this.region.eliteEncounters
+        : this.region.encounters
+    const slots: EncounterSlot[] = pickWeighted(
+      this.rng,
+      table.map((e) => ({ value: e.slots, weight: e.weight })),
+    )
     this.enemies = slots.map(
       (s) => new EnemyUnit(this.enemyDef(s.enemyId), this.nextIid++, s.row ?? 'front'),
     )
-    if (kind === 'boss') this.bossFightStart = this.tickCount
     this.autoTarget()
     for (const e of this.enemies) {
       this.push({
@@ -784,33 +705,8 @@ export class GameSim {
   }
 
   private refreshStats(fullRestore: boolean): void {
-    this.stats = this.applyBlessings(deriveStats(this.level, this.talents, this.equipped))
+    this.stats = deriveStats(this.level, this.talents, this.equipped)
     this.player.applyStats(this.stats, fullRestore)
-  }
-
-  /** Blessings bend the derived stats as a post-derive pass, read from the
-   *  blessing table as data. `travelMult` is not a stat — it is read when a hop
-   *  starts — so it is skipped here. */
-  private applyBlessings(base: DerivedStats): DerivedStats {
-    if (this.blessings.size === 0) return base
-    const s = { ...base }
-    for (const id of this.blessings) {
-      const effect = BLESSINGS[id].effect
-      switch (effect.kind) {
-        case 'stat':
-          s[effect.stat] += effect.add
-          break
-        case 'maxHpPct':
-          s.maxHp = Math.round(s.maxHp * (1 + effect.pct / 100))
-          break
-        case 'regenMult':
-          s.regenPerInterval = Math.round(s.regenPerInterval * effect.mult)
-          break
-        case 'travelMult':
-          break
-      }
-    }
-    return s
   }
 
   private checkAchievement(id: string, condition: boolean): void {
@@ -844,6 +740,16 @@ export class GameSim {
     return true
   }
 
+  /** Sell the whole stack of one material for gold. */
+  sellMaterial(id: string): boolean {
+    const have = this.materials[id] ?? 0
+    const def = this.content.materials[id]
+    if (have <= 0 || !def) return false
+    delete this.materials[id]
+    this.addGold(have * def.value, 'sale')
+    return true
+  }
+
   spendTalent(id: TalentId): boolean {
     const rank = this.talents[id] ?? 0
     if (rank >= TALENTS[id].maxRanks) return false
@@ -861,203 +767,39 @@ export class GameSim {
     return true
   }
 
-  zoneUnlocked(zoneId: string): boolean {
-    const idx = this.content.zones.findIndex((z) => z.id === zoneId)
-    if (idx < 0) return false
-    const prev = this.content.zones[idx - 1]
-    return idx === 0 || (prev !== undefined && this.bossesDefeated.has(prev.id))
-  }
-
-  /** Change zones — only from camp, and only to an unlocked, different zone. */
-  travelTo(zoneId: string): boolean {
-    if (this.phase !== 'camp') return false
-    const zone = this.content.zones.find((z) => z.id === zoneId)
-    if (!zone || zone.id === this.zone.id || !this.zoneUnlocked(zoneId)) return false
-    this.zone = zone
-    this.push({ kind: 'zoneEntered', zoneId: zone.id, name: zone.name })
-    return true
-  }
-
-  // ─────────────────────── expedition intents ───────────────────────
-
-  private get isLastNode(): boolean {
-    return this.route !== null && this.nodeIndex === this.route.length - 1
-  }
-
-  /** Set out from camp: generate a route and start walking to node 0. */
-  embark(): boolean {
-    if (this.phase !== 'camp' || !this.player.alive) return false
-    this.route = generateRoute(this.rng, this.zone)
-    this.blessings.clear()
-    this.pendingShrine = null
-    this.revealedThrough = -1
-    this.autoBreather = 0
-    this.refreshStats(false)
-    this.push({ kind: 'expeditionStarted', zoneId: this.zone.id, nodes: this.route.length })
-    this.startTravel(0)
-    return true
-  }
-
-  /** Press on from a resolved node to the next. */
-  advance(): boolean {
-    if (this.phase !== 'node' || !this.nodeResolvedFlag || this.route === null) return false
-    if (this.isLastNode) return false
-    this.autoBreather = 0
-    this.startTravel(this.nodeIndex + 1)
-    return true
-  }
-
-  /** Turn back to camp at any point in an expedition, keeping all loot earned. */
-  retreat(): boolean {
-    if (this.phase === 'assault') return this.endAssault('retreat')
-    if (this.route === null) return false
+  /** Switch regions. Allowed any time you are in combat (not mid-assault). */
+  enterRegion(regionId: string): boolean {
+    if (this.phase !== 'combat') return false
+    const region = this.content.regions.find((r) => r.id === regionId)
+    if (!region || region.id === this.region.id) return false
+    this.region = region
     this.despawnForTransition()
     this.pendingSpawn = null
-    this.spawnIn = 0
-    this.endExpedition('retreat')
+    this.scheduleSpawn()
+    this.push({ kind: 'regionEntered', regionId: region.id, name: region.name })
     return true
   }
 
-  /** Take one of the two blessings a shrine is offering. */
-  chooseBlessing(id: BlessingId): boolean {
-    if (!this.pendingShrine || !this.pendingShrine.includes(id)) return false
-    this.pendingShrine = null
-    this.gainBlessing(id)
-    this.nodeResolvedFlag = true
-    this.push({ kind: 'nodeResolved', index: this.nodeIndex })
-    return true
-  }
-
-  private gainBlessing(id: BlessingId): void {
-    this.blessings.add(id)
-    this.push({ kind: 'blessingGained', id })
-    const before = this.player.combatant.maxHp
-    this.refreshStats(false)
-    // Stoneskin heals the flesh it just added.
-    if (BLESSINGS[id].effect.kind === 'maxHpPct') {
-      const added = this.player.combatant.maxHp - before
-      if (added > 0) this.player.combatant.heal(added)
-    }
-  }
-
-  private startTravel(toIndex: number): void {
-    this.nodeIndex = toIndex
-    this.nodeResolvedFlag = false
-    this.pendingSpawn = null
-    // Reveal the node we now walk toward (fog of war).
-    this.revealedThrough = Math.max(this.revealedThrough, toIndex)
-    this.phase = 'travel'
-    this.travelTotal = this.blessings.has('springstep') ? Math.floor(TRAVEL_TICKS / 2) : TRAVEL_TICKS
-    this.travelRemaining = this.travelTotal
-    const flavor = pickOne(this.rng, this.zone.travelLines)
-    this.push({ kind: 'travelStarted', toIndex, flavor })
-  }
-
-  private arriveAtNode(): void {
-    if (this.route === null) return
-    this.phase = 'node'
-    this.travelRemaining = 0
-    const kind = this.route[this.nodeIndex]!
-    this.push({ kind: 'nodeArrived', index: this.nodeIndex, nodeKind: kind })
-    this.resolveArrival(kind)
-  }
-
-  /** Run a node's arrival behavior. Combat nodes queue a spawn; the rest
-   *  resolve then and there (or, for a shrine, wait on a blessing choice). */
-  private resolveArrival(kind: NodeKind): void {
-    switch (kind) {
-      case 'battle':
-        this.pendingSpawn = 'battle'
-        this.spawnIn = NODE_SPAWN_TICKS
-        break
-      case 'elite':
-        this.pendingSpawn = 'elite'
-        this.spawnIn = NODE_SPAWN_TICKS
-        break
-      case 'boss':
-        this.pendingSpawn = 'boss'
-        this.spawnIn = BOSS_APPROACH_TICKS
-        break
-      case 'cache':
-        this.openCache()
-        break
-      case 'rest':
-        this.takeRest()
-        break
-      case 'shrine':
-        this.offerShrine()
-        break
-    }
-  }
-
-  private openCache(): void {
-    const zoneOrdinal = this.content.zones.findIndex((z) => z.id === this.zone.id) + 1
-    const gold = rollInt(this.rng, 12, 24) * zoneOrdinal
-    this.addGold(gold, 'kill')
-    let item: Item | null = null
-    if (rollPct(this.rng, 35)) item = this.grantLoot(this.zone.minLevel + 1, 'uncommon')
-    this.push({ kind: 'cacheOpened', gold, item })
-    this.nodeResolvedFlag = true
-    this.push({ kind: 'nodeResolved', index: this.nodeIndex })
-  }
-
-  private takeRest(): void {
-    const p = this.player
-    const hpRestored = p.combatant.heal(Math.floor(p.combatant.maxHp * 0.6))
-    const manaBefore = p.mana
-    p.mana = Math.min(this.stats.maxMana, p.mana + Math.floor(this.stats.maxMana * 0.6))
-    this.push({ kind: 'rested', hpRestored, manaRestored: p.mana - manaBefore })
-    this.nodeResolvedFlag = true
-    this.push({ kind: 'nodeResolved', index: this.nodeIndex })
-  }
-
-  private offerShrine(): void {
-    const pool = BLESSING_IDS.filter((id) => !this.blessings.has(id))
-    const choices: BlessingId[] = []
-    const copy = [...pool]
-    while (choices.length < 2 && copy.length > 0) {
-      const i = rollInt(this.rng, 0, copy.length - 1)
-      choices.push(copy.splice(i, 1)[0]!)
-    }
-    if (choices.length === 0) {
-      // Nothing left to offer — the shrine is silent.
-      this.nodeResolvedFlag = true
-      this.push({ kind: 'nodeResolved', index: this.nodeIndex })
-      return
-    }
-    this.pendingShrine = choices
-    this.push({ kind: 'shrineOffered', choices })
-  }
-
-  /** Tear down the expedition (any outcome), drop blessing modifiers, and stand
-   *  the hero back at camp. */
-  private endExpedition(outcome: 'completed' | 'retreat' | 'death'): void {
-    this.route = null
-    this.nodeIndex = 0
-    this.nodeResolvedFlag = false
-    this.pendingShrine = null
-    this.pendingSpawn = null
-    this.bossFightStart = null
-    this.blessings.clear()
-    this.phase = 'camp'
-    this.autoBreather = 0
-    this.refreshStats(false)
-    this.push({ kind: 'expeditionEnded', outcome })
+  /** Break off a world-boss assault, keeping the damage banked. No-op otherwise. */
+  retreat(): boolean {
+    if (this.phase === 'assault') return this.endAssault()
+    return false
   }
 
   // ─────────────────────── world boss (scaffold) ───────────────────────
 
-  /** Throw yourself at the Rift Colossus from camp. It spawns at its current
-   *  pooled HP as the sole enemy; the fight ends on its death, yours, or
-   *  retreat. */
+  /** Throw yourself at the Rift Colossus. It spawns at its current pooled HP as
+   *  the sole enemy; the fight ends on its death, yours, or retreat, after which
+   *  you return to hunting your current region. */
   assaultWorldBoss(): boolean {
-    if (this.phase !== 'camp' || !this.player.alive) return false
+    if (this.phase !== 'combat' || !this.player.alive) return false
     this.phase = 'assault'
+    this.pendingSpawn = null
+    this.despawnForTransition()
     const def: EnemyDef = { ...WORLD_BOSS, hp: this.worldBossHp }
     const unit = new EnemyUnit(def, this.nextIid++)
     this.enemies = [unit]
     this.targetIid = unit.iid
-    this.bossFightStart = this.tickCount
     this.push({
       kind: 'enemySpawned',
       iid: unit.iid,
@@ -1069,19 +811,17 @@ export class GameSim {
     return true
   }
 
-  /** End an assault (retreat or death): bank the damage into the pool. */
-  private endAssault(outcome: 'retreat' | 'death'): boolean {
+  /** End an assault (retreat or death): bank the damage, return to region combat. */
+  private endAssault(): boolean {
     const colossus = this.enemies[0]
     const remaining = colossus ? colossus.combatant.hp : this.worldBossHp
     const damageDealt = this.worldBossHp - remaining
     this.worldBossHp = remaining
     if (damageDealt > this.records.bestAssaultDamage) this.records.bestAssaultDamage = damageDealt
-    if (outcome === 'retreat') this.despawnForTransition()
     this.enemies = []
     this.targetIid = null
-    this.bossFightStart = null
-    this.phase = 'camp'
-    this.autoBreather = 0
+    this.phase = 'combat'
+    this.scheduleSpawn()
     this.push({ kind: 'worldBossAssaultEnded', damageDealt, remaining })
     return true
   }
@@ -1099,16 +839,16 @@ export class GameSim {
     this.worldBossHp = WORLD_BOSS_MAX_HP
     this.enemies = []
     this.targetIid = null
-    this.bossFightStart = null
-    this.phase = 'camp'
-    this.autoBreather = 0
+    this.lifetime.bossKills++
+    this.phase = 'combat'
+    this.scheduleSpawn()
   }
 
   // ─────────────────────── companion (scaffold) ───────────────────────
 
-  /** Hire a companion from camp: pays its cost and persists in the save. */
+  /** Hire a companion: pays its cost and persists in the save. */
   hireCompanion(id = 'wren'): boolean {
-    if (this.phase !== 'camp' || this.companionId !== null) return false
+    if (this.phase !== 'combat' || this.companionId !== null) return false
     const comp = COMPANIONS[id]
     if (!comp || this.gold < comp.cost) return false
     this.gold -= comp.cost
@@ -1141,7 +881,6 @@ export class GameSim {
       enemies: this.enemies.map((e) => e.snapshot()),
       target: this.targetIid,
       spawnIn: this.enemies.length > 0 ? 0 : this.spawnIn,
-      expedition: this.expeditionSnapshot(),
       cast: p.cast
         ? {
             abilityId: p.cast.id,
@@ -1165,25 +904,31 @@ export class GameSim {
     return { name: comp.name, swingProgress: Math.min(1, this.companionSwing / comp.swingTicks) }
   }
 
-  private expeditionSnapshot(): ExpeditionSnapshot | null {
-    if (this.route === null) return null
-    const nodes: ExpeditionNodeView[] = this.route.map((kind, i) => {
-      const revealed = i <= this.revealedThrough || kind === 'boss'
-      const state: ExpeditionNodeView['state'] =
-        i < this.nodeIndex ? 'done' : i === this.nodeIndex ? 'current' : 'ahead'
-      return { kind: revealed ? kind : 'unknown', state }
-    })
-    return {
-      index: this.nodeIndex,
-      total: this.route.length,
-      traveling: this.phase === 'travel',
-      travelRemaining: this.travelRemaining,
-      travelTotal: this.travelTotal,
-      nodeResolved: this.nodeResolvedFlag,
-      nodes,
-      pendingShrine: this.pendingShrine ? [...this.pendingShrine] : null,
-      blessings: [...this.blessings],
-    }
+  private regionProgress(): RegionProgress[] {
+    return this.content.regions.map((r) => ({
+      id: r.id,
+      name: r.name,
+      epithet: r.epithet,
+      tier: r.tier,
+      minLevel: r.minLevel,
+      maxLevel: r.maxLevel,
+      hue: r.hue,
+      current: r.id === this.region.id,
+      enemyNames: [
+        ...new Set(r.encounters.flatMap((e) => e.slots.map((s) => this.enemyDef(s.enemyId).name))),
+      ],
+    }))
+  }
+
+  private materialStacks(): MaterialStackView[] {
+    const order: Record<string, number> = { low: 0, medium: 1, hard: 2 }
+    return Object.entries(this.materials)
+      .filter(([, count]) => count > 0)
+      .map(([id, count]) => {
+        const def = this.content.materials[id]!
+        return { id, name: def.name, tier: def.tier, count, value: count * def.value }
+      })
+      .sort((a, b) => order[a.tier]! - order[b.tier]! || a.name.localeCompare(b.name))
   }
 
   progressSnapshot(): Readonly<ProgressSnapshot> {
@@ -1200,24 +945,12 @@ export class GameSim {
       talentRanks: ranks,
       inventory: [...this.inventory],
       equipped: { ...this.equipped },
-      zoneId: this.zone.id,
-      zones: this.content.zones.map((z) => ({
-        id: z.id,
-        name: z.name,
-        epithet: z.epithet,
-        minLevel: z.minLevel,
-        hue: z.hue,
-        unlocked: this.zoneUnlocked(z.id),
-        current: z.id === this.zone.id,
-        bossDefeated: this.bossesDefeated.has(z.id),
-        bossName: this.enemyDef(z.bossId).name,
-        enemyNames: [
-          ...new Set(z.encounters.flatMap((e) => e.slots.map((s) => this.enemyDef(s.enemyId).name))),
-        ],
-      })),
+      regionId: this.region.id,
+      regions: this.regionProgress(),
+      materials: this.materialStacks(),
       achievements: [...this.achievements],
       lifetime: { ...this.lifetime },
-      records: { ...this.records, fastestBossKills: { ...this.records.fastestBossKills } },
+      records: { ...this.records },
       worldBoss: {
         name: WORLD_BOSS.name,
         hp: this.worldBossHp,
@@ -1228,7 +961,6 @@ export class GameSim {
         this.companionId !== null && COMPANIONS[this.companionId]
           ? { id: this.companionId, name: COMPANIONS[this.companionId]!.name }
           : null,
-      completed: this.completed,
     }
   }
 
@@ -1236,7 +968,7 @@ export class GameSim {
 
   serialize(): SaveData {
     return {
-      version: 2,
+      version: 3,
       level: this.level,
       xp: this.xp,
       gold: this.gold,
@@ -1244,25 +976,34 @@ export class GameSim {
       equipped: { ...this.equipped },
       inventory: [...this.inventory],
       nextUid: this.nextUid,
-      zoneId: this.zone.id,
-      bossesDefeated: [...this.bossesDefeated],
+      regionId: this.region.id,
+      materials: { ...this.materials },
       achievements: [...this.achievements],
       lifetime: { ...this.lifetime },
-      records: { ...this.records, fastestBossKills: { ...this.records.fastestBossKills } },
+      records: { ...this.records },
       worldBossHp: this.worldBossHp,
       companionId: this.companionId,
       autoBattle: this.autoBattle,
-      completed: this.completed,
     }
   }
 
-  /** Rebuild a sim from a save. Expedition state is not persisted: you come
-   *  back rested, at full strength, standing in camp. */
+  /** Legacy zoneId → region, for saves written before regions existed. */
+  private static readonly ZONE_TO_REGION: Record<string, string> = {
+    hollowroot: 'verdant',
+    duskmire: 'verdant',
+    stormcrag: 'emberwild',
+    'ashen-wastes': 'emberwild',
+    'sundered-spire': 'riftedge',
+  }
+
+  /** Rebuild a sim from a save. In-combat state is not persisted: you come back
+   *  at full strength, already hunting the region you last chose. */
   static deserialize(data: SaveData, opts: SimOptions): GameSim {
-    // v1 saves are accepted; their dead fields (savedAt, muted, zoneKills that
-    // no longer gate anything) are simply ignored on the way in.
+    // v1/v2 saves are accepted; their dead fields (savedAt, muted, zoneKills,
+    // bossesDefeated, expedition records) are simply ignored on the way in.
+    const raw = data as unknown as Record<string, unknown>
     const version = data.version as number
-    if (version !== 1 && version !== 2) {
+    if (version !== 1 && version !== 2 && version !== 3) {
       throw new Error(`unknown save version: ${String(data.version)}`)
     }
     const sim = new GameSim(opts)
@@ -1273,26 +1014,26 @@ export class GameSim {
     sim.equipped = { ...data.equipped }
     sim.inventory = [...data.inventory]
     sim.nextUid = Math.max(1, data.nextUid)
-    for (const id of data.bossesDefeated) sim.bossesDefeated.add(id)
     for (const id of data.achievements) sim.achievements.add(id)
     sim.lifetime = { ...data.lifetime }
-    // New v2 fields; a v1 blob lacks them, so default in.
-    const rec = data.records as Records | undefined
-    if (rec) {
-      sim.records = {
-        expeditionsCompleted: rec.expeditionsCompleted ?? 0,
-        worldBossFells: rec.worldBossFells ?? 0,
-        bestAssaultDamage: rec.bestAssaultDamage ?? 0,
-        fastestBossKills: { ...(rec.fastestBossKills ?? {}) },
-      }
+    const rec = raw.records as Partial<Records> | undefined
+    sim.records = {
+      worldBossFells: rec?.worldBossFells ?? 0,
+      bestAssaultDamage: rec?.bestAssaultDamage ?? 0,
     }
+    sim.materials = { ...((raw.materials as Record<string, number> | undefined) ?? {}) }
     sim.worldBossHp = (data.worldBossHp as number | undefined) ?? WORLD_BOSS_MAX_HP
     sim.companionId = (data.companionId as string | null | undefined) ?? null
-    sim.autoBattle = data.autoBattle
-    sim.completed = data.completed
-    const zone = sim.content.zones.find((z) => z.id === data.zoneId)
-    if (zone && sim.zoneUnlocked(zone.id)) sim.zone = zone
+    sim.autoBattle = data.autoBattle ?? false
+    // Resolve the region: prefer regionId (v3), then map a legacy zoneId, else default.
+    const regionId =
+      (raw.regionId as string | undefined) ??
+      GameSim.ZONE_TO_REGION[(raw.zoneId as string | undefined) ?? ''] ??
+      sim.content.regions[0]!.id
+    const region = sim.content.regions.find((r) => r.id === regionId)
+    if (region) sim.region = region
     sim.refreshStats(true)
+    sim.scheduleSpawn()
     return sim
   }
 

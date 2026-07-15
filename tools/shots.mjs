@@ -1,5 +1,6 @@
 // npm run shots — build, boot the preview server, and capture the three
-// README screenshots: a fresh fight, a mid-game boss pull, and the bags.
+// README screenshots: a fresh fight, a mid-game pull, and the bags.
+// Combat is endless now: packs spawn on their own, so there is no embark.
 import { mkdir } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { build, preview } from 'vite'
@@ -12,13 +13,11 @@ await mkdir('docs', { recursive: true })
 
 const browser = await chromium.launch()
 
-// ── shot 1: a fresh hero sets out on their first expedition ─────────
+// ── shot 1: a fresh hero's first fight in the Verdant Reach ─────────
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1500) // settle: fonts
-  await page.keyboard.press(' ') // Embark from the Wayfarer's Rest
-  await page.waitForTimeout(6000) // walk the trail, arrive at the first fight
+  await page.waitForTimeout(2000) // settle fonts + the first pack arrives
   await page.keyboard.press('2') // Ignite
   await page.waitForTimeout(500)
   await page.keyboard.press('1') // Fireball
@@ -45,7 +44,7 @@ const save = {
     { uid: 6, name: 'Whispering Ring of Sudden Fury', slot: 'ring', ilvl: 9, rarity: 'rare', stats: { power: 7, crit: 7 } },
   ],
   nextUid: 100,
-  zoneId: 'duskmire',
+  zoneId: 'stormcrag',
   bossesDefeated: ['hollowroot'],
   achievements: ['first-blood', 'level-5', 'level-10', 'boss-grubthar', 'kills-100'],
   lifetime: { kills: 132, deaths: 3, goldEarned: 1450, interrupts: 9, epicsFound: 1, bossKills: 1 },
@@ -56,21 +55,19 @@ const save = {
   completed: false,
 }
 
-// ── shot 2: an expedition fight in Duskmire ─────────────────────────
+// ── shot 2: a geared hero fighting in the Emberwild (v2 save → region) ──
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
   await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1200)
-  await page.keyboard.press(' ') // Embark
-  await page.waitForTimeout(6000) // walk the trail, reach the first node fight
+  await page.waitForTimeout(2000) // the first pack arrives
   await page.keyboard.press('2') // Ignite
   await page.waitForTimeout(400)
   await page.keyboard.press('7') // Combustion
   await page.waitForTimeout(400)
   await page.keyboard.press('4') // Pyroblast
   await page.waitForTimeout(4250)
-  await page.screenshot({ path: 'docs/shot-2.png' }) // the comet detonating, trail ribbon above
+  await page.screenshot({ path: 'docs/shot-2.png' }) // the comet detonating
   await page.close()
 }
 
