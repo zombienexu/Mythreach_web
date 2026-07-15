@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { ticksToSeconds } from '../format'
   import type { Game, Impact } from '../game.svelte'
   import ActionBar from '../components/ActionBar.svelte'
   import ArenaFx from '../components/ArenaFx.svelte'
@@ -11,10 +10,8 @@
 
   const region = $derived(game.progress.regions.find((r) => r.current))
   const assault = $derived(game.combat.phase === 'assault')
-
-  // The live pack, or the corpses of the last one while we wait.
-  const live = $derived(game.combat.enemies.length > 0)
-  const shown = $derived(live ? game.combat.enemies : game.lastEnemies)
+  const looting = $derived(game.combat.phase === 'looting')
+  const shown = $derived(game.combat.enemies)
 
   // Formation: a back rank drawn above and smaller, the front rank ahead of it.
   const back = $derived(shown.filter((e) => e.row === 'back'))
@@ -39,18 +36,19 @@
 
 <section class="arena" aria-label="Combatants" style:--zh={region?.hue ?? 260}>
   <div class="field" class:solo>
-    {#if live || shown.length > 0}
+    {#if shown.length > 0}
       <div class="foes" data-fx-row="enemies" role="group" aria-label="Enemies — click or Tab to target">
         {#if back.length > 0}
           <div class="rank back">
             {#each back as enemy (enemy.iid)}
               <EnemyCard
                 {enemy}
-                {live}
+                lootable={looting}
                 targeted={game.combat.target === enemy.iid}
                 compact={!solo}
                 impact={game.enemyImpacts[enemy.iid] ?? IDLE_IMPACT}
                 ontarget={() => game.target(enemy.iid)}
+                oncollect={() => game.loot(enemy.iid)}
               />
             {/each}
           </div>
@@ -59,19 +57,26 @@
           {#each front as enemy (enemy.iid)}
             <EnemyCard
               {enemy}
-              {live}
+              lootable={looting}
               targeted={game.combat.target === enemy.iid}
               compact={!solo}
               impact={game.enemyImpacts[enemy.iid] ?? IDLE_IMPACT}
               ontarget={() => game.target(enemy.iid)}
+              oncollect={() => game.loot(enemy.iid)}
             />
           {/each}
         </div>
       </div>
     {:else}
       <div class="glass card lull">
-        <span class="lull-word">The dark stirs…</span>
-        <span class="lull-count num">{ticksToSeconds(game.combat.spawnIn)}s</span>
+        <span class="lull-word">{region?.intro ?? 'The dark waits.'}</span>
+        <button
+          class="start"
+          disabled={!game.combat.player.alive}
+          onclick={() => game.startFight()}
+        >
+          {game.combat.player.alive ? 'Start fight' : 'Fallen…'}
+        </button>
       </div>
     {/if}
   </div>
@@ -88,6 +93,14 @@
   {#if assault}
     <div class="assault-foot">
       <button class="turn-back" onclick={() => game.retreat()}>Break off the assault</button>
+    </div>
+  {/if}
+
+  {#if looting}
+    <div class="loot-foot">
+      <button class="loot-all" onclick={() => game.lootAll()}>
+        Loot all — <kbd>R</kbd>
+      </button>
     </div>
   {/if}
 
@@ -233,20 +246,70 @@
   }
 
   .lull {
-    opacity: 0.85;
+    opacity: 0.92;
   }
 
   .lull-word {
     font-family: var(--font-display);
-    font-size: 19px;
-    letter-spacing: 0.06em;
+    font-size: 17px;
+    font-style: italic;
+    letter-spacing: 0.04em;
     color: var(--text-dim);
   }
 
-  .lull-count {
-    font-size: 14px;
-    font-weight: 620;
-    color: var(--text);
+  /* The one button the whole loop hangs on. */
+  .start {
+    margin-top: 6px;
+    padding: 10px 34px;
+    border-radius: 99px;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 640;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    color: var(--ether);
+    border: 1px solid oklch(0.8 0.11 195 / 0.5);
+    background: oklch(0.8 0.11 195 / 0.09);
+    transition: box-shadow var(--dur-fast) ease, opacity var(--dur-fast) ease;
+  }
+
+  .start:hover:not(:disabled) {
+    box-shadow: 0 0 22px -4px oklch(0.8 0.11 195 / 0.6);
+  }
+
+  .start:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .loot-foot {
+    display: flex;
+    justify-content: center;
+  }
+
+  .loot-all {
+    padding: 8px 26px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 640;
+    cursor: pointer;
+    color: var(--gilt);
+    border: 1px solid oklch(0.78 0.1 85 / 0.45);
+    background: oklch(0.78 0.1 85 / 0.08);
+    transition: box-shadow var(--dur-fast) ease;
+  }
+
+  .loot-all:hover {
+    box-shadow: 0 0 18px -4px oklch(0.78 0.1 85 / 0.55);
+  }
+
+  .loot-all kbd {
+    font-family: inherit;
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 5px;
+    border: 1px solid oklch(0.78 0.1 85 / 0.4);
+    background: oklch(0.78 0.1 85 / 0.1);
   }
 
   .hero-row {

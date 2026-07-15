@@ -7,6 +7,7 @@ import type {
   EnemyDef,
   EnemySnapshot,
   MaterialDef,
+  QuestDef,
   RegionDef,
   SaveData,
 } from '../src/engine/types'
@@ -37,7 +38,7 @@ export function dummyEnemy(over: Partial<EnemyDef> = {}): EnemyDef {
  *  freely selectable — regions are never gated. */
 export function testContent(
   enemyOverrides: Partial<EnemyDef> = {},
-  extra: { enemies?: EnemyDef[]; region1Encounters?: EncounterDef[] } = {},
+  extra: { enemies?: EnemyDef[]; region1Encounters?: EncounterDef[]; quests?: QuestDef[] } = {},
 ): ContentPack {
   const enemies: EnemyDef[] = [
     dummyEnemy(enemyOverrides),
@@ -82,12 +83,13 @@ export function testContent(
     regions,
     enemies: Object.fromEntries(enemies.map((e) => [e.id, e])),
     materials: Object.fromEntries(materials.map((m) => [m.id, m])),
+    quests: extra.quests ?? [],
   }
 }
 
 export function blankSave(over: Partial<SaveData> = {}): SaveData {
   return {
-    version: 3,
+    version: 4,
     level: 1,
     xp: 0,
     gold: 0,
@@ -97,6 +99,8 @@ export function blankSave(over: Partial<SaveData> = {}): SaveData {
     nextUid: 1,
     regionId: 'r1',
     materials: {},
+    activeQuests: {},
+    completedQuests: [],
     achievements: [],
     lifetime: { kills: 0, deaths: 0, goldEarned: 0, interrupts: 0, epicsFound: 0, bossKills: 0 },
     records: { worldBossFells: 0, bestAssaultDamage: 0 },
@@ -149,15 +153,37 @@ export function makeSim(opts: MakeSimOptions = {}): GameSim {
   return new GameSim({ content, rng })
 }
 
-/** Advance until the next pack is on the field. Combat is endless: a spawn is
- *  always scheduled, so this always lands on a fight. */
+/** Put the next pack on the field: sweeps a pending loot screen, starts a
+ *  fight from idle (waiting out a respawn if the hero is down), then ticks
+ *  until the mobs are live. Returns every event seen along the way. */
 export function advanceToSpawn(sim: GameSim): CombatEvent[] {
   const events: CombatEvent[] = []
   for (let i = 0; i < 400; i++) {
+    const snap = sim.combatSnapshot()
+    if (snap.phase === 'looting') sim.collectAllLoot()
+    else if (snap.phase === 'idle' && snap.player.alive) sim.startFight()
     events.push(...sim.tick())
     if (sim.combatSnapshot().enemies.length > 0) return events
   }
   throw new Error('no enemy spawned within 400 ticks')
+}
+
+/** Play whole fights — start, fireball everything down, loot — until `stop()`
+ *  turns true or the tick budget runs out. */
+export function huntUntil(sim: GameSim, stop: () => boolean, budget = 8000): CombatEvent[] {
+  const events: CombatEvent[] = []
+  for (let i = 0; i < budget; i++) {
+    if (stop()) return events
+    const snap = sim.combatSnapshot()
+    if (snap.phase === 'looting') sim.collectAllLoot()
+    else if (snap.phase === 'idle' && snap.player.alive) sim.startFight()
+    else if (snap.enemies.length > 0 && snap.cast === null && snap.queued === null) {
+      sim.useAbility('fireball')
+    }
+    events.push(...sim.tick())
+  }
+  if (!stop()) throw new Error(`huntUntil: condition not met within ${budget} ticks`)
+  return events
 }
 
 /** The player's current target, or null — the multi-enemy stand-in for the

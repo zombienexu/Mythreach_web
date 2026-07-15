@@ -36,13 +36,18 @@ export type CombatEvent =
   | { kind: 'playerDied' }
   | { kind: 'playerRespawned' }
   | { kind: 'xpGained'; amount: number }
-  | { kind: 'goldGained'; amount: number; source: 'kill' | 'sale' }
+  | { kind: 'goldGained'; amount: number; source: 'kill' | 'sale' | 'quest' }
   | { kind: 'lootDropped'; item: Item; autoSold: boolean; goldValue: number }
   | { kind: 'levelUp'; level: number; unlocked: AbilityId[] }
   | { kind: 'achievementUnlocked'; id: string; name: string }
   // ── regions & materials ──
   | { kind: 'regionEntered'; regionId: string; name: string }
   | { kind: 'materialDropped'; id: string; count: number }
+  // ── quests ──
+  | { kind: 'questAccepted'; id: string; name: string }
+  /** The objective is met — the reward waits on the quest board. */
+  | { kind: 'questCompleted'; id: string; name: string }
+  | { kind: 'questTurnedIn'; id: string; name: string }
   // ── world boss (async scaffold, local) ──
   | { kind: 'worldBossAssaultEnded'; damageDealt: number; remaining: number }
   | { kind: 'worldBossFelled' }

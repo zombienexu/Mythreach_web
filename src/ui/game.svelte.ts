@@ -7,7 +7,6 @@ import {
   type AbilityId,
   type CombatEvent,
   type CombatSnapshot,
-  type EnemySnapshot,
   type Item,
   type ProgressSnapshot,
   type SaveData,
@@ -20,7 +19,7 @@ import { startLoop, type LoopHandle } from './loop'
 import { SaveStore } from './persistence'
 import { Sfx, type SfxName } from './sfx'
 
-export type View = 'combat' | 'character' | 'talents' | 'regions' | 'chronicle' | 'settings'
+export type View = 'combat' | 'character' | 'talents' | 'regions' | 'quests' | 'chronicle' | 'settings'
 
 export interface FloatText {
   id: number
@@ -132,8 +131,6 @@ export class Game implements FxHost {
   /** a crit landed: bump counter + how hard, for the screen-wide flash */
   critFlash: { n: number; power: number; side: Side } = $state({ n: 0, power: 1, side: 'enemy' })
   pressed = new SvelteSet<string>()
-  /** Last pack seen — keeps the fallen cards on screen between spawns. */
-  lastEnemies: EnemySnapshot[] = $state([])
   banner: { level: number; unlocked: AbilityId[] } | null = $state(null)
   toast: { id: number; title: string; body: string } | null = $state(null)
   /** the boss's name, while the challenge cinematic is on screen */
@@ -246,6 +243,27 @@ export class Game implements FxHost {
     }
   }
 
+  /** Begin the next fight. */
+  startFight(): void {
+    if (this.sim.startFight()) this.publish()
+  }
+
+  /** Collect one corpse's spoils. */
+  loot(iid: number): void {
+    if (this.sim.collectLoot(iid)) {
+      this.audio.play('loot')
+      this.publishAll()
+    }
+  }
+
+  /** R: sweep the whole loot screen at once. */
+  lootAll(): void {
+    if (this.sim.collectAllLoot()) {
+      this.audio.play('loot')
+      this.publishAll()
+    }
+  }
+
   /** Click a card: point your spells at that mob. */
   target(iid: number): void {
     if (this.sim.setTarget(iid)) {
@@ -280,7 +298,6 @@ export class Game implements FxHost {
 
   enterRegion(regionId: string): void {
     if (this.sim.enterRegion(regionId)) {
-      this.lastEnemies = []
       this.view = 'combat'
       this.publishAll()
     }
@@ -288,14 +305,12 @@ export class Game implements FxHost {
 
   retreat(): void {
     if (this.sim.retreat()) {
-      this.lastEnemies = []
       this.publishAll()
     }
   }
 
   assault(): void {
     if (this.sim.assaultWorldBoss()) {
-      this.lastEnemies = []
       this.audio.play('boss')
       this.bossIntro = 'The Rift Colossus'
       this.view = 'combat'
@@ -336,6 +351,21 @@ export class Game implements FxHost {
     if (this.sim.spendTalent(id)) this.publishAll()
   }
 
+  acceptQuest(id: string): void {
+    if (this.sim.acceptQuest(id)) this.publishAll()
+  }
+
+  abandonQuest(id: string): void {
+    if (this.sim.abandonQuest(id)) this.publishAll()
+  }
+
+  turnInQuest(id: string): void {
+    if (this.sim.turnInQuest(id)) {
+      this.audio.play('level')
+      this.publishAll()
+    }
+  }
+
   respec(): void {
     if (this.sim.respec()) this.publishAll()
   }
@@ -372,7 +402,6 @@ export class Game implements FxHost {
   private publish(): void {
     this.combat = this.sim.combatSnapshot()
     if (this.combat.enemies.length > 0) {
-      this.lastEnemies = this.combat.enemies
       // A fresh pack retires the recoil counters of the one before it.
       for (const key of Object.keys(this.enemyImpacts)) {
         if (!this.combat.enemies.some((e) => e.iid === Number(key))) delete this.enemyImpacts[Number(key)]
@@ -408,9 +437,6 @@ export class Game implements FxHost {
       case 'enemyEnraged':
         this.bump('enemy', 1.6, false, event.iid)
         break
-      case 'enemySpawned':
-        this.lastEnemies = []
-        break
       case 'enemyDied':
       case 'playerDied':
       case 'xpGained':
@@ -424,7 +450,6 @@ export class Game implements FxHost {
         break
       case 'regionEntered':
         this.progressDirty = true
-        this.lastEnemies = []
         break
       case 'lootDropped':
         this.progressDirty = true
@@ -441,6 +466,18 @@ export class Game implements FxHost {
       case 'worldBossFelled':
         this.progressDirty = true
         this.audio.play('level')
+        break
+      case 'questAccepted':
+        this.progressDirty = true
+        break
+      case 'questCompleted':
+        this.progressDirty = true
+        this.showToast(event.name, 'Objective complete — see the Quests tab.')
+        this.audio.play('loot')
+        break
+      case 'questTurnedIn':
+        this.progressDirty = true
+        this.showToast(event.name, 'Quest turned in. The traveler pays up.')
         break
       case 'achievementUnlocked': {
         this.progressDirty = true
@@ -490,6 +527,11 @@ export class Game implements FxHost {
     }
     if (e.key === 'a') {
       this.toggleAuto()
+      return
+    }
+    // R sweeps the loot screen, the way every loot-window hand learned it.
+    if (e.key === 'r') {
+      this.lootAll()
       return
     }
     const id = KEY_TO_ABILITY.get(e.key)

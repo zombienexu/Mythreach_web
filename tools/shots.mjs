@@ -1,6 +1,6 @@
-// npm run shots — build, boot the preview server, and capture the three
-// README screenshots: a fresh fight, a mid-game pull, and the bags.
-// Combat is endless now: packs spawn on their own, so there is no embark.
+// npm run shots — build, boot the preview server, and capture the README
+// screenshots: a fresh fight, a mid-game pull, the bags, and the quest board.
+// Fights are discrete now: each shot clicks "Start fight" to raise a pack.
 import { mkdir } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { build, preview } from 'vite'
@@ -17,7 +17,9 @@ const browser = await chromium.launch()
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(2000) // settle fonts + the first pack arrives
+  await page.waitForTimeout(1500) // settle fonts
+  await page.getByRole('button', { name: 'Start fight' }).click()
+  await page.waitForTimeout(500)
   await page.keyboard.press('2') // Ignite
   await page.waitForTimeout(500)
   await page.keyboard.press('1') // Fireball
@@ -60,7 +62,9 @@ const save = {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
   await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(2000) // the first pack arrives
+  await page.waitForTimeout(1500)
+  await page.getByRole('button', { name: 'Start fight' }).click()
+  await page.waitForTimeout(500)
   await page.keyboard.press('2') // Ignite
   await page.waitForTimeout(400)
   await page.keyboard.press('7') // Combustion
@@ -83,7 +87,19 @@ const save = {
   await page.close()
 }
 
-console.log('wrote docs/shot-1.png docs/shot-2.png docs/shot-3.png')
+// ── shot 4: the quest board ─────────────────────────────────────────
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
+  await page.goto(`http://localhost:${port}/`)
+  await page.waitForTimeout(1000)
+  await page.getByRole('button', { name: 'Quests' }).click()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: 'docs/shot-4.png' })
+  await page.close()
+}
+
+console.log('wrote docs/shot-1.png docs/shot-2.png docs/shot-3.png docs/shot-4.png')
 
 await browser.close()
 server.httpServer.close()

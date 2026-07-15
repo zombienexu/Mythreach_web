@@ -1,76 +1,52 @@
-import type { ContentPack, EncounterDef, RegionDef } from '../types'
+import type { ContentPack, RegionDef, RegionTier, ZoneDef } from '../types'
 import { ENEMIES } from './enemies'
 import { MATERIALS } from './materials'
+import { QUESTS } from './quests'
 import { ZONES } from './zones'
 
-/** The three regions are built by merging the five source zones' encounter
- *  tables into difficulty tiers. No enemy stats change — a region is just a
- *  bigger, un-gated hunting ground. */
-function zone(id: string) {
+/** Five regions, one per source zone. A region is the zone's identity — name,
+ *  epithet, hue, encounter tables — recast as an un-gated hunting ground with
+ *  a difficulty band and its own two materials. */
+function zone(id: string): ZoneDef {
   const z = ZONES.find((z) => z.id === id)
   if (!z) throw new Error(`missing source zone: ${id}`)
   return z
 }
 
-function merge(...ids: string[]): { encounters: EncounterDef[]; eliteEncounters: EncounterDef[] } {
-  const encounters: EncounterDef[] = []
-  const eliteEncounters: EncounterDef[] = []
-  for (const id of ids) {
-    const z = zone(id)
-    encounters.push(...z.encounters)
-    eliteEncounters.push(...z.eliteEncounters)
+function region(
+  id: string,
+  tier: RegionTier,
+  minLevel: number,
+  maxLevel: number,
+  materials: [string, string],
+): RegionDef {
+  const z = zone(id)
+  return {
+    id,
+    name: z.name,
+    epithet: z.epithet,
+    tier,
+    minLevel,
+    maxLevel,
+    hue: z.hue,
+    encounters: z.encounters,
+    eliteEncounters: z.eliteEncounters,
+    materials,
+    intro: z.intro,
   }
-  return { encounters, eliteEncounters }
 }
 
-const low = merge('hollowroot', 'duskmire')
-const mid = merge('stormcrag', 'ashen-wastes')
-const hard = merge('sundered-spire')
-
 export const REGIONS: readonly RegionDef[] = [
-  {
-    id: 'verdant',
-    name: 'The Verdant Reach',
-    epithet: 'young woods, old hungers',
-    tier: 'low',
-    minLevel: 1,
-    maxLevel: 6,
-    hue: 150,
-    encounters: low.encounters,
-    eliteEncounters: low.eliteEncounters,
-    materials: ['mossroot-fiber', 'hollow-bone'],
-    intro: 'Green light and small teeth. A good place to begin.',
-  },
-  {
-    id: 'emberwild',
-    name: 'The Emberwild',
-    epithet: 'stone that remembers fire',
-    tier: 'medium',
-    minLevel: 7,
-    maxLevel: 12,
-    hue: 40,
-    encounters: mid.encounters,
-    eliteEncounters: mid.eliteEncounters,
-    materials: ['storm-quartz', 'cinder-ash'],
-    intro: 'Ash on the wind and thunder in the rock.',
-  },
-  {
-    id: 'riftedge',
-    name: 'The Riftedge Wastes',
-    epithet: 'where the world comes apart',
-    tier: 'hard',
-    minLevel: 13,
-    maxLevel: 15,
-    hue: 305,
-    encounters: hard.encounters,
-    eliteEncounters: hard.eliteEncounters,
-    materials: ['void-shard', 'rift-essence'],
-    intro: 'Reality frays. Mind the edges.',
-  },
+  region('hollowroot', 'low', 1, 3, ['mossroot-fiber', 'hollow-bone']),
+  region('duskmire', 'low', 4, 6, ['bog-amber', 'wisp-residue']),
+  region('stormcrag', 'medium', 7, 9, ['storm-quartz', 'drake-scale']),
+  region('ashen-wastes', 'medium', 10, 12, ['cinder-ash', 'obsidian-glass']),
+  region('sundered-spire', 'hard', 13, 15, ['void-shard', 'rift-essence']),
 ]
 
 export const DEFAULT_CONTENT: ContentPack = {
   regions: REGIONS,
   enemies: ENEMIES,
   materials: MATERIALS,
+  quests: QUESTS,
 }

@@ -8,24 +8,26 @@
 
   let {
     enemy,
-    live = true,
+    lootable = false,
     targeted = false,
     compact = false,
     impact,
     ontarget,
+    oncollect,
   }: {
     enemy: EnemySnapshot
-    /** false once the pack is cleared — the card is a corpse awaiting the next spawn */
-    live?: boolean
+    /** true on the loot screen — a corpse with spoils grows a Collect button */
+    lootable?: boolean
     targeted?: boolean
     /** packs shrink every card so three fit where one stood */
     compact?: boolean
     impact: Impact
     ontarget?: () => void
+    oncollect?: () => void
   } = $props()
 
-  const dead = $derived(!enemy.alive || !live)
-  const casting = $derived(live && enemy.alive && enemy.cast != null)
+  const dead = $derived(!enemy.alive)
+  const casting = $derived(enemy.alive && enemy.cast != null)
 
   let el: HTMLElement | undefined = $state()
 
@@ -143,7 +145,30 @@
   </div>
 
   {#if !enemy.alive}
-    <div class="slain-word" aria-hidden="true">Slain</div>
+    {#if lootable && enemy.loot}
+      <div class="loot-panel">
+        <ul class="spoils">
+          <li class="spoil gold num">+{enemy.loot.gold} gold</li>
+          {#each enemy.loot.items as item (item.uid)}
+            <li class="spoil drop {item.rarity}">{item.name}</li>
+          {/each}
+          {#each enemy.loot.materials as m (m.id)}
+            <li class="spoil mat">{m.name} <span class="num">×{m.count}</span></li>
+          {/each}
+        </ul>
+        <button
+          class="collect"
+          onclick={(e) => {
+            e.stopPropagation()
+            oncollect?.()
+          }}
+        >
+          Collect
+        </button>
+      </div>
+    {:else}
+      <div class="slain-word" aria-hidden="true">Slain</div>
+    {/if}
   {/if}
 </div>
 
@@ -445,6 +470,77 @@
   .dead {
     filter: saturate(0.12) brightness(0.66);
     transform: scale(0.97) translateY(3px);
+  }
+
+  /* The fight is won: the corpse offers up what it carried. */
+  .loot-panel {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: inherit;
+    background: oklch(0.1 0.025 280 / 0.72);
+    backdrop-filter: blur(2px);
+    animation: slain-in 320ms ease-out;
+  }
+
+  .spoils {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+    text-align: center;
+  }
+
+  .spoil {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .spoil.gold {
+    color: var(--gilt);
+  }
+
+  .spoil.mat {
+    color: var(--ether);
+  }
+
+  .spoil.drop {
+    color: var(--rarity-common);
+  }
+
+  .spoil.drop.uncommon {
+    color: var(--rarity-uncommon);
+  }
+
+  .spoil.drop.rare {
+    color: var(--rarity-rare);
+  }
+
+  .spoil.drop.epic {
+    color: var(--rarity-epic);
+    text-shadow: 0 0 12px color-mix(in oklch, var(--rarity-epic) 60%, transparent);
+  }
+
+  .collect {
+    padding: 5px 22px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 660;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    color: var(--gilt);
+    border: 1px solid oklch(0.78 0.1 85 / 0.5);
+    background: oklch(0.78 0.1 85 / 0.1);
+    transition: box-shadow var(--dur-fast) ease;
+  }
+
+  .collect:hover {
+    box-shadow: 0 0 16px -4px oklch(0.78 0.1 85 / 0.6);
   }
 
   /* One fallen packmate: mark it, but don't shroud the fight around it. */

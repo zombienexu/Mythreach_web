@@ -158,8 +158,8 @@ describe('death and respawn', () => {
     expect(eventsOf(later, 'playerRespawned')).toHaveLength(1)
     const snap = sim.combatSnapshot()
     expect(snap.player.hp).toBe(snap.player.maxHp)
-    expect(snap.phase).toBe('combat')
-    // The next pack arrives on its own — no need to embark.
+    expect(snap.phase).toBe('idle')
+    // The next fight is a click away.
     const respawned = advanceToSpawn(sim)
     expect(eventsOf(respawned, 'enemySpawned').length).toBeGreaterThanOrEqual(1)
   })

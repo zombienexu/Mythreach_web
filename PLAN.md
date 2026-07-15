@@ -1,453 +1,505 @@
-# PLAN — Mythreach: Regions, Endless Combat, Materials & Save Management
+# PLAN — Mythreach: Discrete Fights with Loot, and Quests
 
 ## 1. Goal
 
-Replace the expedition/trail system with **three free-choice difficulty regions**
-(low / medium / hard) that spawn **endless** combat, add an **inert crafting-material**
-drop category, **relayout the combat screen** around enemy formations (deleting the
-combat log), and add a **Character Settings** screen that shows the current save and
-can delete it / start a new character — fixing the reset bug where the save silently
-re-writes itself on reload.
+Replace endless auto-spawning combat with **discrete, player-started fights** that end on a
+**loot screen** (collect per corpse, or `R` to loot all), and add a **Quests tab** where
+travelers ask you to kill mobs or collect materials in a specific region for XP / gold /
+gear. To feed the quests, the three merged regions **un-merge back into five** (one per
+source zone) with new materials and a few new mobs.
 
 ## 2. Design notes
 
 ### Decisions already made — do not re-litigate
 
-- **Endless combat, no trail.** A region is a hunting ground, not a trail. There is
-  **no route, no travel between nodes, no boss gate, no fog of war, no shrine/cache/rest
-  nodes, no blessings.** Pick a region and mobs spawn forever; clear a pack and the next
-  one arrives after a short breather.
-- **Three regions, all selectable from the start.** No unlock gating. Regions are built
-  by **merging the existing five zones' encounter tables** into three tiers — no enemy
-  stats change, no new mobs are authored:
-  - `verdant` (**low**, Lv 1–6) = `hollowroot` + `duskmire` encounter tables merged.
-  - `emberwild` (**medium**, Lv 7–12) = `stormcrag` + `ashen-wastes` merged.
-  - `riftedge` (**hard**, Lv 13–15) = `sundered-spire`.
-- **Elites stay, bosses go.** Regions spawn the normal weighted table plus the occasional
-  elite (from the merged `eliteEncounters`). The former zone bosses are **not** spawned in
-  regions. `finalBossId` / `bossDefeated` / `gameCompleted` / expedition records are removed
-  from the loop; the boss enemy defs may stay in `enemies.ts` (harmless, unused).
-- **Materials are a separate inert collection**, NOT gear. They do not go through the
-  `Item`/equip/slot machinery. The player holds `materials: Record<string, number>`
-  (materialId → count). They drop alongside gear, stack, are sellable for gold, and do
-  nothing else yet. This is the seam future crafting/quests will read.
-- **World boss (Colossus) and companion stay** exactly as they are, but the assault is now
-  entered from the Regions screen and, on any end, returns you to the **current region**
-  (not "camp" — camp no longer exists).
-- **Phases collapse to `'combat' | 'assault'`.** `'camp' | 'travel' | 'node'` are deleted.
-  The sim starts in `'combat'` in the first region with a spawn already scheduled.
-- **Save bumps to version 3.** `serialize` writes `regionId` + `materials` and drops the
-  expedition-only records. `deserialize` accepts v1/v2/v3: for old saves, map the old
-  `zoneId` to the region that contains it (default to `verdant`), default `materials` to
-  `{}`, and ignore the dead expedition fields. Unknown versions still throw.
-- **RNG stays a required constructor option.** No `Math.random` inside the engine. The
-  purity test (`tests/purity.test.ts`) must keep passing.
-- **The combat log is deleted, not hidden.** `CombatLog.svelte` usage, the `log`/`append`
-  state on `Game`, and every `append(...)` call go away. Toasts, banners, the level-up
-  banner, and the victory modal stay.
+**Fight loop.** The phase machine becomes `'idle' | 'combat' | 'looting' | 'assault'`:
+
+- A fresh sim (and every deserialized sim) starts in **`idle`** with an empty field. Nothing
+  spawns on its own. `startFight()` (player intent; requires `idle` + alive) rolls
+  elite-vs-normal (12% elite, as today), picks a weighted encounter, and spawns it
+  **immediately** — no countdown. `pendingSpawn`, `spawnIn`, `scheduleSpawn`,
+  `spawnPending`, and the `NODE_SPAWN_TICKS` constant are **deleted**; the snapshot field
+  `spawnIn` is deleted too.
+- **XP is paid instantly at each kill** (mid-fight level-ups stay). **Gold, the item roll,
+  and the material roll move into a `LootBundle`** stored on the corpse. Bundles are rolled
+  at death time (RNG order: gold, then item, then material — keep it deterministic).
+- When the last living mob dies: push `encounterCleared`, phase → **`looting`**, corpses
+  stay on the field holding their bundles. The 25% clear-heal stays; the player's venom DoT
+  is cleared (you won the fight — nothing keeps gnawing you on the loot screen); an
+  offensive queued ability is cleared (as today).
+- `collectLoot(iid)` (only in `looting`) pays that corpse's bundle; `collectAllLoot()` pays
+  every remaining bundle. When the last bundle is paid: field empties, target nulls,
+  phase → `idle`. No new event for the idle transition — the UI reads phase.
+- **Loot is never destroyed.** Every field-clearing transition auto-collects all pending
+  bundles first: player death, `enterRegion`, `assaultWorldBoss`. The loot screen is
+  pacing, not risk. (Uncollected loot IS lost on page reload — in-combat state has never
+  been persisted; acceptable.)
+- Player death: auto-collect, field clears, phase → `idle`; respawn timer as today; after
+  revive you stay in `idle` and click to fight again.
+- `enterRegion` is now allowed in `idle`/`looting`/`combat` (refused only mid-`assault`),
+  auto-collects, and lands you in `idle` in the new region. `hireCompanion` likewise:
+  allowed whenever `phase !== 'assault'`.
+- **Assault is unchanged in spirit**: `assaultWorldBoss()` allowed whenever
+  `phase !== 'assault'` and alive; auto-collects first. Assault kills keep paying
+  **instantly** (no loot screen for the Colossus); assault end (kill/death/retreat) →
+  phase `idle`.
+- The idle/looting breather keeps the between-pack regen heal: the 8%-per-interval heal now
+  applies when `phase === 'idle' || phase === 'looting'` (was: combat + empty field).
+- **Auto-battle keeps working end-to-end** (the balance test depends on it). New constant
+  `AUTO_REST_TICKS = 20` in `types.ts`. Sim keeps `private restIn = 0`; set
+  `restIn = AUTO_REST_TICKS` on every transition **into** `idle`; decrement in `tick()`
+  while idle. `autoAct()` gains, at the top (after the `!p.alive` return):
+  - `looting` → `collectAllLoot()`, return.
+  - `idle` → run the renew heal check (hp ≤ 60 → renew, as in the existing heal lines);
+    then if `restIn === 0 && p.cast === null` → `startFight()`; return.
+  This reproduces the old ~1 s breather so the balance envelope holds.
+- Companion: change its idle gate from `this.enemies.length === 0` to
+  `this.living.length === 0` (corpses on the loot screen must not be "targets"; timer
+  resets while looting/idle).
+
+**LootBundle shape** (material names are resolved at roll time — `EnemyUnit` has no content
+access):
+
+```ts
+export interface LootBundle {
+  gold: number
+  items: Item[] // 0 or 1 today
+  materials: Array<{ id: string; name: string; count: number }>
+}
+```
+
+`EnemyUnit` gains `loot: LootBundle | null = null`; `EnemySnapshot` gains
+`loot: LootBundle | null` (copy it in `snapshot()`). Epic tracking
+(`lifetime.epicsFound`, the `epic-find` achievement) moves to **collect time**: extract a
+`private receiveItem(item: Item): void` from `grantLoot` that does the epic tracking, the
+inventory-cap/auto-sell logic, and the `lootDropped` push; `grantLoot` = generate + receive;
+paying a bundle = `addGold(gold, 'kill')` + `receiveItem` each item + add materials (push
+`materialDropped` per stack, tick collect-quest progress).
+
+**Regions: 3 → 5.** Un-merge to one region per source zone. Region **ids equal the zone
+ids** (`hollowroot`, `duskmire`, `stormcrag`, `ashen-wastes`, `sundered-spire`); name,
+epithet, hue, and intro are taken from the `ZoneDef`. Tiers and bands:
+
+| id | tier | band | materials |
+|---|---|---|---|
+| `hollowroot` | low | 1–3 | `mossroot-fiber`, `hollow-bone` |
+| `duskmire` | low | 4–6 | `bog-amber` (new), `wisp-residue` (new) |
+| `stormcrag` | medium | 7–9 | `storm-quartz`, `drake-scale` (new) |
+| `ashen-wastes` | medium | 10–12 | `cinder-ash`, `obsidian-glass` (new) |
+| `sundered-spire` | hard | 13–15 | `void-shard`, `rift-essence` |
+
+Bosses stay unspawned (as today); each region uses its zone's `encounters` /
+`eliteEncounters` tables plus the new lines below. The `merge()` helper in `regions.ts`
+goes away. `RegionTier`/`MaterialTier` stay `'low' | 'medium' | 'hard'` — two regions may
+share a tier.
+
+**New enemies are stat-clones.** Five new normal mobs, one per region, each copying the
+combat/reward numbers of a named sibling **exactly** (zero balance drift in expectation) with
+a new identity. New encounter lines get modest weights. Defined in T3.
+
+**Save migration.** v3 `regionId` values map via
+`LEGACY_REGION = { verdant: 'hollowroot', emberwild: 'stormcrag', riftedge: 'sundered-spire' }`.
+v1/v2 `zoneId` values are now themselves region ids, so the old `ZONE_TO_REGION` table is
+deleted; resolution order in `deserialize`:
+`raw.regionId ?? raw.zoneId` → if the content pack has that region, use it → else
+`LEGACY_REGION[...]` → else `regions[0]`.
+
+**Quests.** One-shot (non-repeatable) quests from named travelers, all visible from the
+start on a Quests tab. The player **accepts** (max **3 active**, `MAX_ACTIVE_QUESTS = 3`),
+progress ticks, then **turns in** for the reward. States:
+`available → active → complete (objective met, claimable) → done`.
+
+```ts
+export type QuestObjective =
+  | { kind: 'kill'; enemyId: string | null; count: number } // null = any foe
+  | { kind: 'collect'; materialId: string; count: number }
+export interface QuestReward {
+  xp: number
+  gold: number
+  gear: { ilvl: number; minRarity: Rarity } | null
+}
+export interface QuestDef {
+  id: string
+  name: string
+  giver: string
+  text: string // the traveler's ask, 1–2 sentences
+  regionId: string
+  objective: QuestObjective
+  reward: QuestReward
+}
+```
+
+Progress rules (exact, no judgment calls):
+- **kill with `enemyId` set**: every kill of that def counts, only while
+  `phase === 'combat'` (assault kills never count).
+- **kill with `enemyId: null`**: every kill counts while `phase === 'combat'` **and**
+  `this.region.id === quest.regionId`.
+- **collect**: ticks when the material is **collected from a bundle** (not at drop),
+  matching `materialId`, `+= count` of the stack. No region check (materials are
+  region-bound anyway). Quest-reward gear / world-boss loot never tick collect quests.
+- Progress is capped at `count`. Crossing the threshold pushes `questCompleted` exactly
+  once. `turnInQuest(id)` requires progress ≥ count; pays `addXp`, `addGold(…, 'quest')`,
+  and `grantLoot(gear.ilvl, gear.minRarity)` if gear is non-null; pushes `questTurnedIn`;
+  moves the id to completed. `abandonQuest(id)` drops an active quest (progress lost, back
+  to available; no event).
+
+Sim state: `private questProgress: Record<string, number> = {}` (active) and
+`private completedQuests = new Set<string>()`. `goldGained`'s `source` union gains
+`'quest'`.
+
+**Save v4**: `version: 4`, add `activeQuests: Record<string, number>` and
+`completedQuests: string[]`. `deserialize` accepts 1–4; missing quest fields default to
+empty; ids not present in `content.quests` are silently dropped (both maps).
+
+**Events added**: `questAccepted { id, name }`, `questCompleted { id, name }`,
+`questTurnedIn { id, name }`. No new events for the fight loop — `encounterCleared`,
+`goldGained`, `lootDropped`, `materialDropped` fire at their (new) times and already drive
+the UI.
+
+**Snapshots**: `CombatSnapshot.phase` widens to the four-phase union and loses `spawnIn`.
+`ProgressSnapshot` gains `quests: QuestView[]` (catalog order):
+
+```ts
+export type QuestState = 'available' | 'active' | 'complete' | 'done'
+export interface QuestView {
+  id: string
+  name: string
+  giver: string
+  text: string
+  regionId: string
+  regionName: string
+  regionHue: number
+  state: QuestState
+  objective: { kind: 'kill' | 'collect'; targetName: string; count: number; progress: number }
+  reward: QuestReward
+}
+```
+`targetName` = enemy name, material name, or `'any foe'` for kill-any. `progress` is 0 for
+available, capped for done.
+
+**UI.** Combat view: in `idle`, the field shows a card with the region's `intro` line and a
+**"Start fight"** button (disabled while dead); in `looting`, each dead card grows a loot
+panel (gold line, item names tinted by rarity, material stacks) with a **Collect** button,
+plus a footer **"Loot all — R"** button; pressing **`r`** loots all (wired in
+`game.svelte.ts` `onKeyDown`, alongside `a`; `r` is not an ability key). The
+`lastEnemies` corpse-echo hack in `Game` is deleted — corpses are now real sim state.
+New **Quests** tab (`View` union + Sidebar NAV between Regions and Chronicle + App TITLES);
+Sidebar shows a badge with the count of turn-in-ready quests (same pattern as the talent
+badge). Toasts: `questCompleted` → toast "«name» — objective complete" + `loot` sfx;
+`questTurnedIn` → toast + `level` sfx; all three quest events mark progress dirty.
+`Game.loot`/`lootAll` play the `loot` sfx on success (a gold-only collect is otherwise
+silent).
 
 ### Files involved
 
-**Engine (pure, unit-tested):**
-- `src/engine/types.ts` — add material types, `RegionDef`, `RegionProgress`,
-  `MaterialStackView`; remove expedition/zone snapshot types; retune `CombatSnapshot`,
-  `ProgressSnapshot`, `SaveData`, `ContentPack`.
-- `src/engine/content/materials.ts` — **new**: material catalog.
-- `src/engine/content/regions.ts` — **new**: the three regions + `DEFAULT_CONTENT`.
-- `src/engine/content/zones.ts` — keep the `ZONES` raw data + `solo/pair/vanguard` helpers;
-  remove its `DEFAULT_CONTENT` export (moves to `regions.ts`).
-- `src/engine/expedition.ts` — **delete**.
-- `src/engine/content/blessings.ts` — **delete** (unused after this).
-- `src/engine/sim.ts` — rip out expedition, add endless spawn loop, region selection,
-  material drops, save v3.
-- `src/engine/events.ts` — drop expedition events, add `regionEntered` + `materialDropped`.
-- `src/engine/index.ts` — export the new content + types, drop deleted ones.
+**Engine:** `types.ts` (phase union, LootBundle, quest types, save v4, constants),
+`events.ts` (quest events, `'quest'` gold source), `enemyUnit.ts` (loot field + snapshot),
+`sim.ts` (state machine, bundles, quests, migration), `content/materials.ts` (4 new),
+`content/enemies.ts` (5 new), `content/zones.ts` (new encounter lines),
+`content/regions.ts` (rewrite: 5 regions, no merge), `content/quests.ts` (**new**: catalog),
+`index.ts` (export new types/consts/content, drop deleted ones).
 
-**UI (verified by `npm run check` + source-contract tests + manual `/verify`):**
-- `src/ui/game.svelte.ts` — delete log/append; rename `travel`→`enterRegion`; delete
-  `embark/advance/retreat/chooseBlessing`; add `newCharacter`/`deleteSave`; fix the reset bug.
-- `src/ui/persistence.ts` — **new**: testable `SaveStore` (holds the wipe guard).
-- `src/ui/views/CombatView.svelte` — remove CombatLog + trail/camp/shrine/travel UI; new
-  formation layout.
-- `src/ui/views/AtlasView.svelte` → region picker.
-- `src/ui/views/CharacterView.svelte` — add a materials panel.
-- `src/ui/views/SettingsView.svelte` — **new**: save management.
-- `src/ui/views/ChronicleView.svelte` — remove the reset block (moves to Settings).
-- `src/ui/components/Sidebar.svelte`, `src/App.svelte` — add `settings` view + nav; rename
-  `atlas` label to `Regions`.
-- `src/ui/components/TrailRibbon.svelte` — **delete**. `EnemyCard.svelte` — formation tweaks.
+**UI:** `game.svelte.ts`, `views/CombatView.svelte`, `components/EnemyCard.svelte`,
+`views/QuestsView.svelte` (**new**), `components/Sidebar.svelte`, `App.svelte`.
 
-**Tests:** `tests/expedition.test.ts` + `tests/zones.test.ts` deleted;
-`tests/encounters.test.ts` rewritten for endless spawning; `tests/save.test.ts` extended for
-v3 + back-compat; new `tests/materials.test.ts`, `tests/regions.test.ts`,
-`tests/persistence.test.ts`, `tests/ui-hygiene.test.ts`. All other existing tests stay green
-(update only where they reference deleted symbols).
+**Tests:** new `tests/looting.test.ts`, `tests/quests.test.ts`; `tests/helpers.ts` reworked;
+`tests/encounters.test.ts`, `tests/regions.test.ts`, `tests/save.test.ts`,
+`tests/worldboss.test.ts`, `tests/companion.test.ts` updated. `tests/balance.test.ts` is the
+**envelope — do not retune it**; if it goes red, stop and flag (see T6).
 
 ### Helper reference (already in repo)
 
-- `tests/helpers.ts` — has `mulberry32` and a seeded-sim harness. Reuse it; do not add new
-  ambient randomness.
-- `pickWeighted(rng, [{value, weight}])`, `rollInt(rng, a, b)`, `rollPct(rng, pct)`,
-  `pickOne(rng, arr)` in `src/engine/rng.ts`.
+`pickWeighted / rollInt / rollPct / pickOne` in `src/engine/rng.ts`; seeded harness +
+`makeSim/testContent/blankSave/advance/eventsOf` in `tests/helpers.ts`; `generateItem(rng,
+uid, ilvl, { minRarity })` in `content/items.ts`; docs/EXTENDING.md is the content cookbook
+("Add an enemy", "Add an encounter").
 
 ---
 
 ## 3. Tasks
 
-> Do the tasks in order. After **each** task, run the test command; a task is done only when
-> its tests pass and nothing previously green went red. Keep changes minimal and match
-> existing patterns.
+> Do the tasks in order. After **each** task run the test command; a task is done only when
+> its tests pass and nothing previously green went red. Keep changes minimal, match existing
+> patterns, and flag anything underspecified instead of guessing.
 
-### T1 — Material catalog + types (engine, pure)
+### T1 — Engine: discrete fights + loot bundles
+
+Sub-steps (one commit; the file won't compile between them):
+
+**1a. `types.ts`** — phase union `'idle' | 'combat' | 'looting' | 'assault'` on
+`CombatSnapshot.phase`; delete `spawnIn` from `CombatSnapshot`; delete `NODE_SPAWN_TICKS`;
+add `export const AUTO_REST_TICKS = 20`; add `LootBundle` (shape above); add
+`loot: LootBundle | null` to `EnemySnapshot`.
+
+**1b. `enemyUnit.ts`** — add `loot: LootBundle | null = null`; include
+`loot: this.loot` in `snapshot()`.
+
+**1c. `sim.ts`** — per the design notes:
+- `private phase: 'idle' | 'combat' | 'looting' | 'assault' = 'idle'`; add
+  `private restIn = 0`; delete `spawnIn`/`pendingSpawn`/`scheduleSpawn`/`spawnPending`.
+  Constructor no longer schedules anything.
+- `startFight(): boolean` — `phase === 'idle' && player.alive` or return false; roll
+  `rollPct(rng, 12)` for elite (guarded on a non-empty elite table, as the old
+  `scheduleSpawn` did); pick + spawn the pack (reuse the old `spawnPending` body), phase →
+  `'combat'`, return true.
+- `onEnemyKilled`: keep the assault early-path but make it **fully instant** (gold roll +
+  `addXp` + `dropLoot` + old-style instant material roll, then `onWorldBossFelled`). For
+  region kills: `addXp(def.xp)` + achievements as today, then roll the bundle onto
+  `e.loot` (gold, then `dropPct` item via `generateItem(rng, this.nextUid++, def.level,
+  { minRarity: 'common' })`, then the 35% material roll producing `{id, name, count}`).
+  When `living.length === 0` → `onEncounterCleared` sets phase `'looting'` (keep the
+  event, the 25% heal, queued-clear; add `p.venom = null`); else retarget as today.
+- `private receiveItem(item: Item): void` extracted from `grantLoot` (epic tracking +
+  cap/auto-sell + `lootDropped` push); `grantLoot` calls it.
+- `collectLoot(iid): boolean` / `collectAllLoot(): boolean` and a private
+  `payBundle(e)` + `settleField()` (auto-collect-all; used by death/region/assault
+  transitions). Last bundle paid → `enemies = []`, `targetIid = null`, phase `'idle'`,
+  `restIn = AUTO_REST_TICKS`.
+- `onPlayerDied` (non-assault): `settleField()` then clear + phase `'idle'`.
+- `enterRegion` / `assaultWorldBoss` / `hireCompanion` preconditions and auto-collect per
+  design notes; `endAssault` and `onWorldBossFelled` end in phase `'idle'` (no respawn
+  scheduling).
+- Regen breather heal condition → `this.phase === 'idle' || this.phase === 'looting'`;
+  tick down `restIn` while idle; `companionSwing_` gate → `this.living.length === 0`.
+- `autoAct()` additions per design notes.
+- `deserialize`: no spawn scheduling (lands in `idle`).
+
+**1d. `index.ts`** — export `LootBundle`, `AUTO_REST_TICKS`; remove `NODE_SPAWN_TICKS`.
+
+**1e. `tests/helpers.ts`** —
+- `advanceToSpawn(sim)`: first, if phase is `'looting'` call `sim.collectAllLoot()`; if
+  phase is `'idle'` call `sim.startFight()`; then tick (up to 400) until enemies are on the
+  field, returning all events. Same name and return type — most tests keep passing.
+- New `huntUntil(sim, stop: () => boolean, budget = 8000)`: loop — `advanceToSpawn`, then
+  fireball-and-tick until `encounterCleared` (reuse the fight pattern from
+  `encounters.test.ts`), then `collectAllLoot()` — until `stop()` or budget ticks; throws
+  on budget exhaustion.
+
+**1f. Existing-test updates** (only these):
+- `encounters.test.ts`: drop the `NODE_SPAWN_TICKS` import. Rewrite the "endless combat"
+  describe → "discrete fights": (1) a new sim idles — phase `'idle'`, 50 ticks spawn
+  nothing, `startFight()` returns true then false while fighting; (2) clear a pack →
+  phase `'looting'`, `collectAllLoot()` → `'idle'`, `startFight()` again gives fresh iids;
+  (3) `enterRegion` tests unchanged except: after entering, call `advanceToSpawn` (helper
+  starts the fight); (4) death test: after respawn expect phase `'idle'`, alive, empty
+  field, and a successful `startFight()`. "Clearing the pack pays each mob and empties the
+  field" → xp assertion (30) stays at clear; add `sim.collectAllLoot()` before asserting
+  the empty field, and assert gold arrived only after collecting. Materials tests → use
+  `huntUntil(sim, () => sim.progressSnapshot().materials.length > 0)`.
+- `worldboss.test.ts`: post-retreat/post-fell phase expectations `'combat'` → `'idle'`.
+- `companion.test.ts`: the between-pack idle test — after the pack dies (phase
+  `'looting'`), advance 10 ticks and assert the companion lands no hits; fix the stale
+  `NODE_SPAWN_TICKS` comment.
+- `save.test.ts`: phase-after-load expectations `'combat'` → `'idle'`.
+
+**Acceptance — new `tests/looting.test.ts`** (use `makeSim`/`testContent`; dummy hp 1 or 10
+and level 15 for quick kills, `dropPct` per test):
+- `'a kill pays xp immediately but banks gold on the corpse'` — kill one dummy
+  (goldMin=goldMax so the amount is exact): `xpGained` fired; player gold unchanged;
+  snapshot corpse `.loot.gold` equals the enemy's gold; no `goldGained` event yet.
+- `'clearing the pack enters looting and keeps the corpses'` — phase `'looting'`,
+  `encounterCleared` fired, `enemies.length` intact, all `.alive === false`.
+- `'collectLoot pays one corpse; the last collect returns to idle'` — 3-mob pack (reuse the
+  VANGUARD pattern): collect one iid → gold rises by exactly that bundle, its `.loot` is
+  null, phase still `'looting'`; collect the rest → phase `'idle'`, field empty, target
+  null. `collectLoot` on an unknown iid or while `'idle'` returns false.
+- `'collectAllLoot pays everything at once'` — gold rises by the pack total, phase `'idle'`.
+- `'items ride the bundle and respect the inventory cap'` — `dropPct: 100`: bundle has 1
+  item; collect → `lootDropped` with `autoSold: false` and item in inventory. Then a run
+  with a pre-filled 24-item inventory (via `blankSave`) → `autoSold: true`, gold credited.
+- `'materials ride the bundle'` — `huntUntil` a bundle-collect yields materials; they
+  appear in `progressSnapshot().materials` only after collecting.
+- `'loot is never destroyed: enterRegion banks it'` — clear a pack, don't collect,
+  `enterRegion('r2')` → gold rose by the bundle total, phase `'idle'`.
+- `'loot is never destroyed: death banks the fallen'` — 2-mob pack, kill one, let the other
+  kill the player (dmg 9999) → dead mob's gold banked on death.
+- `'assault auto-collects and ends in idle'` — from `'looting'`, `assaultWorldBoss()`
+  succeeds and banks pending gold; `retreat()` → phase `'idle'`.
+- `'auto-battle plays the whole loop alone'` — `autoBattle = true`, advance ~600 ticks from
+  a fresh idle sim: at least one `enemySpawned`, one `encounterCleared`, and gold > 0
+  without any manual intent.
+- `'deserialize lands in idle'` — round-trip a sim; phase `'idle'`, `startFight()` works.
+
+### T2 — UI: start / loot / collect flow
 
 **Change:**
-1. In `types.ts` add:
+1. `game.svelte.ts`: add intents `startFight()`, `loot(iid)`, `lootAll()` — each calls the
+   sim method and on `true` plays `loot` sfx (not for `startFight`) and `publishAll()`.
+   `onKeyDown`: add `if (e.key === 'r') { this.lootAll(); return }` next to the `'a'`
+   handler. Delete `lastEnemies` (state, its `publish()` maintenance, the `enemySpawned` /
+   `regionEntered` resets, and the `enterRegion`/`retreat`/`assault` clears).
+2. `CombatView.svelte`: `shown` → `game.combat.enemies` directly. Field content by phase:
+   - `idle`: reuse the lull-card styling — region `intro` in italic (needs `intro` added to
+     `RegionProgress` + `regionProgress()`; add it) and a `Start fight` button
+     (`disabled={!game.combat.player.alive}`; while dead, label it `Fallen…`). Remove the
+     `spawnIn` countdown UI.
+   - `looting`: corpse cards as today plus a footer bar under the field:
+     `<button>Loot all — R</button>` → `game.lootAll()`.
+   - `combat`/`assault`: unchanged.
+3. `EnemyCard.svelte`: new optional props `loot: LootBundle | null = null` and
+   `oncollect: (() => void) | undefined`. When the enemy is dead and `loot` is non-null,
+   render a compact loot panel inside the card: `+N gold` line, one line per item (name
+   tinted by rarity — reuse the rarity color treatment from `ItemTile.svelte`), one line
+   per material (`Name ×count`), and a `Collect` button calling `oncollect`. Pass
+   `loot={enemy.loot}` / `oncollect={() => game.loot(enemy.iid)}` from CombatView.
+
+**Acceptance:** `npm test` stays green (including `ui-hygiene` — update it only if it
+references `lastEnemies`/`spawnIn`) and `npm run check` is clean. Behavior checklist for
+review: idle → button → fight → loot panels → per-card collect and `R` both work → idle
+button returns; assault flow unchanged; no `spawnIn`/`lastEnemies` references remain
+(`grep -rn 'spawnIn\|lastEnemies' src` is empty).
+
+### T3 — Content: five regions, four materials, five stat-clone mobs
+
+**Change:**
+1. `content/materials.ts` — append:
    ```ts
-   export type MaterialTier = 'low' | 'medium' | 'hard'
-   export interface MaterialDef {
-     id: string
-     name: string
-     tier: MaterialTier
-     /** Gold each stack unit sells for. */
-     value: number
-     flavor: string
-   }
-   /** A material line in the player's bags. */
-   export interface MaterialStackView {
-     id: string
-     name: string
-     tier: MaterialTier
-     count: number
-     value: number
-   }
+   { id: 'bog-amber',      name: 'Bog Amber',          tier: 'low',    value: 4,  flavor: 'Old sap, older grief, pressed to a shine.' },
+   { id: 'wisp-residue',   name: 'Wisplight Residue',  tier: 'low',    value: 3,  flavor: 'It glows faintest exactly when you look at it.' },
+   { id: 'drake-scale',    name: 'Drakescale Chip',    tier: 'medium', value: 9,  flavor: 'Still cold. It will always be cold.' },
+   { id: 'obsidian-glass', name: 'Obsidian Glass',     tier: 'medium', value: 10, flavor: 'It reflects a slightly different room.' },
    ```
-2. New file `src/engine/content/materials.ts` with a `DEFS: MaterialDef[]` of six materials —
-   two per tier: `mossroot-fiber`(low,3), `hollow-bone`(low,4), `storm-quartz`(medium,9),
-   `cinder-ash`(medium,8), `void-shard`(hard,18), `rift-essence`(hard,22), each with a short
-   flavor line. Export `MATERIALS: Record<string, MaterialDef>` (id-keyed) and
-   `MATERIAL_IDS: readonly string[]`.
-3. Export `MATERIALS`, `MATERIAL_IDS`, and the new types from `src/engine/index.ts`.
+2. `content/enemies.ts` — five new **normal** mobs; copy the sibling's `level, hp,
+   swingTicks, dmgMin, dmgMax, xp, goldMin, goldMax, dropPct` **exactly**, `mechanics: []`:
 
-**Acceptance — `tests/materials.test.ts`:**
-- `test('every material has a unique id')` — `MATERIAL_IDS.length === new Set(MATERIAL_IDS).size`.
-- `test('materials are well-formed')` — for each def: non-empty `name`, `value > 0`,
-  `tier` ∈ `{low,medium,hard}`, non-empty `flavor`.
-- `test('every tier has at least one material')` — the set of tiers over all defs equals
-  `{low, medium, hard}`.
+   | id | name | clone of | portrait | intro |
+   |---|---|---|---|---|
+   | `root-creeper` | Root Creeper | `mossback-boar` | `{ family: 'spider', hue: 120 }` | 'A Root Creeper unknots itself from the wall.' |
+   | `fen-shade` | Fen Shade | `bog-lurker` | `{ family: 'revenant', hue: 190 }` | 'A Fen Shade gathers itself out of the mist.' |
+   | `cliff-stalker` | Cliff Stalker | `harpy-skyrender` | `{ family: 'beast', hue: 260 }` | 'A Cliff Stalker pours down the rock face.' |
+   | `magma-crawler` | Magma Crawler | `cinderhound` | `{ family: 'spider', hue: 30 }` | 'A Magma Crawler drags a wake of embers.' |
+   | `null-watcher` | Null Watcher | `bone-sentinel` | `{ family: 'void', hue: 290 }` | 'A Null Watcher opens an eye that is not there.' |
+3. `content/zones.ts` — append to each zone's `encounters` (weights as given):
+   hollowroot `solo('root-creeper', 14)` + `pair('root-creeper', 'gravel-skitterling', 10)`;
+   duskmire `solo('fen-shade', 14)` + `pair('fen-shade', 'mire-whelp', 10)`;
+   stormcrag `solo('cliff-stalker', 14)` + `pair('cliff-stalker', 'harpy-fledgling', 10)`;
+   ashen-wastes `solo('magma-crawler', 14)` + `pair('magma-crawler', 'ember-imp', 10)`;
+   sundered-spire `solo('null-watcher', 14)` + `pair('null-watcher', 'void-mite', 10)`.
+4. `content/regions.ts` — rewrite: delete `merge`; build the five regions per the table in
+   the design notes, taking `name`/`epithet`/`hue`/`intro` and both encounter tables
+   straight from the matching `ZoneDef` (keep the `zone(id)` lookup-throw helper).
+   `DEFAULT_CONTENT` unchanged in shape.
+5. `sim.ts` — replace `ZONE_TO_REGION` with `LEGACY_REGION` and the resolution order from
+   the design notes.
 
-### T2 — Region content model (engine, pure)
+**Acceptance — `tests/regions.test.ts` (updated):**
+- `'there are five regions in difficulty order'` — length 5; tiers
+  `['low','low','medium','medium','hard']`; ids in the table's order.
+- `'level bands are ascending, contiguous, and cover 1–15'` — keep the existing
+  `minLevel === prev.maxLevel + 1` loop; first `minLevel === 1`; last `maxLevel === 15`.
+- `'every encounter references a known enemy'`, `'each region has a non-empty encounter
+  table'` — keep as-is (loops).
+- `'every region material id exists and matches the region tier'` — keep; **add**: each
+  region has exactly 2 materials and no material id appears in two regions.
+- **`tests/save.test.ts` additions**: a v3 blob with `regionId: 'verdant'` loads into
+  `hollowroot` (build it via `sim.serialize()` on default content, overwrite `regionId`,
+  or hand-roll); a v1 blob with `zoneId: 'stormcrag'` loads into `stormcrag`; an unknown
+  `regionId` falls back to `regions[0]`. (These run against `DEFAULT_CONTENT`, not
+  `testContent`.)
+
+### T4 — Engine: quest system + catalog
 
 **Change:**
-1. In `types.ts`:
-   - Add `export type RegionTier = 'low' | 'medium' | 'hard'`.
-   - Add `RegionDef` `{ id, name, epithet, tier: RegionTier, minLevel, maxLevel, hue,
-     encounters: EncounterDef[], eliteEncounters: EncounterDef[], materials: string[], intro }`.
-   - Change `ContentPack` to `{ regions: readonly RegionDef[]; enemies: Record<string, EnemyDef>;
-     materials: Record<string, MaterialDef> }` (remove `zones`, `finalBossId`).
-   - Replace `ZoneProgress` with `RegionProgress`
-     `{ id, name, epithet, tier: RegionTier, minLevel, maxLevel, hue, current, enemyNames }`.
-   - **Delete** `NodeKind`, `ExpeditionNodeView`, `ExpeditionSnapshot`. Delete the now-unused
-     constants `ROUTE_STEPS`, `TRAVEL_TICKS`, `AUTO_BREATHER_TICKS`, `BOSS_APPROACH_TICKS`.
-     **Keep** `NODE_SPAWN_TICKS` (reused as the spawn breather), `PLAYER_RESPAWN_TICKS`,
-     `REGEN_INTERVAL_TICKS`, `GCD_TICKS`, `INVENTORY_CAP`, `LEVEL_CAP`, `RESPEC_COST`,
-     `TICKS_PER_SECOND`, `MS_PER_TICK`.
-2. New file `src/engine/content/regions.ts` that:
-   - imports `ZONES` from `./zones`, `ENEMIES` from `./enemies`, `MATERIALS` from `./materials`.
-   - merges zone encounter/elite tables per the tier mapping above via a small `merge(...ids)`
-     helper (throws on a missing zone id).
-   - exports `REGIONS: readonly RegionDef[]` = `[verdant, emberwild, riftedge]` with the
-     level bands `1–6 / 7–12 / 13–15`, hues `150 / 40 / 305`, the material lists
-     `[mossroot-fiber, hollow-bone] / [storm-quartz, cinder-ash] / [void-shard, rift-essence]`,
-     and a one-line `intro` each.
-   - exports `DEFAULT_CONTENT: ContentPack = { regions: REGIONS, enemies: ENEMIES, materials: MATERIALS }`.
-3. In `src/engine/content/zones.ts`: keep the `ZONES` array + helpers; remove the old
-   `DEFAULT_CONTENT` export. `ZoneDef` may keep its `bossId`/`travelLines`/`minLevel` fields
-   (now unused raw data).
-4. Update `src/engine/index.ts`: export `REGIONS`, `DEFAULT_CONTENT` (from `regions.ts`),
-   `RegionDef`, `RegionTier`, `RegionProgress`, `MaterialStackView`. Remove exports of deleted
-   symbols (grep `generateRoute`, `ExpeditionSnapshot`, `NodeKind`, `ZoneProgress`, `BlessingId`,
-   `BLESSINGS`, `BLESSING_IDS`).
+1. `types.ts` — add `QuestObjective`, `QuestReward`, `QuestDef`, `QuestState`, `QuestView`
+   (shapes in design notes), `export const MAX_ACTIVE_QUESTS = 3`; `ContentPack` gains
+   `quests: readonly QuestDef[]`; `ProgressSnapshot` gains `quests: QuestView[]`;
+   `SaveData` → `version: 4` + `activeQuests: Record<string, number>` +
+   `completedQuests: string[]`.
+2. `events.ts` — the three quest events; `goldGained` source union gains `'quest'`.
+3. **New `content/quests.ts`** — `export const QUESTS: readonly QuestDef[]` with exactly
+   these 15 (kill objectives: `enemyId: null` means any-foe-in-region):
 
-**Acceptance — `tests/regions.test.ts`** (delete `tests/zones.test.ts`):
-- `test('there are exactly three regions, one per tier')` — `REGIONS.length === 3` and tiers
-  are `['low','medium','hard']` in order.
-- `test('each region has a non-empty encounter table')` — every region `.encounters.length >= 3`.
-- `test('every encounter references a known enemy')` — for every region, every slot's
-  `enemyId` (in both `encounters` and `eliteEncounters`) is a key of `ENEMIES`.
-- `test('every region material id exists and matches tier')` — each id in `region.materials`
-  is a key of `MATERIALS` and `MATERIALS[id].tier === region.tier`.
-- `test('level bands are ascending and non-overlapping')` — regions give `1–6, 7–12, 13–15`.
+   | id | name | giver | region | objective | reward |
+   |---|---|---|---|---|---|
+   | `q-hollow-fiber` | Dye for the Guild | Maro the Tinct-Seller | hollowroot | collect 8 `mossroot-fiber` | 80 xp, 40 g |
+   | `q-hollow-cull` | Cull the Cavern | Warden Selk | hollowroot | kill any × 12 | 100 xp, 30 g, gear {3, uncommon} |
+   | `q-hollow-bruiser` | The Toll-Taker | Pilgrim Osset | hollowroot | kill `rockmaw-bruiser` × 2 | 140 xp, 60 g, gear {4, rare} |
+   | `q-dusk-amber` | Amber for the Apothecary | Apothecary Vell | duskmire | collect 6 `bog-amber` | 160 xp, 70 g |
+   | `q-dusk-wolves` | Teeth in the Fog | Carter Brann | duskmire | kill `duskwolf` × 8 | 200 xp, 60 g, gear {6, uncommon} |
+   | `q-dusk-wisps` | Lanterns for the Lost | Pilgrim Osset | duskmire | collect 8 `wisp-residue` | 220 xp, 80 g, gear {6, rare} |
+   | `q-storm-quartz` | A Storm in a Stone | Runesmith Bekka | stormcrag | collect 8 `storm-quartz` | 320 xp, 110 g, gear {9, rare} |
+   | `q-storm-harpies` | Clip Their Wings | Roostkeeper Dane | stormcrag | kill `harpy-skyrender` × 8 | 300 xp, 100 g |
+   | `q-storm-behemoth` | The Mountain's Fist | Warden Selk | stormcrag | kill `crag-behemoth` × 2 | 360 xp, 150 g, gear {10, rare} |
+   | `q-ash-cinders` | Coals That Won't Die | Forgemistress Ida | ashen-wastes | collect 10 `cinder-ash` | 420 xp, 150 g |
+   | `q-ash-hounds` | Hounds of the Grey Wind | Carter Brann | ashen-wastes | kill `cinderhound` × 8 | 460 xp, 140 g, gear {12, uncommon} |
+   | `q-ash-glass` | A Lens for the Observatory | The Cartographer Royal | ashen-wastes | collect 6 `obsidian-glass` | 520 xp, 180 g, gear {12, rare} |
+   | `q-spire-shards` | Fragments of the Wound | The Cartographer Royal | sundered-spire | collect 8 `void-shard` | 700 xp, 240 g, gear {15, epic} |
+   | `q-spire-chant` | Silence the Chanting | Exorcist Piel | sundered-spire | kill `void-acolyte` × 6 | 650 xp, 220 g |
+   | `q-spire-herald` | Kill the Messenger | Exorcist Piel | sundered-spire | kill `herald-of-malgrath` × 2 | 800 xp, 300 g, gear {15, epic} |
 
-### T3 — Sim: endless combat, region selection, no expedition (engine)
+   Write a one-to-two-sentence in-voice `text` for each (e.g. `q-hollow-fiber`: "My reds
+   have gone grey without mossroot. Bring me armfuls and I will owe you a colour." — same
+   register for the rest; this is flavor prose, any faithful line passes).
+4. `content/regions.ts` — `DEFAULT_CONTENT` gains `quests: QUESTS`.
+5. `sim.ts` — quest state, `acceptQuest` / `turnInQuest` / `abandonQuest`, the two progress
+   hooks (kill in `onEnemyKilled` non-assault path; collect in `payBundle`), `questViews()`
+   into `progressSnapshot`, serialize v4, deserialize v1–v4 with unknown-id filtering.
+6. `index.ts` exports; `tests/helpers.ts`: `testContent` gains optional
+   `extra.quests?: QuestDef[]` (default `[]`) wired into the pack; `blankSave` → version 4
+   + empty quest fields.
 
-Sub-steps (do them together — the file will not compile between them):
+**Acceptance — new `tests/quests.test.ts`** (test quests defined in-file and passed via
+`extra.quests`; suggested: `tq-any` kill-any×3 in r1, `tq-dummy` kill `dummy`×2,
+`tq-collect` collect 2 `test-scrap` gear {5, rare}, plus `tq-p4`/`tq-p5` fillers for the cap
+test):
+- `'accepting: caps at three, refuses dupes, unknowns, and done quests'`.
+- `'kill-any counts only in its region'` — accept `tq-any`, clear packs in r1 via
+  `huntUntil` until progress ≥ 1; then `enterRegion('r2')`, kill there, progress
+  unchanged.
+- `'kill-specific counts per matching def and caps at count'` — `questCompleted` fires
+  exactly once; progress stays at `count` after extra kills.
+- `'collect ticks on bundle collection, not on drop'` — accept `tq-collect`; fight until a
+  corpse bundle holds `test-scrap` (seeded hunt); before `collectAllLoot` progress is 0;
+  after, it advanced by the stack count.
+- `'turn-in pays xp, gold, and gear, exactly once'` — force-complete via kills; gold +xp
+  deltas match the reward; `lootDropped` item rarity ≥ rare (minRarity respected — check
+  `RARITIES.indexOf`); `questTurnedIn` fired; state `done`; second `turnInQuest` false;
+  re-accept false.
+- `'turn-in refuses an incomplete quest'`.
+- `'abandon returns the quest to available and zeroes progress'`.
+- `'quests survive the save round-trip'` — active progress + completed set identical after
+  serialize/deserialize; `version === 4`; a save containing an unknown quest id loads with
+  that id dropped.
+- `'v3 saves load with no quests'` — a v3-shaped blob (no quest fields) deserializes; all
+  catalog quests `available`.
+- **`tests/save.test.ts`**: update the reserialize-version assertion 3 → 4.
 
-**3a. State/phase.** In `sim.ts`:
-- `private phase: 'combat' | 'assault' = 'combat'`.
-- Delete fields: `route`, `nodeIndex`, `nodeResolvedFlag`, `revealedThrough`,
-  `travelRemaining`, `travelTotal`, `pendingShrine`, `blessings`, `autoBreather`,
-  `bossFightStart`, `bossesDefeated`, `completed`. Replace `zone: ZoneDef` with
-  `region: RegionDef`.
-- `pendingSpawn` type becomes `'battle' | 'elite' | null` (drop `'boss'`).
-- `Records`: drop `expeditionsCompleted` + `fastestBossKills` (interface + init). Keep
-  `worldBossFells`, `bestAssaultDamage`. `LifetimeStats.bossKills` stays but now only
-  increments on world-boss fells.
-- Add `private materials: Record<string, number> = {}`.
-
-**3b. Constructor + endless spawn loop.**
-- Constructor: `this.region = this.content.regions[0]` (guard: throw if none), then call
-  `this.scheduleSpawn()`.
-- New `private scheduleSpawn(): void` — sets `this.pendingSpawn` to `'elite'` with ~1-in-8 odds
-  when `region.eliteEncounters.length > 0`, else `'battle'`; sets `this.spawnIn = NODE_SPAWN_TICKS`.
-- `spawnPending()`: drop the `'boss'` case and the `bossFightStart` line. `battle` draws from
-  `region.encounters`; `elite` from `region.eliteEncounters` (fall back to `region.encounters`
-  if empty). Everything else (building `EnemyUnit`s, `autoTarget`, `enemySpawned` events) stays.
-- `onEncounterCleared()`: remove all node logic. Push `encounterCleared`, clear the queued
-  offensive ability + `enemies`/`targetIid` (as today), then call `scheduleSpawn()`.
-- `tick()`: delete the `phase === 'travel'` branch. Keep the countdown:
-  `else if (this.pendingSpawn !== null && this.enemies.length === 0) { this.spawnIn--; if (this.spawnIn <= 0) this.spawnPending() }`.
-  Delete the `if (this.phase === 'camp') { heal 7% }` block in the regen section entirely.
-- `onPlayerDied()`: keep clearing the field; replace the `endExpedition('death')` call with
-  `this.scheduleSpawn()` (combat resumes after `revivePlayer`). Keep the assault branch.
-
-**3c. Intents.**
-- Delete: `embark`, `advance`, `chooseBlessing`, `gainBlessing`, `startTravel`,
-  `arriveAtNode`, `resolveArrival`, `openCache`, `takeRest`, `offerShrine`, `endExpedition`,
-  `resolveCurrentNode`, `isLastNode`, `autoExpedition`, `applyBlessings`. Remove the
-  `generateRoute` import and the `BLESSINGS`/`BLESSING_IDS` imports.
-- `autoThenDrain()` calls only `autoAct()` (drop `autoExpedition()`).
-- Replace `travelTo(zoneId)` with `enterRegion(regionId)`:
-  ```ts
-  enterRegion(regionId: string): boolean {
-    if (this.phase !== 'combat') return false
-    const region = this.content.regions.find((r) => r.id === regionId)
-    if (!region || region.id === this.region.id) return false
-    this.region = region
-    this.enemies = []
-    this.targetIid = null
-    this.pendingSpawn = null
-    this.player.queued = null
-    this.scheduleSpawn()
-    this.push({ kind: 'regionEntered', regionId: region.id, name: region.name })
-    return true
-  }
-  ```
-- `retreat()` keeps ONLY the assault branch:
-  `if (this.phase === 'assault') return this.endAssault('retreat'); return false`.
-- `assaultWorldBoss()`: precondition `if (this.phase !== 'combat' || !this.player.alive) return false`.
-- `endAssault(...)`: set `this.phase = 'combat'` and call `this.scheduleSpawn()` instead of
-  returning to camp. `refreshStats(false)` if it did so before.
-- `refreshStats` no longer needs `applyBlessings`; call `deriveStats(...)` directly.
-
-**3d. Material drops.** In `onEnemyKilled`, after the gear `dropLoot` roll, call
-`this.rollMaterial(def)`:
-```ts
-private rollMaterial(_def: EnemyDef): void {
-  if (!rollPct(this.rng, 35)) return
-  const ids = this.region.materials
-  if (ids.length === 0) return
-  const id = pickOne(this.rng, ids)
-  const count = rollInt(this.rng, 1, 3)
-  this.materials[id] = (this.materials[id] ?? 0) + count
-  this.push({ kind: 'materialDropped', id, count })
-}
-```
-Add:
-```ts
-sellMaterial(id: string): boolean {
-  const have = this.materials[id] ?? 0
-  const def = this.content.materials[id]
-  if (have <= 0 || !def) return false
-  delete this.materials[id]
-  this.addGold(have * def.value, 'sale')
-  return true
-}
-```
-
-**3e. Snapshots.**
-- `CombatSnapshot`: `phase: 'combat' | 'assault'`; **remove** the `expedition` field. Keep
-  `tick, player, enemies, target, spawnIn, cast, queued, cooldowns, gcdRemaining, autoBattle,
-  companion`.
-- `combatSnapshot()`: drop the `expedition` block.
-- `ProgressSnapshot`: replace `zones: ZoneProgress[]` → `regions: RegionProgress[]`,
-  `zoneId` → `regionId`; add `materials: MaterialStackView[]`; **remove** `completed`.
-- `progressSnapshot()`: build `regions` from `content.regions` (`current = r.id === this.region.id`,
-  `enemyNames` = distinct enemy names over the region's encounter slots), and `materials`
-  from `this.materials` mapped through `content.materials`, sorted by tier
-  (`low<medium<hard`) then name.
-
-**3f. Save v3.**
-- `SaveData`: `version: 3`; `zoneId` → `regionId`; remove `bossesDefeated`, `completed`;
-  add `materials: Record<string, number>`.
-- `serialize()`: write `version: 3`, `regionId: this.region.id`, `materials: { ...this.materials }`.
-- `deserialize()`:
-  - accept `version` 1/2/3, else throw.
-  - `sim.materials = { ...((data as { materials?: Record<string, number> }).materials ?? {}) }`.
-  - Resolve region: try `data.regionId`; if absent/unknown, map a legacy `zoneId` with
-    `{ hollowroot:'verdant', duskmire:'verdant', stormcrag:'emberwild', 'ashen-wastes':'emberwild',
-    'sundered-spire':'riftedge' }`; default `regions[0]`.
-  - Ignore legacy `bossesDefeated`, `completed`, and old expedition records.
-  - `sim.refreshStats(true)`, then `sim.scheduleSpawn()` so a resumed save is already fighting.
-
-**3g. Events.** In `events.ts`:
-- Remove: `expeditionStarted`, `travelStarted`, `nodeArrived`, `nodeResolved`, `cacheOpened`,
-  `shrineOffered`, `blessingGained`, `rested`, `expeditionEnded`, `bossDefeated`,
-  `gameCompleted`, `zoneEntered`.
-- Add: `{ kind: 'regionEntered'; regionId: string; name: string }` and
-  `{ kind: 'materialDropped'; id: string; count: number }`.
-- Keep all combat/loot/progression/worldBoss/companion/achievement events.
-
-**Acceptance — rewrite `tests/encounters.test.ts`; extend `tests/save.test.ts`; delete
-`tests/expedition.test.ts`.** Use the seeded harness from `tests/helpers.ts`.
-
-`tests/encounters.test.ts`:
-- `test('combat starts with a spawn scheduled')` — fresh sim; after `NODE_SPAWN_TICKS + 1`
-  ticks, `combatSnapshot().enemies.length >= 1` and `phase === 'combat'`.
-- `test('clearing a pack schedules the next (endless)')` — record the current pack's iids,
-  force-kill the whole pack (helper that damages each living enemy to 0, or drive abilities),
-  then tick; within `NODE_SPAWN_TICKS + 2` ticks a pack with **new** iids appears. Assert this
-  twice in a row.
-- `test('enterRegion switches the mob table')` — `enterRegion('riftedge')` → next spawned
-  pack's defIds are all members of riftedge's tables and none are verdant-only mobs. Unknown
-  id and current-region id both return `false`.
-- `test('enterRegion is refused during an assault')` — `assaultWorldBoss()` then
-  `enterRegion('riftedge')` returns `false`.
-- `test('player death respawns and combat continues')` — force player death; after
-  `PLAYER_RESPAWN_TICKS + NODE_SPAWN_TICKS + 2` ticks the player is alive, a pack is present,
-  `phase === 'combat'`.
-- `test('materials drop, accumulate, and belong to the region')` — seeded rng; kill mobs in a
-  loop (cap ~200 kills) until `progressSnapshot().materials` is non-empty; assert some stack
-  `count >= 1` and every stack id is in the current region's material list.
-- `test('sellMaterial converts a stack to gold and clears it')` — seed a stack via kills;
-  `gold` before, `sellMaterial(id)` → gold += `count*value`, stack gone; selling a
-  non-existent id returns `false`.
-
-`tests/save.test.ts` additions:
-- `test('v3 round-trips region and materials')` — `enterRegion('emberwild')`, accrue a
-  material stack, `serialize()` → `deserialize()` restores `regionId === 'emberwild'` and the
-  `materials` map, resumed sim `phase === 'combat'`.
-- `test('a v2 save maps its zone to a region')` — craft a `version: 2` blob with
-  `zoneId: 'stormcrag'` and the other v2 fields; `deserialize` → `progressSnapshot().regionId
-  === 'emberwild'`, `materials` empty, no throw.
-- `test('an unknown save version throws')` — `version: 99` throws.
-
-### T4 — Combat screen relayout (UI) + delete the log
+### T5 — UI: Quests tab
 
 **Change:**
-1. `game.svelte.ts`:
-   - Remove `log`, `append`, the `LogEntry` import, and **every** `this.append(...)` call.
-   - In `onEvent`: delete cases for removed events; add `regionEntered` (optional toast) and
-     `materialDropped` (`this.progressDirty = true`; soft `this.audio.play('loot')`). Delete
-     `embark/advance/retreat/chooseBlessing` methods, `lastFlavor`, and the region-boss
-     `bossIntro` path (world-boss `bossIntro` in `assault()` stays). Remove the Space-bar
-     embark/advance keybind logic.
-   - Rename `travel(zoneId)` → `enterRegion(regionId)` → `this.sim.enterRegion(...)`.
-   - Add `sellMaterial(id)` → `this.sim.sellMaterial(id)` then `publishAll()`.
-   - Use the new `SaveStore` (T7) for boot/save/wipe.
-2. `CombatView.svelte`:
-   - Remove the `<div class="chronicle"><CombatLog /></div>` block + import; remove the
-     camp/rest/shrine/travel/resolved branches and the `TrailRibbon`. Keep the banner (region
-     name + tier badge) and the `lull` between-pack countdown (`game.combat.spawnIn`).
-   - **Formation:** `const back = shown.filter(e => e.row === 'back')`,
-     `const front = shown.filter(e => e.row !== 'back')`. Render `back` in an upper row (smaller,
-     slightly dimmed) and `front` in a lower row, both centered. Solo pack → one large centered
-     card. Keep `compact={shown.length > 1}`. The container wrapping the cards keeps
-     `data-fx-row="enemies"` (FX targeting reads it).
-   - Let the formation area grow into the space the log freed (`flex: 1`).
+1. `game.svelte.ts` — `View` union + `'quests'`; intents `acceptQuest(id)` /
+   `turnInQuest(id)` / `abandonQuest(id)` (sim call + `publishAll()`; turn-in success plays
+   `level` sfx); `onEvent` cases for the three quest events (toasts per design notes;
+   all three mark progress dirty).
+2. **New `views/QuestsView.svelte`** — quests from `game.progress.quests`, grouped by
+   region in region order (group header: region name, tinted with `--zh: regionHue`, same
+   treatment as AtlasView headers). Each quest card (glass style, match AtlasView):
+   name, giver line ("— Giver name"), the `text` in italic, objective line
+   (`Slay 8 × Duskwolf` / `Collect 8 × Storm Quartz` / `Slay 12 foes here`), a `Bar` with
+   `value=progress max=count` when active/complete, reward line
+   (`420 xp · 150 gold · rare gear` — omit gear when null), and the action:
+   `available` → "Accept" button (disabled with title when 3 already active);
+   `active` → progress text + small "Abandon" text-button;
+   `complete` → highlighted "Turn in" button;
+   `done` → a dim "Done" label, card at reduced opacity.
+3. `Sidebar.svelte` — NAV entry `{ id: 'quests', label: 'Quests' }` after `regions`; new
+   optional prop `questsReady = 0`; render the same badge as talents on the quests row when
+   > 0. `App.svelte` — pass
+   `questsReady={game.progress.quests.filter((q) => q.state === 'complete').length}`,
+   add `quests: 'Quests'` to TITLES and the view branch.
 
-**Acceptance:** `npm run check` clean, plus `tests/ui-hygiene.test.ts` (reads source with
-`readFileSync`, strips spaces before matching tokens):
-- `test('the combat log is gone')` — `CombatView.svelte` contains neither `CombatLog` nor
-  `chronicle`; `game.svelte.ts` contains no `append(` method def and no `log:` state field.
-- `test('the combat view lays out formation rows')` — `CombatView.svelte` (space-stripped)
-  contains `row==='back'` and a `front` grouping token.
-- `test('expedition UI is removed from combat')` — `CombatView.svelte` contains none of
-  `TrailRibbon`, `embark`, `shrine`, `Blessing`.
+**Acceptance:** `npm test` green, `npm run check` clean. Review checklist: accept →
+progress bar ticks live during hunts → toast on completion → badge appears → turn in pays
+and toasts → card goes dim; cap enforcement visible; abandon works.
 
-### T5 — Regions picker screen (UI)
+### T6 — Full verification (no new code)
 
-**Change:** `AtlasView.svelte` renders `game.progress.regions` as three cards (tier badge,
-`Lv min–max`, mob roster, hue accent, **Enter** button → `game.enterRegion(r.id)`, disabled
-when `r.current` or `game.combat.phase === 'assault'`, with a title hint). Keep the Colossus
-assault panel. Rename the `atlas` view id to `regions` consistently across the `View` type
-(`game.svelte.ts`), `Sidebar` NAV (label "Regions"), `App.svelte` route + `TITLES`; update the
-`App.svelte` derived `zone` → `region = game.progress.regions.find(r => r.current)` feeding
-`TopBar`. Remove the `zone.unlocked/locked/Travel` UI.
-
-**Acceptance:** `npm run check` clean, plus `tests/ui-hygiene.test.ts`:
-- `test('regions screen wired to enterRegion')` — the regions view source contains
-  `enterRegion` and iterates `progress.regions`; contains none of `unlocked`, `locked`,
-  `>Travel<`.
-
-### T6 — Character materials panel (UI)
-
-**Change:** `CharacterView.svelte` — add a "Materials" panel (below Bags) listing
-`game.progress.materials`: name, tier-tinted, `×count`, and a **Sell** button →
-`game.sellMaterial(id)` showing the stack value. Empty state:
-"No materials yet — the wilds are stingy." (`game.sellMaterial` added in T4.)
-
-**Acceptance:** `npm run check` clean, plus `tests/ui-hygiene.test.ts`:
-- `test('character screen shows materials')` — `CharacterView.svelte` contains `progress.materials`
-  and `sellMaterial`.
-
-### T7 — Character Settings screen + fix the reset re-save bug (UI)
-
-**Change:**
-1. New `src/ui/persistence.ts` (pure, testable):
-   ```ts
-   export interface Storagelike {
-     getItem(k: string): string | null
-     setItem(k: string, v: string): void
-     removeItem(k: string): void
-   }
-   export class SaveStore {
-     private wiped = false
-     constructor(private readonly storage: Storagelike, private readonly key: string) {}
-     load(): string | null { return this.storage.getItem(this.key) }
-     save(serialized: string): void { if (this.wiped) return; this.storage.setItem(this.key, serialized) }
-     wipe(): void { this.wiped = true; this.storage.removeItem(this.key) }
-   }
-   ```
-2. `game.svelte.ts` uses a `SaveStore` (`new SaveStore(localStorage, SAVE_KEY)`) for `boot`
-   (`store.load()`), `saveNow` (`store.save(JSON.stringify(this.sim.serialize()))` — the guard
-   now lives in the store), and a wipe path:
-   ```ts
-   private wipeAndReload(): void {
-     if (this.saveTimer) clearInterval(this.saveTimer)
-     window.removeEventListener('beforeunload', this.saveNow)
-     this.store.wipe()
-     location.reload()
-   }
-   newCharacter(): void { this.wipeAndReload() }
-   deleteSave(): void { this.wipeAndReload() }
-   ```
-   Remove the old `resetSave()` (or have it delegate to `wipeAndReload`). `saveNow` and
-   `stop()`'s trailing save both go through `store.save`, so a wiped store cannot resurrect the
-   save on reload/unload — **this is the bug fix.**
-3. New `src/ui/views/SettingsView.svelte`: shows the current save (level, gold, current region
-   name, kills, epics found from `game.progress`) and two confirm-gated destructive actions —
-   **Start a new character** (`game.newCharacter()`) and **Delete save** (`game.deleteSave()`).
-4. Add the `settings` view: `View` union member, `Sidebar` NAV entry ("Settings"), `App.svelte`
-   route + `TITLES`. Remove the `danger`/reset `<section>` from `ChronicleView.svelte`.
-
-**Acceptance — `tests/persistence.test.ts`** (fake `Storagelike` backed by a `Map`):
-- `test('save writes through to storage')` — after `store.save('x')`, `load()` returns `'x'`.
-- `test('wipe removes the save')` — save then `wipe()` → `load()` is `null`.
-- `test('a wiped store refuses further saves')` — `wipe()` then `save('y')` → `load()` stays
-  `null`. **(This is the exact regression the reset bug was — the reload-time save must not
-  resurrect a wiped save.)**
-- `npm run check` clean; `SettingsView` mounts (verified via `/verify`).
-
-### T8 — Cleanup pass
-
-**Change:** delete `src/engine/expedition.ts`, `src/engine/content/blessings.ts`,
-`src/ui/components/TrailRibbon.svelte`, `tests/expedition.test.ts`, `tests/zones.test.ts`.
-Grep the tree for dead references and remove/adjust: `ExpeditionSnapshot`, `NodeKind`,
-`blessing`, `Blessing`, `bossDefeated`, `zoneId`, `ZoneProgress`, `generateRoute`, `travelTo`,
-`finalBossId`, `expeditionsCompleted`, `fastestBossKills`, `BLESSINGS`. `BossIntro.svelte`
-stays (world boss uses it).
-
-**Acceptance:** `npm test` and `npm run check` both clean; no unused-import or type errors.
+Run `npm test && npm run check`, then run the balance suite explicitly and **paste its
+console line** (`endless: done=… maxLevel=… in …h, kills=…, deaths=…`) into the handoff
+note. If `balance.test.ts` fails or the printed hours/deaths moved sharply, **do not retune
+enemies, xp, or the envelope** — report the numbers and stop; that is a planner decision.
+`grep -rn 'NODE_SPAWN_TICKS\|spawnIn\|lastEnemies\|ZONE_TO_REGION' src tests` must return
+nothing.
 
 ---
 
@@ -456,29 +508,32 @@ stays (world boss uses it).
 ```
 npm test && npm run check
 ```
+
 Node lives in `~/.local/node` (not on PATH). If `npm` is not resolvable, use
 `~/.local/node/bin/npm test && ~/.local/node/bin/npm run check`. Every task must leave
-`npm test` green before moving on; `npm run check` must be clean by the end of T8.
+`npm test` green before moving on; `npm run check` must be clean by the end of T2, T5, T6.
 
 Optional visual check: `npm run shots` regenerates `docs/shot-*.png`.
 
 ## 5. Review checklist (for the planner reviewing the diff)
 
-- **Purity intact:** `tests/purity.test.ts` green; no `Math.random`/`Date.now` in `src/engine`.
-- **No dead-air stall:** after every clear, every respawn, every region switch, and every
-  assault-end, a spawn is scheduled — no path leaves `pendingSpawn === null` with an empty
-  field forever.
-- **Save back-compat:** a real v2 blob loads without throwing and lands in the mapped region
-  with `materials === {}`.
-- **Reset bug actually fixed:** `SaveStore.wipe()` blocks the beforeunload/stop save from
-  resurrecting the save (unit-tested), and `wipeAndReload` detaches the listener + timer.
-- **Log fully gone:** no `append`, no `CombatLog`, no `log` state; the UI still reads well from
-  floats + toasts + banners.
-- **Formation reads well:** solo = one big card; packs split front/back rows; FX still land
-  (the `data-fx-row="enemies"` container still wraps the cards).
-- **Materials inert but real:** they drop, stack, persist, and sell — touching none of the
-  gear/equip code paths.
-- **No orphans:** `expedition.ts`, `blessings.ts`, `TrailRibbon.svelte`, `zones.test.ts`,
-  `expedition.test.ts` removed; grep for deleted symbols is empty.
-- **Scope discipline:** enemy stats, ability math, FX/spell tones, talents, world boss, and
-  companion behavior are unchanged except for phase/entry-point plumbing.
+- **Purity intact:** `tests/purity.test.ts` green; no `Math.random`/`Date.now` in
+  `src/engine`; quest/loot rolls all go through the injected rng, in a deterministic order.
+- **Loot is never destroyed:** every path that clears the field (`death`, `enterRegion`,
+  `assaultWorldBoss`) settles bundles first; no path leaves phase `'looting'` with zero
+  bundles or `'combat'` with zero living enemies.
+- **Auto-battle self-sufficient:** with `autoBattle` on, idle→fight→loot→idle cycles with
+  no player intent (the balance test proves it — check its console line got pasted).
+- **Instant-vs-banked split is exact:** XP at death; gold/items/materials at collect;
+  assault and quest rewards fully instant; epic achievement fires at receive time.
+- **Save discipline:** v4 only adds fields; v1/v2/v3 blobs load (region legacy mapping,
+  empty quest state); unknown versions still throw; unknown quest/region ids degrade
+  gracefully.
+- **Quest hooks are narrow:** kill progress only in phase `'combat'` (never assault),
+  kill-any gated on region id, collect gated on bundle collection — no double-count from
+  quest-reward gear.
+- **Stat-clone discipline:** the five new mobs' numbers match their siblings exactly
+  (diff the defs); encounter weight additions only, no reweighting of existing lines.
+- **UI stayed data-driven:** no hand-listed ability/quest ids; Quests tab renders purely
+  from `QuestView[]`; no engine imports of Svelte or UI files.
+- **Balance envelope:** unchanged assertions, and the run's numbers are in the handoff.

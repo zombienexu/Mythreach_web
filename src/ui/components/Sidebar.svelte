@@ -8,6 +8,7 @@
     xp,
     xpToNext,
     talentPoints = 0,
+    questsReady = 0,
     onnavigate,
   }: {
     view: View
@@ -15,6 +16,8 @@
     xp: number
     xpToNext: number
     talentPoints?: number
+    /** quests whose objective is met, waiting to be turned in */
+    questsReady?: number
     onnavigate?: (view: View) => void
   } = $props()
 
@@ -23,6 +26,7 @@
     { id: 'character', label: 'Character' },
     { id: 'talents', label: 'Talents' },
     { id: 'regions', label: 'Regions' },
+    { id: 'quests', label: 'Quests' },
     { id: 'chronicle', label: 'Chronicle' },
     { id: 'settings', label: 'Settings' },
   ]
@@ -46,6 +50,9 @@
             <span class="nav-label">{item.label}</span>
             {#if item.id === 'talents' && talentPoints > 0}
               <span class="badge num" title="{talentPoints} unspent talent points">{talentPoints}</span>
+            {/if}
+            {#if item.id === 'quests' && questsReady > 0}
+              <span class="badge num" title="{questsReady} quests ready to turn in">{questsReady}</span>
             {/if}
           </button>
         </li>

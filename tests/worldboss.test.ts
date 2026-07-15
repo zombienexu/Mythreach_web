@@ -70,13 +70,12 @@ describe('world boss — the Rift Colossus', () => {
     expect(sim.assaultWorldBoss()).toBe(false)
   })
 
-  it('ending an assault drops you back into region combat', () => {
+  it('ending an assault drops you back to idle, ready for a region fight', () => {
     const sim = makeSim({ level: 12 })
     sim.assaultWorldBoss()
     expect(sim.retreat()).toBe(true)
-    expect(sim.combatSnapshot().phase).toBe('combat')
-    // A region pack is scheduled again.
-    advance(sim, 30)
+    expect(sim.combatSnapshot().phase).toBe('idle')
+    expect(sim.startFight()).toBe(true)
     expect(sim.combatSnapshot().enemies.length).toBeGreaterThanOrEqual(1)
   })
 })

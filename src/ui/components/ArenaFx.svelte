@@ -75,7 +75,7 @@
   // Enemy cards come and go with the pack; re-aim when the roster changes.
   $effect(() => {
     void game.combat.enemies.map((e) => e.iid).join(',')
-    void game.combat.spawnIn
+    void game.combat.phase
     void tick().then(measure)
   })
 </script>

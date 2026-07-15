@@ -34,8 +34,11 @@ import type {
   Item,
   ItemSlot,
   LifetimeStats,
+  LootBundle,
   MaterialStackView,
   ProgressSnapshot,
+  QuestState,
+  QuestView,
   Rarity,
   Records,
   RegionDef,
@@ -45,10 +48,11 @@ import type {
   TalentId,
 } from './types'
 import {
+  AUTO_REST_TICKS,
   GCD_TICKS,
   INVENTORY_CAP,
   LEVEL_CAP,
-  NODE_SPAWN_TICKS,
+  MAX_ACTIVE_QUESTS,
   PLAYER_RESPAWN_TICKS,
   REGEN_INTERVAL_TICKS,
   RESPEC_COST,
@@ -80,6 +84,9 @@ export class GameSim {
   private region: RegionDef
   /** Inert crafting materials: materialId → count. */
   private materials: Record<string, number> = {}
+  /** Accepted quests: questId → progress toward the objective count. */
+  private questProgress: Record<string, number> = {}
+  private readonly completedQuests = new Set<string>()
   private readonly achievements = new Set<string>()
   private lifetime: LifetimeStats = {
     kills: 0,
@@ -96,8 +103,9 @@ export class GameSim {
   autoBattle = false
 
   // ── phase ──
-  /** combat: hunting in a region (endless). assault: fighting the world boss. */
-  private phase: 'combat' | 'assault' = 'combat'
+  /** idle: waiting for the player to start a fight. combat: a pack is live.
+   *  looting: the pack is down, corpses hold their spoils. assault: world boss. */
+  private phase: 'idle' | 'combat' | 'looting' | 'assault' = 'idle'
 
   // ── world boss (scaffold) ──
   private worldBossHp = WORLD_BOSS_MAX_HP
@@ -109,15 +117,13 @@ export class GameSim {
   // ── combat ──
   private stats: DerivedStats
   private readonly player: PlayerUnit
-  /** The current pack. Dead mobs stay until the whole encounter is cleared. */
+  /** The current pack. Corpses stay (holding loot) until the field settles. */
   private enemies: EnemyUnit[] = []
   /** iid of the targeted enemy. Always a living enemy while any are alive. */
   private targetIid: number | null = null
   private nextIid = 1
-  /** Breather countdown before the next pack arrives (0 once on the field). */
-  private spawnIn = 0
-  /** What the pending spawn will be, when `spawnIn` reaches 0. */
-  private pendingSpawn: 'battle' | 'elite' | null = null
+  /** Idle breather countdown — only auto-battle waits on it before the next fight. */
+  private restIn = 0
   private pending: CombatEvent[] = []
 
   constructor(opts: SimOptions) {
@@ -128,14 +134,34 @@ export class GameSim {
     this.region = first
     this.stats = deriveStats(this.level, this.talents, this.equipped)
     this.player = new PlayerUnit(this.stats)
-    this.scheduleSpawn()
   }
 
-  /** Queue the next pack: mostly a normal encounter, occasionally an elite. */
-  private scheduleSpawn(): void {
+  /** Start the next fight: mostly a normal encounter, occasionally an elite.
+   *  Spawns immediately — the click is the countdown. */
+  startFight(): boolean {
+    if (this.phase !== 'idle' || !this.player.alive) return false
     const elite = this.region.eliteEncounters.length > 0 && rollPct(this.rng, 12)
-    this.pendingSpawn = elite ? 'elite' : 'battle'
-    this.spawnIn = NODE_SPAWN_TICKS
+    const table = elite ? this.region.eliteEncounters : this.region.encounters
+    const slots: EncounterSlot[] = pickWeighted(
+      this.rng,
+      table.map((e) => ({ value: e.slots, weight: e.weight })),
+    )
+    this.enemies = slots.map(
+      (s) => new EnemyUnit(this.enemyDef(s.enemyId), this.nextIid++, s.row ?? 'front'),
+    )
+    this.phase = 'combat'
+    this.autoTarget()
+    for (const e of this.enemies) {
+      this.push({
+        kind: 'enemySpawned',
+        iid: e.iid,
+        defId: e.def.id,
+        name: e.def.name,
+        rank: e.def.rank,
+        intro: e.def.intro,
+      })
+    }
+    return true
   }
 
   private enemyDef(id: string): EnemyDef {
@@ -214,18 +240,15 @@ export class GameSim {
     if (p.regenElapsed >= REGEN_INTERVAL_TICKS) {
       p.regenElapsed = 0
       p.mana = Math.min(this.stats.maxMana, p.mana + this.stats.regenPerInterval)
-      // You catch your breath between packs — flesh knits back a little while
-      // the field is empty. There is no such mercy mid-fight.
-      if (this.phase === 'combat' && this.enemies.length === 0) {
+      // You catch your breath between fights — flesh knits back a little in
+      // idle and on the loot screen. There is no such mercy mid-fight.
+      if (this.phase === 'idle' || this.phase === 'looting') {
         p.combatant.heal(Math.max(1, Math.round((p.combatant.maxHp * 8) / 100)))
       }
     }
 
-    // Between packs, the next one closes in.
-    if (this.pendingSpawn !== null && this.enemies.length === 0) {
-      this.spawnIn--
-      if (this.spawnIn <= 0) this.spawnPending()
-    }
+    // The idle breather auto-battle waits out before wading back in.
+    if (this.phase === 'idle' && this.restIn > 0) this.restIn--
 
     // Player cast progress.
     if (p.cast !== null) {
@@ -331,7 +354,7 @@ export class GameSim {
    *  (battle/elite/boss/assault). It never crits and takes no damage. Idle — and
    *  timer reset — the moment there is nothing to hit. */
   private companionSwing_(playerAlive: boolean): void {
-    if (this.companionId === null || this.enemies.length === 0 || !playerAlive) {
+    if (this.companionId === null || this.living.length === 0 || !playerAlive) {
       this.companionSwing = 0
       return
     }
@@ -539,22 +562,27 @@ export class GameSim {
     else if (e.checkEnrage()) this.push({ kind: 'enemyEnraged', iid: e.iid, name: e.def.name })
   }
 
-  /** One mob down: pay its rewards immediately. The pack decides the rest. */
+  /** One mob down: XP pays on the spot (mid-fight level-ups stay), everything
+   *  else is banked on the corpse until the player loots it. */
   private onEnemyKilled(e: EnemyUnit): void {
     const def = e.def
     this.lifetime.kills++
     this.push({ kind: 'enemyDied', iid: e.iid, defId: def.id, name: def.name, rank: def.rank })
 
-    this.addGold(rollInt(this.rng, def.goldMin, def.goldMax), 'kill')
-    this.addXp(def.xp)
-    if (rollPct(this.rng, def.dropPct)) this.dropLoot(def)
-    this.rollMaterial()
-
-    // The world boss lives in its own pool; its death runs a different path.
+    // The world boss lives in its own pool; its death pays instantly — there
+    // is no loot screen for the Colossus — and runs a different path.
     if (this.phase === 'assault') {
+      this.addGold(rollInt(this.rng, def.goldMin, def.goldMax), 'kill')
+      this.addXp(def.xp)
+      if (rollPct(this.rng, def.dropPct)) this.dropLoot(def)
+      this.rollMaterial()
       this.onWorldBossFelled()
       return
     }
+
+    this.addXp(def.xp)
+    e.loot = this.rollBundle(def)
+    this.questKillProgress(def)
 
     this.checkAchievement('first-blood', true)
     this.checkAchievement('kills-100', this.lifetime.kills >= 100)
@@ -568,19 +596,41 @@ export class GameSim {
     }
   }
 
-  /** The whole pack is down. Catch your breath, then the next pack is on its
-   *  way — the hunt never ends. */
-  private onEncounterCleared(): void {
-    this.push({ kind: 'encounterCleared' })
-    if (this.player.queued && ABILITIES[this.player.queued].offensive) this.player.queued = null
-    this.enemies = []
-    this.targetIid = null
-    // Clearing a pack mends a quarter of your health — the reward for a clean win.
-    if (this.player.alive) this.player.combatant.heal(Math.round((this.player.combatant.maxHp * 25) / 100))
-    this.scheduleSpawn()
+  /** Roll a corpse's spoils — gold, then maybe an item, then maybe a material
+   *  stack (the order keeps seeded runs deterministic). Banked, not paid. */
+  private rollBundle(def: EnemyDef): LootBundle {
+    const gold = rollInt(this.rng, def.goldMin, def.goldMax)
+    const items: Item[] = []
+    if (rollPct(this.rng, def.dropPct)) {
+      const minRarity: Rarity = def.rank === 'boss' ? 'rare' : 'common'
+      items.push(generateItem(this.rng, this.nextUid++, def.level, { minRarity }))
+    }
+    const materials: LootBundle['materials'] = []
+    if (rollPct(this.rng, 35) && this.region.materials.length > 0) {
+      const id = pickOne(this.rng, this.region.materials)
+      const count = rollInt(this.rng, 1, 3)
+      materials.push({ id, name: this.content.materials[id]?.name ?? id, count })
+    }
+    return { gold, items, materials }
   }
 
-  /** ~35% of kills cough up a stack of one of the current region's materials. */
+  /** The whole pack is down: the fight is won. Corpses keep their spoils on
+   *  the field until the player loots them (or something settles the field). */
+  private onEncounterCleared(): void {
+    this.push({ kind: 'encounterCleared' })
+    const p = this.player
+    if (p.queued && ABILITIES[p.queued].offensive) p.queued = null
+    // You won — nothing keeps gnawing at you on the loot screen.
+    p.venom = null
+    this.targetIid = null
+    this.phase = 'looting'
+    // Clearing a pack mends a quarter of your health — the reward for a clean win.
+    if (p.alive) p.combatant.heal(Math.round((p.combatant.maxHp * 25) / 100))
+  }
+
+  /** ~35% of kills cough up a stack of one of the current region's materials.
+   *  Instant-pay variant — only assault kills use it; region kills bank
+   *  materials in the corpse bundle instead. */
   private rollMaterial(): void {
     if (!rollPct(this.rng, 35)) return
     const ids = this.region.materials
@@ -589,6 +639,151 @@ export class GameSim {
     const count = rollInt(this.rng, 1, 3)
     this.materials[id] = (this.materials[id] ?? 0) + count
     this.push({ kind: 'materialDropped', id, count })
+  }
+
+  // ─────────────────────── looting ───────────────────────
+
+  /** Pay one corpse's bundle into the player's pockets. */
+  private payBundle(e: EnemyUnit): void {
+    const bundle = e.loot
+    if (!bundle) return
+    e.loot = null
+    if (bundle.gold > 0) this.addGold(bundle.gold, 'kill')
+    for (const item of bundle.items) this.receiveItem(item)
+    for (const m of bundle.materials) {
+      this.materials[m.id] = (this.materials[m.id] ?? 0) + m.count
+      this.push({ kind: 'materialDropped', id: m.id, count: m.count })
+      this.questCollectProgress(m.id, m.count)
+    }
+  }
+
+  /** Loot one corpse. Paying the last bundle settles the field back to idle. */
+  collectLoot(iid: number): boolean {
+    if (this.phase !== 'looting') return false
+    const e = this.enemies.find((x) => x.iid === iid && x.loot !== null)
+    if (!e) return false
+    this.payBundle(e)
+    if (this.enemies.every((x) => x.loot === null)) this.clearField()
+    return true
+  }
+
+  /** R: loot every corpse at once. */
+  collectAllLoot(): boolean {
+    if (this.phase !== 'looting') return false
+    for (const e of this.enemies) this.payBundle(e)
+    this.clearField()
+    return true
+  }
+
+  /** Bank every pending bundle. Loot is pacing, not risk: no transition —
+   *  death, a region switch, an assault — ever destroys it. */
+  private settleLoot(): void {
+    for (const e of this.enemies) this.payBundle(e)
+  }
+
+  /** The looted field empties; the hunt goes quiet until the next start. */
+  private clearField(): void {
+    this.enemies = []
+    this.targetIid = null
+    this.enterIdle()
+  }
+
+  private enterIdle(): void {
+    this.phase = 'idle'
+    this.restIn = AUTO_REST_TICKS
+  }
+
+  // ─────────────────────── quests ───────────────────────
+
+  /** Take on a traveler's ask. At most MAX_ACTIVE_QUESTS underway at once. */
+  acceptQuest(id: string): boolean {
+    const quest = this.content.quests.find((q) => q.id === id)
+    if (!quest || this.questProgress[id] !== undefined || this.completedQuests.has(id)) return false
+    if (Object.keys(this.questProgress).length >= MAX_ACTIVE_QUESTS) return false
+    this.questProgress[id] = 0
+    this.push({ kind: 'questAccepted', id, name: quest.name })
+    return true
+  }
+
+  /** Drop an active quest. Its progress is lost; the ask stays on the board. */
+  abandonQuest(id: string): boolean {
+    if (this.questProgress[id] === undefined) return false
+    delete this.questProgress[id]
+    return true
+  }
+
+  /** Claim a finished quest: xp, gold, and sometimes gear. */
+  turnInQuest(id: string): boolean {
+    const quest = this.content.quests.find((q) => q.id === id)
+    const prog = this.questProgress[id]
+    if (!quest || prog === undefined || prog < quest.objective.count) return false
+    delete this.questProgress[id]
+    this.completedQuests.add(id)
+    this.push({ kind: 'questTurnedIn', id, name: quest.name })
+    this.addXp(quest.reward.xp)
+    this.addGold(quest.reward.gold, 'quest')
+    if (quest.reward.gear) this.grantLoot(quest.reward.gear.ilvl, quest.reward.gear.minRarity)
+    return true
+  }
+
+  /** A region kill advances matching kill quests: named foes count anywhere
+   *  they spawn; "any foe" counts only in the quest's own region. */
+  private questKillProgress(def: EnemyDef): void {
+    for (const q of this.content.quests) {
+      const prog = this.questProgress[q.id]
+      if (prog === undefined || q.objective.kind !== 'kill' || prog >= q.objective.count) continue
+      const wanted = q.objective.enemyId
+      const matches = wanted === null ? q.regionId === this.region.id : wanted === def.id
+      if (!matches) continue
+      this.questProgress[q.id] = prog + 1
+      if (prog + 1 >= q.objective.count) this.push({ kind: 'questCompleted', id: q.id, name: q.name })
+    }
+  }
+
+  /** Looting a material stack advances matching collect quests. */
+  private questCollectProgress(materialId: string, count: number): void {
+    for (const q of this.content.quests) {
+      const prog = this.questProgress[q.id]
+      if (prog === undefined || q.objective.kind !== 'collect' || prog >= q.objective.count) continue
+      if (q.objective.materialId !== materialId) continue
+      const next = Math.min(q.objective.count, prog + count)
+      this.questProgress[q.id] = next
+      if (next >= q.objective.count) this.push({ kind: 'questCompleted', id: q.id, name: q.name })
+    }
+  }
+
+  private questViews(): QuestView[] {
+    return this.content.quests.map((q) => {
+      const region = this.content.regions.find((r) => r.id === q.regionId)
+      const prog = this.questProgress[q.id]
+      const done = this.completedQuests.has(q.id)
+      const o = q.objective
+      const state: QuestState = done
+        ? 'done'
+        : prog === undefined
+          ? 'available'
+          : prog >= o.count
+            ? 'complete'
+            : 'active'
+      const targetName =
+        o.kind === 'kill'
+          ? o.enemyId === null
+            ? 'any foe'
+            : (this.content.enemies[o.enemyId]?.name ?? o.enemyId)
+          : (this.content.materials[o.materialId]?.name ?? o.materialId)
+      return {
+        id: q.id,
+        name: q.name,
+        giver: q.giver,
+        text: q.text,
+        regionId: q.regionId,
+        regionName: region?.name ?? q.regionId,
+        regionHue: region?.hue ?? 260,
+        state,
+        objective: { kind: o.kind, targetName, count: o.count, progress: done ? o.count : (prog ?? 0) },
+        reward: { ...q.reward, gear: q.reward.gear ? { ...q.reward.gear } : null },
+      }
+    })
   }
 
   private onPlayerDied(): void {
@@ -604,10 +799,11 @@ export class GameSim {
       this.endAssault()
       return
     }
-    // The field clears; combat resumes when you revive.
+    // The fight is lost, but what was already slain still pays out.
+    this.settleLoot()
     this.enemies = []
     this.targetIid = null
-    this.scheduleSpawn()
+    this.enterIdle()
   }
 
   private revivePlayer(): void {
@@ -617,35 +813,6 @@ export class GameSim {
     p.respawnIn = 0
     p.regenElapsed = 0
     this.push({ kind: 'playerRespawned' })
-  }
-
-  private spawnPending(): void {
-    const kind = this.pendingSpawn
-    if (kind === null) return
-    this.pendingSpawn = null
-    this.spawnIn = 0
-    const table =
-      kind === 'elite' && this.region.eliteEncounters.length > 0
-        ? this.region.eliteEncounters
-        : this.region.encounters
-    const slots: EncounterSlot[] = pickWeighted(
-      this.rng,
-      table.map((e) => ({ value: e.slots, weight: e.weight })),
-    )
-    this.enemies = slots.map(
-      (s) => new EnemyUnit(this.enemyDef(s.enemyId), this.nextIid++, s.row ?? 'front'),
-    )
-    this.autoTarget()
-    for (const e of this.enemies) {
-      this.push({
-        kind: 'enemySpawned',
-        iid: e.iid,
-        defId: e.def.id,
-        name: e.def.name,
-        rank: e.def.rank,
-        intro: e.def.intro,
-      })
-    }
   }
 
   // ─────────────────────── progression ───────────────────────
@@ -671,7 +838,7 @@ export class GameSim {
     }
   }
 
-  private addGold(amount: number, source: 'kill' | 'sale'): void {
+  private addGold(amount: number, source: 'kill' | 'sale' | 'quest'): void {
     if (amount <= 0) return
     this.gold += amount
     this.lifetime.goldEarned += amount
@@ -683,11 +850,18 @@ export class GameSim {
     this.grantLoot(def.level, def.rank === 'boss' ? 'rare' : 'common')
   }
 
-  /** Roll and hand over an item at the given ilvl / minimum rarity, honouring
-   *  the inventory cap (a full bag auto-sells). Returns the item either way, so
-   *  a cache can name what it coughed up. */
+  /** Roll and hand over an item at the given ilvl / minimum rarity. Returns
+   *  the item either way, so a cache can name what it coughed up. */
   private grantLoot(ilvl: number, minRarity: Rarity): Item {
     const item = generateItem(this.rng, this.nextUid++, ilvl, { minRarity })
+    this.receiveItem(item)
+    return item
+  }
+
+  /** Take ownership of an already-rolled item, honouring the inventory cap
+   *  (a full bag auto-sells). Epic bookkeeping lands here — the moment the
+   *  player receives it, not the moment it drops. */
+  private receiveItem(item: Item): void {
     if (item.rarity === 'epic') {
       this.lifetime.epicsFound++
       this.checkAchievement('epic-find', true)
@@ -701,7 +875,6 @@ export class GameSim {
       this.inventory.push(item)
       this.push({ kind: 'lootDropped', item, autoSold: false, goldValue: value })
     }
-    return item
   }
 
   private refreshStats(fullRestore: boolean): void {
@@ -767,15 +940,16 @@ export class GameSim {
     return true
   }
 
-  /** Switch regions. Allowed any time you are in combat (not mid-assault). */
+  /** Switch regions. Allowed any time you are not mid-assault; pending loot
+   *  banks itself on the way out. */
   enterRegion(regionId: string): boolean {
-    if (this.phase !== 'combat') return false
+    if (this.phase === 'assault') return false
     const region = this.content.regions.find((r) => r.id === regionId)
     if (!region || region.id === this.region.id) return false
+    this.settleLoot()
     this.region = region
     this.despawnForTransition()
-    this.pendingSpawn = null
-    this.scheduleSpawn()
+    this.enterIdle()
     this.push({ kind: 'regionEntered', regionId: region.id, name: region.name })
     return true
   }
@@ -792,10 +966,10 @@ export class GameSim {
    *  the sole enemy; the fight ends on its death, yours, or retreat, after which
    *  you return to hunting your current region. */
   assaultWorldBoss(): boolean {
-    if (this.phase !== 'combat' || !this.player.alive) return false
-    this.phase = 'assault'
-    this.pendingSpawn = null
+    if (this.phase === 'assault' || !this.player.alive) return false
+    this.settleLoot()
     this.despawnForTransition()
+    this.phase = 'assault'
     const def: EnemyDef = { ...WORLD_BOSS, hp: this.worldBossHp }
     const unit = new EnemyUnit(def, this.nextIid++)
     this.enemies = [unit]
@@ -811,7 +985,7 @@ export class GameSim {
     return true
   }
 
-  /** End an assault (retreat or death): bank the damage, return to region combat. */
+  /** End an assault (retreat or death): bank the damage, return to idle. */
   private endAssault(): boolean {
     const colossus = this.enemies[0]
     const remaining = colossus ? colossus.combatant.hp : this.worldBossHp
@@ -820,8 +994,7 @@ export class GameSim {
     if (damageDealt > this.records.bestAssaultDamage) this.records.bestAssaultDamage = damageDealt
     this.enemies = []
     this.targetIid = null
-    this.phase = 'combat'
-    this.scheduleSpawn()
+    this.enterIdle()
     this.push({ kind: 'worldBossAssaultEnded', damageDealt, remaining })
     return true
   }
@@ -840,15 +1013,14 @@ export class GameSim {
     this.enemies = []
     this.targetIid = null
     this.lifetime.bossKills++
-    this.phase = 'combat'
-    this.scheduleSpawn()
+    this.enterIdle()
   }
 
   // ─────────────────────── companion (scaffold) ───────────────────────
 
   /** Hire a companion: pays its cost and persists in the save. */
   hireCompanion(id = 'wren'): boolean {
-    if (this.phase !== 'combat' || this.companionId !== null) return false
+    if (this.phase === 'assault' || this.companionId !== null) return false
     const comp = COMPANIONS[id]
     if (!comp || this.gold < comp.cost) return false
     this.gold -= comp.cost
@@ -880,7 +1052,6 @@ export class GameSim {
       player: p.snapshot(this.stats),
       enemies: this.enemies.map((e) => e.snapshot()),
       target: this.targetIid,
-      spawnIn: this.enemies.length > 0 ? 0 : this.spawnIn,
       cast: p.cast
         ? {
             abilityId: p.cast.id,
@@ -913,6 +1084,7 @@ export class GameSim {
       minLevel: r.minLevel,
       maxLevel: r.maxLevel,
       hue: r.hue,
+      intro: r.intro,
       current: r.id === this.region.id,
       enemyNames: [
         ...new Set(r.encounters.flatMap((e) => e.slots.map((s) => this.enemyDef(s.enemyId).name))),
@@ -948,6 +1120,7 @@ export class GameSim {
       regionId: this.region.id,
       regions: this.regionProgress(),
       materials: this.materialStacks(),
+      quests: this.questViews(),
       achievements: [...this.achievements],
       lifetime: { ...this.lifetime },
       records: { ...this.records },
@@ -968,7 +1141,7 @@ export class GameSim {
 
   serialize(): SaveData {
     return {
-      version: 3,
+      version: 4,
       level: this.level,
       xp: this.xp,
       gold: this.gold,
@@ -978,6 +1151,8 @@ export class GameSim {
       nextUid: this.nextUid,
       regionId: this.region.id,
       materials: { ...this.materials },
+      activeQuests: { ...this.questProgress },
+      completedQuests: [...this.completedQuests],
       achievements: [...this.achievements],
       lifetime: { ...this.lifetime },
       records: { ...this.records },
@@ -987,23 +1162,23 @@ export class GameSim {
     }
   }
 
-  /** Legacy zoneId → region, for saves written before regions existed. */
-  private static readonly ZONE_TO_REGION: Record<string, string> = {
-    hollowroot: 'verdant',
-    duskmire: 'verdant',
-    stormcrag: 'emberwild',
-    'ashen-wastes': 'emberwild',
-    'sundered-spire': 'riftedge',
+  /** v3's three merged regions → the five they un-merged into. (v1/v2 zone
+   *  ids are themselves region ids now and resolve directly.) */
+  private static readonly LEGACY_REGION: Record<string, string> = {
+    verdant: 'hollowroot',
+    emberwild: 'stormcrag',
+    riftedge: 'sundered-spire',
   }
 
-  /** Rebuild a sim from a save. In-combat state is not persisted: you come back
-   *  at full strength, already hunting the region you last chose. */
+  /** Rebuild a sim from a save. In-combat state (including unlooted corpses)
+   *  is not persisted: you come back at full strength, idle in the region you
+   *  last chose, ready to start the next fight. */
   static deserialize(data: SaveData, opts: SimOptions): GameSim {
-    // v1/v2 saves are accepted; their dead fields (savedAt, muted, zoneKills,
+    // v1–v3 saves are accepted; their dead fields (savedAt, muted, zoneKills,
     // bossesDefeated, expedition records) are simply ignored on the way in.
     const raw = data as unknown as Record<string, unknown>
     const version = data.version as number
-    if (version !== 1 && version !== 2 && version !== 3) {
+    if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       throw new Error(`unknown save version: ${String(data.version)}`)
     }
     const sim = new GameSim(opts)
@@ -1022,24 +1197,46 @@ export class GameSim {
       bestAssaultDamage: rec?.bestAssaultDamage ?? 0,
     }
     sim.materials = { ...((raw.materials as Record<string, number> | undefined) ?? {}) }
+    // Quests (v4): ids the content pack no longer knows are silently dropped.
+    const knownQuest = (id: string) => sim.content.quests.some((q) => q.id === id)
+    const active = (raw.activeQuests as Record<string, number> | undefined) ?? {}
+    for (const [id, prog] of Object.entries(active)) {
+      if (knownQuest(id)) sim.questProgress[id] = Math.max(0, prog)
+    }
+    for (const id of (raw.completedQuests as string[] | undefined) ?? []) {
+      if (knownQuest(id)) sim.completedQuests.add(id)
+    }
     sim.worldBossHp = (data.worldBossHp as number | undefined) ?? WORLD_BOSS_MAX_HP
     sim.companionId = (data.companionId as string | null | undefined) ?? null
     sim.autoBattle = data.autoBattle ?? false
-    // Resolve the region: prefer regionId (v3), then map a legacy zoneId, else default.
-    const regionId =
-      (raw.regionId as string | undefined) ??
-      GameSim.ZONE_TO_REGION[(raw.zoneId as string | undefined) ?? ''] ??
-      sim.content.regions[0]!.id
+    // Resolve the region: regionId (v3+) or zoneId (v1/v2), mapped through the
+    // legacy table when needed; an unknown id falls back to the first region.
+    const saved = (raw.regionId as string | undefined) ?? (raw.zoneId as string | undefined) ?? ''
+    const regionId = GameSim.LEGACY_REGION[saved] ?? saved
     const region = sim.content.regions.find((r) => r.id === regionId)
     if (region) sim.region = region
     sim.refreshStats(true)
-    sim.scheduleSpawn()
     return sim
   }
 
   private autoAct(): void {
     const p = this.player
     if (!p.alive) return
+
+    // Auto plays the whole loop: sweep the loot screen, breathe, wade back in.
+    if (this.phase === 'looting') {
+      this.collectAllLoot()
+      return
+    }
+    if (this.phase === 'idle') {
+      if (p.cast === null && p.gcd === 0 && p.queued === null) {
+        const hpPct = (p.combatant.hp * 100) / p.combatant.maxHp
+        if (hpPct <= 60 && this.canUse('renew')) return void this.useAbility('renew')
+      }
+      if (this.restIn === 0 && p.cast === null) this.startFight()
+      return
+    }
+
     const living = this.living
 
     // A mob is winding up a bolt and counterspell is off cooldown: swing the

@@ -7,6 +7,7 @@ import type {
   EnemyMechanicHardcast,
   EnemyMechanicVenom,
   EnemySnapshot,
+  LootBundle,
 } from './types'
 
 /** One spawned enemy: HP, swing timer, and its mechanic state.
@@ -23,6 +24,8 @@ export class EnemyUnit {
   venomTimer = 0
   /** The player's burn on this enemy. */
   ignite: Dot | null = null
+  /** Spoils banked at death, cleared when the player loots the corpse. */
+  loot: LootBundle | null = null
 
   constructor(
     readonly def: EnemyDef,
@@ -95,6 +98,7 @@ export class EnemyUnit {
           }
         : null,
       enraged: this.enraged,
+      loot: this.loot,
       dot:
         this.ignite && this.ignite.active
           ? { name: this.ignite.name, remainingTicks: this.ignite.remainingTicks }

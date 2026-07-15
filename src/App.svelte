@@ -13,6 +13,7 @@
   import CharacterView from './ui/views/CharacterView.svelte'
   import ChronicleView from './ui/views/ChronicleView.svelte'
   import CombatView from './ui/views/CombatView.svelte'
+  import QuestsView from './ui/views/QuestsView.svelte'
   import SettingsView from './ui/views/SettingsView.svelte'
   import TalentsView from './ui/views/TalentsView.svelte'
 
@@ -32,6 +33,7 @@
     character: 'Character',
     talents: 'Talents',
     regions: 'Regions',
+    quests: 'Quests',
     chronicle: 'Chronicle',
     settings: 'Settings',
   }
@@ -47,6 +49,7 @@
     xp={game.progress.xp}
     xpToNext={game.progress.xpToNext}
     talentPoints={game.progress.talentPoints}
+    questsReady={game.progress.quests.filter((q) => q.state === 'complete').length}
     onnavigate={(v) => game.setView(v)}
   />
   <main class="main">
@@ -70,6 +73,8 @@
       <TalentsView {game} />
     {:else if game.view === 'regions'}
       <AtlasView {game} />
+    {:else if game.view === 'quests'}
+      <QuestsView {game} />
     {:else if game.view === 'settings'}
       <SettingsView {game} />
     {:else}

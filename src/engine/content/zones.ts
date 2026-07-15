@@ -36,6 +36,8 @@ export const ZONES: readonly ZoneDef[] = [
       pair('gravel-skitterling', 'mossback-boar', 14),
       vanguard(['gravel-skitterling', 'gravel-skitterling'], 'cave-golem', 14),
       solo('rockmaw-bruiser', 8),
+      solo('root-creeper', 14),
+      pair('root-creeper', 'gravel-skitterling', 10),
     ],
     eliteEncounters: [solo('rockmaw-bruiser', 1)],
     travelLines: [
@@ -61,6 +63,8 @@ export const ZONES: readonly ZoneDef[] = [
       // The wisp hides behind its whelps: switch to it or eat the Witchbolt.
       vanguard(['mire-whelp', 'mire-whelp'], 'witchlight-wisp', 12),
       vanguard(['mire-whelp', 'mire-whelp'], 'mirefiend-brute', 9),
+      solo('fen-shade', 14),
+      pair('fen-shade', 'mire-whelp', 10),
     ],
     eliteEncounters: [solo('mirefiend-brute', 1)],
     travelLines: [
@@ -85,6 +89,8 @@ export const ZONES: readonly ZoneDef[] = [
       pair('harpy-fledgling', 'harpy-skyrender', 14),
       vanguard(['harpy-fledgling', 'harpy-fledgling'], 'frostmane-drake', 12),
       vanguard(['harpy-fledgling', 'harpy-fledgling'], 'crag-behemoth', 9),
+      solo('cliff-stalker', 14),
+      pair('cliff-stalker', 'harpy-fledgling', 10),
     ],
     eliteEncounters: [solo('crag-behemoth', 1)],
     travelLines: [
@@ -109,6 +115,8 @@ export const ZONES: readonly ZoneDef[] = [
       pair('ember-imp', 'cinderhound', 14),
       vanguard(['ember-imp', 'ember-imp'], 'ash-revenant', 12),
       vanguard(['ember-imp', 'ember-imp'], 'pyroclast-titan', 9),
+      solo('magma-crawler', 14),
+      pair('magma-crawler', 'ember-imp', 10),
     ],
     eliteEncounters: [solo('pyroclast-titan', 1)],
     travelLines: [
@@ -134,6 +142,8 @@ export const ZONES: readonly ZoneDef[] = [
       // The acolyte chants behind its mites — the Spire teaches interrupts.
       vanguard(['void-mite', 'void-mite'], 'void-acolyte', 12),
       vanguard(['void-mite', 'void-mite'], 'herald-of-malgrath', 9),
+      solo('null-watcher', 14),
+      pair('null-watcher', 'void-mite', 10),
     ],
     eliteEncounters: [solo('herald-of-malgrath', 1)],
     travelLines: [

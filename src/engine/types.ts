@@ -46,8 +46,9 @@ export const LEVEL_CAP = 15
 export const INVENTORY_CAP = 24
 export const RESPEC_COST = 50
 
-/** Breather between one pack falling and the next arriving (1 s at 20 tps). */
-export const NODE_SPAWN_TICKS = 20
+/** How long auto-battle catches its breath in idle before starting the next
+ *  fight (1 s at 20 tps). Manual play ignores it — click when ready. */
+export const AUTO_REST_TICKS = 20
 
 export interface Item {
   uid: number
@@ -179,11 +180,57 @@ export interface RegionDef {
   intro: string
 }
 
+/** What a traveler asks of you. `enemyId: null` means any foe, counted only
+ *  while hunting the quest's region. */
+export type QuestObjective =
+  | { kind: 'kill'; enemyId: string | null; count: number }
+  | { kind: 'collect'; materialId: string; count: number }
+
+export interface QuestReward {
+  xp: number
+  gold: number
+  /** A rolled item on turn-in, or null for coin-and-wisdom-only quests. */
+  gear: { ilvl: number; minRarity: Rarity } | null
+}
+
+export interface QuestDef {
+  id: string
+  name: string
+  /** The traveler offering it. */
+  giver: string
+  /** The ask, in the giver's voice. */
+  text: string
+  regionId: string
+  objective: QuestObjective
+  reward: QuestReward
+}
+
+export type QuestState = 'available' | 'active' | 'complete' | 'done'
+
+/** One quest as the UI sees it: def + live state, no content lookups needed. */
+export interface QuestView {
+  id: string
+  name: string
+  giver: string
+  text: string
+  regionId: string
+  regionName: string
+  regionHue: number
+  state: QuestState
+  objective: { kind: 'kill' | 'collect'; targetName: string; count: number; progress: number }
+  reward: QuestReward
+}
+
+/** How many quests can be underway at once. */
+export const MAX_ACTIVE_QUESTS = 3
+
 export interface ContentPack {
-  /** The three difficulty regions, low → hard. All selectable from the start. */
+  /** The five difficulty regions, low → hard. All selectable from the start. */
   regions: readonly RegionDef[]
   enemies: Record<string, EnemyDef>
   materials: Record<string, MaterialDef>
+  /** One-shot traveler quests. */
+  quests: readonly QuestDef[]
 }
 
 /** Everything the combat math needs, derived from level + talents + gear. */
@@ -236,6 +283,15 @@ export interface PlayerSnapshot {
   dot: DotSnapshot | null
 }
 
+/** The spoils banked on a corpse, waiting to be looted. Material names are
+ *  resolved at roll time so the view needs no content lookup. */
+export interface LootBundle {
+  gold: number
+  /** 0 or 1 today. */
+  items: Item[]
+  materials: Array<{ id: string; name: string; count: number }>
+}
+
 export interface EnemyCastSnapshot {
   name: string
   progress: number
@@ -258,19 +314,20 @@ export interface EnemySnapshot {
   cast: EnemyCastSnapshot | null
   enraged: boolean
   dot: DotSnapshot | null
+  /** Unlooted spoils on a corpse; null while alive or once collected. */
+  loot: LootBundle | null
 }
 
 export interface CombatSnapshot {
   tick: number
-  /** Fighting in a region, or assaulting the world boss. */
-  phase: 'combat' | 'assault'
+  /** idle: waiting for the player to start a fight. combat: a pack is live.
+   *  looting: the pack is down, corpses hold their spoils. assault: world boss. */
+  phase: 'idle' | 'combat' | 'looting' | 'assault'
   player: PlayerSnapshot
-  /** The current pack, dead mobs included until it's cleared; empty between spawns. */
+  /** The current pack (corpses included while looting); empty in idle. */
   enemies: EnemySnapshot[]
-  /** iid of the targeted enemy, or null when the field is empty. */
+  /** iid of the targeted enemy, or null when nothing is targetable. */
   target: number | null
-  /** Ticks until the next pack arrives (0 once on the field). */
-  spawnIn: number
   cast: CastSnapshot | null
   queued: AbilityId | null
   cooldowns: Record<AbilityId, number>
@@ -288,6 +345,7 @@ export interface RegionProgress {
   minLevel: number
   maxLevel: number
   hue: number
+  intro: string
   current: boolean
   enemyNames: string[]
 }
@@ -322,6 +380,8 @@ export interface ProgressSnapshot {
   regions: RegionProgress[]
   /** Inert crafting materials in the bags, sorted low → hard then by name. */
   materials: MaterialStackView[]
+  /** Every quest in the catalog with its live state, in catalog order. */
+  quests: QuestView[]
   achievements: string[]
   lifetime: LifetimeStats
   records: Records
@@ -332,7 +392,7 @@ export interface ProgressSnapshot {
 }
 
 export interface SaveData {
-  version: 3
+  version: 4
   level: number
   xp: number
   gold: number
@@ -343,6 +403,10 @@ export interface SaveData {
   regionId: string
   /** Inert crafting materials: materialId → count. */
   materials: Record<string, number>
+  /** Accepted quests: questId → progress toward the objective count. */
+  activeQuests: Record<string, number>
+  /** Turned-in quest ids. */
+  completedQuests: string[]
   achievements: string[]
   lifetime: LifetimeStats
   records: Records
