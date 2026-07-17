@@ -1,140 +1,56 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import Background from './ui/components/Background.svelte'
-  import BossIntro from './ui/components/BossIntro.svelte'
-  import CritFlash from './ui/components/CritFlash.svelte'
-  import LevelUpBanner from './ui/components/LevelUpBanner.svelte'
-  import Sidebar from './ui/components/Sidebar.svelte'
-  import Toast from './ui/components/Toast.svelte'
-  import TopBar from './ui/components/TopBar.svelte'
-  import Vignette from './ui/components/Vignette.svelte'
   import { Game } from './ui/game.svelte'
-  import AtlasView from './ui/views/AtlasView.svelte'
-  import CharacterView from './ui/views/CharacterView.svelte'
-  import ChronicleView from './ui/views/ChronicleView.svelte'
-  import CombatView from './ui/views/CombatView.svelte'
-  import QuestsView from './ui/views/QuestsView.svelte'
-  import SettingsView from './ui/views/SettingsView.svelte'
-  import TalentsView from './ui/views/TalentsView.svelte'
+  import GameShell from './ui/GameShell.svelte'
+  import {
+    applyMotion,
+    loadSettings,
+    writeProfile,
+    type SlotId,
+    type SlotProfile,
+  } from './ui/profile'
+  import CharacterCreation from './ui/title/CharacterCreation.svelte'
+  import TitleScreen from './ui/title/TitleScreen.svelte'
 
-  const game = new Game()
+  /** The front door: title → (create) → game. The Game instance exists only
+   *  while playing; unmounting the shell stops the loop and saves. */
+  type Screen = 'title' | 'create' | 'game'
 
-  let shell: HTMLDivElement | undefined = $state()
+  let screen: Screen = $state('title')
+  let slot: SlotId = $state(1)
+  let game: Game | null = $state(null)
 
-  onMount(() => {
-    game.start()
-    // The whole page takes the hit, not just the card that got hit.
-    if (shell) game.fx.attachShake(shell)
-    return () => game.stop()
-  })
+  onMount(() => applyMotion(loadSettings(localStorage)))
 
-  const TITLES: Record<typeof game.view, string> = {
-    combat: 'Combat',
-    character: 'Character',
-    talents: 'Talents',
-    regions: 'Regions',
-    quests: 'Quests',
-    chronicle: 'Chronicle',
-    settings: 'Settings',
+  function enter(s: SlotId): void {
+    slot = s
+    game = new Game(s)
+    screen = 'game'
   }
 
-  const region = $derived(game.progress.regions.find((r) => r.current))
+  function create(s: SlotId): void {
+    slot = s
+    screen = 'create'
+  }
+
+  function begin(profile: SlotProfile): void {
+    writeProfile(localStorage, slot, profile)
+    enter(slot)
+  }
+
+  function exitToTitle(): void {
+    // Flush first: the title screen reads the slots as it mounts, which can
+    // happen before GameShell's unmount cleanup gets to save.
+    game?.flush()
+    screen = 'title'
+    game = null
+  }
 </script>
 
-<Background />
-<div class="app" bind:this={shell}>
-  <Sidebar
-    view={game.view}
-    level={game.progress.level}
-    xp={game.progress.xp}
-    xpToNext={game.progress.xpToNext}
-    talentPoints={game.progress.talentPoints}
-    questsReady={game.progress.quests.filter((q) => q.state === 'complete').length}
-    onnavigate={(v) => game.setView(v)}
-  />
-  <main class="main">
-    <TopBar
-      title={TITLES[game.view]}
-      zoneName={region?.name ?? ''}
-      zoneHue={region?.hue ?? 260}
-      kills={game.progress.lifetime.kills}
-      gold={game.progress.gold}
-      auto={game.auto}
-      muted={game.muted}
-      ontoggleauto={() => game.toggleAuto()}
-      ontogglemute={() => game.toggleMute()}
-    />
-
-    {#if game.view === 'combat'}
-      <CombatView {game} />
-    {:else if game.view === 'character'}
-      <CharacterView {game} />
-    {:else if game.view === 'talents'}
-      <TalentsView {game} />
-    {:else if game.view === 'regions'}
-      <AtlasView {game} />
-    {:else if game.view === 'quests'}
-      <QuestsView {game} />
-    {:else if game.view === 'settings'}
-      <SettingsView {game} />
-    {:else}
-      <ChronicleView {game} />
-    {/if}
-  </main>
-</div>
-
-<Vignette combat={game.combat} />
-
-{#if game.critFlash.n > 0}
-  {#key game.critFlash.n}
-    <CritFlash power={game.critFlash.power} side={game.critFlash.side} />
-  {/key}
+{#if screen === 'title'}
+  <TitleScreen onenter={enter} oncreate={create} />
+{:else if screen === 'create'}
+  <CharacterCreation {slot} onback={() => (screen = 'title')} onbegin={begin} />
+{:else if game}
+  <GameShell {game} onexit={exitToTitle} />
 {/if}
-
-{#if game.bossIntro}
-  {#key game.bossIntro}
-    <BossIntro
-      name={game.bossIntro}
-      onslam={() => game.fx.shaker.punch(10, 0.6)}
-      ondone={() => game.dismissBossIntro()}
-    />
-  {/key}
-{/if}
-
-{#if game.banner}
-  <LevelUpBanner level={game.banner.level} unlocked={game.banner.unlocked} />
-{/if}
-
-{#if game.toast}
-  {#key game.toast.id}
-    <Toast title={game.toast.title} body={game.toast.body} />
-  {/key}
-{/if}
-
-<style>
-  .app {
-    display: grid;
-    grid-template-columns: 232px minmax(0, 1fr);
-    min-height: 100dvh;
-  }
-
-  .main {
-    width: min(1060px, 100%);
-    margin-inline: auto;
-    padding: 26px 34px 30px;
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-    min-height: 100dvh;
-  }
-
-  @media (max-width: 1000px) {
-    .app {
-      grid-template-columns: 196px minmax(0, 1fr);
-    }
-
-    .main {
-      padding: 20px 22px 24px;
-    }
-  }
-</style>

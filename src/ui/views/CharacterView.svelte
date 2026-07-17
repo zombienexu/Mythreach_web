@@ -1,6 +1,7 @@
 <script lang="ts">
   import { INVENTORY_CAP, sellValue, type ItemSlot } from '../../engine'
   import type { Game } from '../game.svelte'
+  import Filigree from '../components/Filigree.svelte'
   import ItemTile from '../components/ItemTile.svelte'
 
   let { game }: { game: Game } = $props()
@@ -28,6 +29,7 @@
 
 <div class="columns">
   <section class="glass pane" aria-label="Statistics">
+    <Filigree />
     <h2>The Arcanist</h2>
     <div class="stat-grid">
       {#each tiles as tile (tile.label)}
@@ -38,7 +40,7 @@
       {/each}
     </div>
 
-    <h3>Equipped</h3>
+    <h3 class="rule">Equipped</h3>
     <div class="equip-list">
       {#each SLOTS as slot (slot)}
         {@const worn = game.progress.equipped[slot]}
@@ -75,7 +77,7 @@
       </div>
     {/if}
 
-    <h3>Materials</h3>
+    <h3 class="rule">Materials</h3>
     {#if game.progress.materials.length === 0}
       <p class="hint">No materials yet — the wilds are stingy. (Someday: crafting.)</p>
     {:else}
@@ -148,9 +150,11 @@
   }
 
   .stat-value {
-    font-size: 17px;
-    font-weight: 660;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 620;
     color: var(--ether);
+    text-shadow: 0 0 14px oklch(0.8 0.11 195 / 0.3);
   }
 
   .stat-label {

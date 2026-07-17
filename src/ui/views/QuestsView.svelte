@@ -41,11 +41,13 @@
 
   {#each groups as group (group.region.id)}
     <div class="group" style:--zh={group.region.hue}>
-      <h2 class="region-name">{group.region.name}</h2>
+      <h2 class="region-name rule">{group.region.name}</h2>
       <div class="cards">
         {#each group.quests as quest (quest.id)}
           <article class="glass quest" class:done={quest.state === 'done'}>
             <header class="head">
+              <!-- the traveler's wax seal, pressed with their initial -->
+              <span class="seal-mark" aria-hidden="true">{quest.giver.charAt(0)}</span>
               <h3 class="qname">{quest.name}</h3>
               <span class="giver">— {quest.giver}</span>
             </header>
@@ -148,6 +150,29 @@
     align-items: baseline;
     gap: 8px;
     flex-wrap: wrap;
+  }
+
+  .seal-mark {
+    align-self: center;
+    width: 24px;
+    height: 24px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 640;
+    color: oklch(0.9 0.05 40);
+    background: radial-gradient(circle at 35% 30%, oklch(0.58 0.16 30), var(--seal) 70%);
+    border: 1px solid oklch(0.78 0.1 85 / 0.45);
+    box-shadow:
+      0 0 10px -3px oklch(0.55 0.16 30 / 0.8),
+      inset 0 -1px 2px oklch(0.3 0.12 30 / 0.8);
+  }
+
+  .quest.done .seal-mark {
+    filter: saturate(0.3);
   }
 
   .qname {

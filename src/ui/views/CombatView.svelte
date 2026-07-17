@@ -3,6 +3,7 @@
   import ActionBar from '../components/ActionBar.svelte'
   import ArenaFx from '../components/ArenaFx.svelte'
   import EnemyCard from '../components/EnemyCard.svelte'
+  import Filigree from '../components/Filigree.svelte'
   import FloatLayer from '../components/FloatLayer.svelte'
   import PlayerCard from '../components/PlayerCard.svelte'
 
@@ -23,7 +24,8 @@
 </script>
 
 {#if region}
-  <section class="glass banner" style:--zh={region.hue} aria-label="Region">
+  <section class="glass banner" class:assault style:--zh={region.hue} aria-label="Region">
+    <Filigree inset={4} size={16} />
     <div class="banner-text">
       <h2 class="zone-name">{assault ? 'The Rift Colossus' : region.name}</h2>
       <span class="zone-epithet">{assault ? 'a wound in the sky' : region.epithet}</span>
@@ -68,14 +70,25 @@
         </div>
       </div>
     {:else}
+      <!-- The lull: a summoning circle drawn in the region's ink. -->
       <div class="glass card lull">
         <span class="lull-word">{region?.intro ?? 'The dark waits.'}</span>
         <button
-          class="start"
+          class="sigil"
           disabled={!game.combat.player.alive}
           onclick={() => game.startFight()}
+          aria-label={game.combat.player.alive ? 'Start fight' : 'Fallen — waiting to revive'}
         >
-          {game.combat.player.alive ? 'Start fight' : 'Fallen…'}
+          <span class="sigil-ring outer" aria-hidden="true"></span>
+          <span class="sigil-ring inner" aria-hidden="true"></span>
+          <svg class="sigil-glyph" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 2.6 L14.3 9.7 L21.4 12 L14.3 14.3 L12 21.4 L9.7 14.3 L2.6 12 L9.7 9.7 Z"
+              fill="currentColor"
+            />
+            <circle cx="12" cy="12" r="1.6" fill="var(--void-deep)" />
+          </svg>
+          <span class="sigil-word">{game.combat.player.alive ? 'Start fight' : 'Fallen…'}</span>
         </button>
       </div>
     {/if}
@@ -129,7 +142,17 @@
     align-items: center;
     justify-content: space-between;
     gap: 18px;
-    padding: 12px 22px;
+    padding: 12px 26px;
+    background:
+      linear-gradient(90deg, oklch(0.6 0.11 calc(var(--zh) * 1) / 0.09), transparent 45%),
+      var(--glass);
+  }
+
+  /* The Colossus borrows the banner and burns it at the edges. */
+  .banner.assault {
+    background:
+      linear-gradient(90deg, oklch(0.6 0.15 40 / 0.12), transparent 50%),
+      var(--glass);
   }
 
   .banner-text {
@@ -246,7 +269,12 @@
   }
 
   .lull {
-    opacity: 0.92;
+    opacity: 0.95;
+    min-height: 240px;
+    gap: 16px;
+    background:
+      radial-gradient(60% 70% at 50% 62%, oklch(0.6 0.11 calc(var(--zh) * 1) / 0.07) 0%, transparent 70%),
+      var(--glass);
   }
 
   .lull-word {
@@ -257,29 +285,108 @@
     color: var(--text-dim);
   }
 
-  /* The one button the whole loop hangs on. */
-  .start {
-    margin-top: 6px;
-    padding: 10px 34px;
-    border-radius: 99px;
-    font-family: var(--font-display);
-    font-size: 16px;
-    font-weight: 640;
-    letter-spacing: 0.06em;
+  .lull-word::first-letter {
+    font-size: 1.5em;
+    color: oklch(0.85 0.09 calc(var(--zh) * 1));
+  }
+
+  /* The one button the whole loop hangs on: a circle you press to call
+     the next foes up out of the dark. */
+  .sigil {
+    position: relative;
+    width: 128px;
+    height: 128px;
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border: 0;
+    border-radius: 50%;
     cursor: pointer;
-    color: var(--ether);
-    border: 1px solid oklch(0.8 0.11 195 / 0.5);
-    background: oklch(0.8 0.11 195 / 0.09);
-    transition: box-shadow var(--dur-fast) ease, opacity var(--dur-fast) ease;
+    color: oklch(0.85 0.09 calc(var(--zh) * 1));
+    background: radial-gradient(
+      circle,
+      oklch(0.6 0.11 calc(var(--zh) * 1) / 0.14) 0%,
+      oklch(0.6 0.11 calc(var(--zh) * 1) / 0.04) 62%,
+      transparent 72%
+    );
+    transition:
+      transform var(--dur-fast) var(--ease-spring),
+      filter var(--dur-fast) ease,
+      opacity var(--dur) ease;
   }
 
-  .start:hover:not(:disabled) {
-    box-shadow: 0 0 22px -4px oklch(0.8 0.11 195 / 0.6);
+  .sigil-ring {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
   }
 
-  .start:disabled {
-    opacity: 0.4;
+  .sigil-ring.outer {
+    inset: 0;
+    border: 1.5px dashed oklch(0.75 0.12 calc(var(--zh) * 1) / 0.55);
+    animation: sigil-turn 26s linear infinite;
+  }
+
+  .sigil-ring.inner {
+    inset: 10px;
+    border: 1px solid oklch(0.75 0.12 calc(var(--zh) * 1) / 0.35);
+    box-shadow:
+      inset 0 0 18px -4px oklch(0.7 0.13 calc(var(--zh) * 1) / 0.4),
+      0 0 22px -6px oklch(0.7 0.13 calc(var(--zh) * 1) / 0.5);
+    animation: sigil-turn 40s linear infinite reverse;
+  }
+
+  @keyframes sigil-turn {
+    to {
+      rotate: 360deg;
+    }
+  }
+
+  .sigil-glyph {
+    width: 30px;
+    height: 30px;
+    filter: drop-shadow(0 0 8px oklch(0.75 0.13 calc(var(--zh) * 1) / 0.8));
+    transition: transform var(--dur) var(--ease-spring);
+  }
+
+  .sigil-word {
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 640;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .sigil:hover:not(:disabled) {
+    transform: scale(1.05);
+    filter: brightness(1.25);
+  }
+
+  .sigil:hover:not(:disabled) .sigil-glyph {
+    transform: rotate(90deg) scale(1.12);
+  }
+
+  .sigil:active:not(:disabled) {
+    transform: scale(0.94);
+  }
+
+  .sigil:disabled {
     cursor: default;
+    opacity: 0.45;
+    filter: saturate(0.3);
+  }
+
+  .sigil:disabled .sigil-ring {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sigil-ring {
+      animation: none;
+    }
   }
 
   .loot-foot {
@@ -288,19 +395,24 @@
   }
 
   .loot-all {
-    padding: 8px 26px;
+    padding: 9px 30px;
     border-radius: 99px;
+    font-family: var(--font-display);
     font-size: 13px;
-    font-weight: 640;
+    font-weight: 660;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
     cursor: pointer;
     color: var(--gilt);
-    border: 1px solid oklch(0.78 0.1 85 / 0.45);
-    background: oklch(0.78 0.1 85 / 0.08);
-    transition: box-shadow var(--dur-fast) ease;
+    border: 1px solid oklch(0.78 0.1 85 / 0.5);
+    background: linear-gradient(180deg, oklch(0.78 0.1 85 / 0.14), oklch(0.78 0.1 85 / 0.05));
+    box-shadow: 0 0 18px -6px oklch(0.78 0.1 85 / 0.4);
+    transition: box-shadow var(--dur-fast) ease, transform var(--dur-fast) var(--ease-spring);
   }
 
   .loot-all:hover {
-    box-shadow: 0 0 18px -4px oklch(0.78 0.1 85 / 0.55);
+    transform: translateY(-1px);
+    box-shadow: 0 0 26px -4px oklch(0.78 0.1 85 / 0.65);
   }
 
   .loot-all kbd {

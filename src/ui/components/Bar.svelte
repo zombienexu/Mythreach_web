@@ -32,15 +32,34 @@
   <div class="fill" style:width="{pct * 100}%">
     <div class="sheen"></div>
   </div>
+  {#if height >= 10}
+    <!-- quarter-notches, engraved into the channel like a measuring rule -->
+    <div class="ticks"></div>
+  {/if}
 </div>
 
 <style>
+  /* An engraved channel: sunken bed, hairline lip catching the light. */
   .bar {
     position: relative;
     border-radius: 99px;
     background: oklch(0.2 0.02 270 / 0.75);
-    box-shadow: inset 0 1px 3px oklch(0.05 0.02 280 / 0.7);
+    box-shadow:
+      inset 0 1px 3px oklch(0.05 0.02 280 / 0.7),
+      inset 0 -1px 0 oklch(0.9 0.04 85 / 0.05),
+      0 1px 0 oklch(0.85 0.06 85 / 0.06);
     overflow: hidden;
+  }
+
+  .ticks {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: repeating-linear-gradient(
+      90deg,
+      transparent 0 calc(25% - 1px),
+      oklch(0.08 0.02 280 / 0.5) calc(25% - 1px) 25%
+    );
   }
 
   .loss,

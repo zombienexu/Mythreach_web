@@ -3,46 +3,60 @@
 > **You are a fresh Claude Code session.** This file is everything you need to
 > pick up the project exactly where it stands. Read it, run the checkpoint
 > commands, and you're oriented. (`WEB_PIVOT_PLAN.md` is the original v0 build
-> brief — background reading only; the README covers the concept.)
+> brief and `PLAN.md` holds past build plans — background reading only; the
+> README covers the concept.)
 
 ## What this is, and where it stands
 
-Mythreach Web is an idle/incremental RPG ("idle when you're away, an RPG when
-you're here"). **v1 — "The Sundered Reaches" — is complete**: a five-zone
-single-player campaign with 7 abilities (mana/GCD/spell-queue/crits/interrupts),
-25 enemies with mechanics (enrage, interruptible hardcasts, venom DoTs), 5
-bosses, XP/levels 1–15, generated loot in 4 rarities across 5 slots, 6 talents,
-15 achievements, auto-battle, localStorage saves, offline fast-forward (up to
-8 h of real simulation), synthesized sound, and five dashboard views
-(Combat / Character / Talents / Atlas / Chronicle).
+Mythreach Web is an **active-only** dashboard RPG (no away-from-game
+progression — absence is respected, not simulated). The game today, after five
+shipped builds on `master`:
 
-**v1.1 (M7–M9) rebuilt how combat *feels*.** The combat page used to be two
-info panels — a number appeared and the card jiggled 1px. It is now a stage:
-spells gather in your hand, fly card-to-card, and detonate; DoTs visibly burn
-the card they're on; crits hurl the card and wash the room with light. The
-whole effects layer is **data-driven** — a new ability's look and sound is one
-row in `src/ui/fx/spells.ts` and nothing else. See "Combat FX" below; that is
-the part of this codebase most likely to be worked on next, and the part with
-the most non-obvious invariants.
+- **The front door**: the app opens on a **title screen** — three save slots,
+  settings (sound / screen shake / reduced motion), and a
+  **character-creation ceremony** (name forge, class, origin, birth sign).
+  Six classes are designed in `src/ui/content/identity.ts`; only the
+  **Arcanist** is playable — the other five are sealed framework, browsable
+  with full lore/mechanic/ability previews. Identity and slots are UI-owned
+  localStorage (`src/ui/profile.ts`); the engine never reads them.
+- **Combat**: discrete, player-started fights (phases
+  `idle | combat | looting | assault`) against packs of 1–3 mobs with
+  front/back rows. Kills pay XP instantly; gold/items/materials bank in
+  per-corpse `LootBundle`s — collect per card or `R` for all.
+- **The world**: 5 free-choice regions (level bands 1–3 … 13–15, never gated),
+  35 enemies with mechanics (enrage / interruptible hardcasts / venom DoTs),
+  10 inert crafting materials by region tier, 15 one-shot traveler quests
+  (max 3 active), 17 achievements, 6 talents, generated loot in 4 rarities ×
+  5 slots, levels 1–15, the persistent Rift Colossus world boss, and a
+  hireling companion.
+- **Presentation**: the data-driven combat-FX layer (see below) and the
+  "Observatory Lens" art pass — the whole app relights in the current
+  region's hue (background nebula/weather moods, portrait idle theatre,
+  filigree/rule ornament language, the summoning-sigil Start button).
+
+**The combat-FX layer is data-driven** — a new ability's look and sound is one
+row in `src/ui/fx/spells.ts` and nothing else. See "Combat FX" below; it has
+the most non-obvious invariants in the codebase.
 
 ### Current branch state
 
-**`master` is the truth.** `combat-fx` (M7: the FX layer, M8: effects-as-data +
-WoW-style numbers, M9: bloom, per-school sound, crit flash, float lanes) was
-merged into master and pushed. There is no live feature branch.
-
-v0 (one golem, three abilities) was milestones M0–M5; v1 replaced its rules
-wholesale — the v0 "frozen rules" are obsolete. Balance is pinned by
-`tests/balance.test.ts` instead: an auto-played campaign must clear in
-0.6–3 h with <20 deaths, first boss inside 15 min with ≤2 deaths.
+**`master` is the truth**; there is no live feature branch. History runs
+v0 (M0–M5) → v1 "Sundered Reaches" (M6, five boss-gated zones) → the Wayfarer
+expedition build → **the Regions build that deleted expeditions** (endless
+combat, free travel) → **Fights & Quests** (discrete fights, looting, quests,
+save v4) → the Observatory Lens art pass → **the Front Door** (title screen,
+slots, creation). Expeditions, offline fast-forward, boss-gated zones, and the
+combat log are all *deleted* — if you see them referenced anywhere, that text
+is stale. `src/engine/content/zones.ts` survives only as raw data the regions
+are built from.
 
 ## Environment (read this first — it's non-obvious)
 
-- **Node is NOT on the default PATH.** It's a local tarball install (v24.18.0
-  LTS). Every shell command needs:
+- **Node is NOT on the default PATH.** It's a local install (v22.17.0). Every
+  shell command needs:
 
   ```sh
-  export PATH="$HOME/.local/node/node-v24.18.0-linux-x64/bin:$PATH"
+  export PATH="$HOME/.local/node/bin:$PATH"
   ```
 
   Check with `which node` first. Do **not** try `curl | bash` installers or
@@ -54,21 +68,26 @@ wholesale — the v0 "frozen rules" are obsolete. Balance is pinned by
 ## The contract (keep these green at all times)
 
 ```sh
-npm test        # 88 Vitest cases — rules, content envelope, campaign balance
+npm test        # 175 Vitest cases — rules, content envelope, balance, slots, identity
 npm run check   # svelte-check + tsc, strict, 0 errors 0 warnings
 ```
 
 Hard rules beyond the scripts:
 
 1. **Engine purity.** `src/engine/` must never import DOM, Svelte, or
-   `window`. Verify: `grep -rnE "document|window|svelte" src/engine/` → empty.
+   `window`; rng is a *required* ctor option. `tests/purity.test.ts` enforces
+   it by reading every engine source.
 2. **Integer ticks.** 20 ticks/s (50 ms); every duration is an exact tick
-   count. Milliseconds exist only in `src/ui/loop.ts` and save timestamps.
-3. **Events are the only one-shot channel.** UI effects (floats, log, shake,
-   sfx) derive from `CombatEvent`s, never from snapshot diffs.
+   count. Milliseconds exist only in `src/ui/loop.ts` and profile timestamps.
+3. **Events are the only one-shot channel.** UI effects (floats, shake, sfx)
+   derive from `CombatEvent`s, never from snapshot diffs.
 4. **Content-independent tests.** Rule tests inject custom content packs
    (`tests/helpers.ts` → `testContent()`); only `balance.test.ts` and a few
    smoke tests touch live content numbers.
+5. **UI-source contract tests** (`tests/ui-hygiene.test.ts`) read view sources
+   via Vite `?raw` imports and forbid tokens: no 'CombatLog'/'chronicle' in
+   CombatView, no 'locked'/'unlocked'/'>Travel<' in AtlasView — mind class
+   names when styling those files.
 
 ## Core rules quick-reference (tests pin the details)
 
@@ -77,96 +96,117 @@ Hard rules beyond the scripts:
   fires the tick both clear, drops if the target dies.
 - Mana spends at cast *resolve*; fizzles (target died mid-cast) refund.
   Cooldowns always start at resolve. Regen every 20 ticks, spirit-scaled;
-  +7% max HP/s heal while no enemy is on the field.
+  fast out-of-combat recovery while the field is clear.
 - Crits ×7/4. Combustion: +25% fire / +20% crit for 240 ticks. Barrier
   absorbs before HP (damage events carry `absorbed`). Ignite snapshots
   power/combustion at apply.
 - Enemy hardcast: first cast at cooldown/2 after spawn, swings pause while
   casting, interrupt restarts the full cooldown. Enrage: once, at hpPct,
   swingMult/dmgMult. Venom: applies a Dot to the player on a timer.
-- Kill → xp/gold/drop rolls → possible level-ups (full restore, unlock
-  spells at 2/4/6/8/11) → boss-ready at 10 zone kills → boss kill unlocks
-  the next zone; final boss sets `completed`. Player death (100-tick
-  respawn) despawns the enemy; bosses must be re-challenged.
-- Saves: `mythreach-save-v1` in localStorage, written every 5 s + on
-  hide/unload. Offline: elapsed > 60 s → `fastForward(min(elapsed, 8h))`
-  with auto-battle forced on; never challenges bosses.
+- **Fight flow**: `startFight()` (idle→combat) rolls a weighted encounter from
+  the current region; kill → XP immediately, spoils into the corpse's
+  `LootBundle`; last corpse → `looting` phase; `collectLoot(iid)` /
+  `collectAllLoot()`; any field-clearing transition (new fight, travel,
+  assault) **auto-banks** unclaimed loot — spoils are never destroyed. Player
+  death (100-tick respawn) ends the fight.
+- Quests: accept up to 3; kill objectives count in the quest's region,
+  collect objectives track material pickups; complete → turn in for
+  XP/gold/(gear). World boss: persistent HP pool, assault phase, damage
+  banked across attempts.
+- Saves: engine save per slot, written every 5 s + on hide/unload + on
+  exit-to-title. **v4** current; v1–v3 accepted (dead fields ignored,
+  zoneId→regionId migrated). Live fight state is never persisted.
+- UI storage keys: slot saves `mythreach-save-v1` (slot 1, legacy) /
+  `mythreach-save-s2-v1` / `-s3-`; identity profiles
+  `mythreach-profile-sN-v1`; settings `mythreach-settings-v1`
+  (`{muted, shake, motion}`). `SaveStore` (`ui/persistence.ts`) has a
+  wipe-guard so a beforeunload save can't resurrect a wiped save — in-game
+  erase goes through it; the title screen erases *cold* slots directly.
 
 ## Architecture map
 
 ```
 src/engine/            pure TS simulation
-  types.ts             ids, constants (GCD_TICKS…), snapshots, SaveData
+  types.ts             ids, constants (GCD_TICKS…), snapshots, SaveData (v4)
   events.ts            CombatEvent union — the UI's only one-shot channel
   abilities.ts         7 abilities + effects as data
-  content/             enemies.ts zones.ts items.ts talents.ts achievements.ts
+  content/             enemies regions zones(raw legacy) items materials quests
+                       talents achievements companions worldboss
   progression.ts       xp curve, deriveStats(level, talents, gear), talent points
   playerUnit.ts        hero combat-side state (cast/queue/gcd/cds/buffs/venom)
-  enemyUnit.ts         one spawned enemy (swing/cast/enrage/venom timers, ignite)
-  sim.ts               GameSim — THE game: tick order, kill flow, zones/bosses,
-                       auto-battle rotation, serialize/deserialize, fastForward
-  combatant.ts dot.ts rng.ts   small units (HP pool, DoT instance, mulberry32+helpers)
+  enemyUnit.ts         one spawned mob (swing/cast/enrage timers, ignite, loot)
+  sim.ts               GameSim — THE game: tick order, fights/looting, regions,
+                       quests, world boss, auto-battle, serialize/deserialize
+  combatant.ts dot.ts rng.ts   small units (HP pool, DoT instance, mulberry32)
 
 src/ui/
-  loop.ts              rAF accumulator (unchanged from v0)
-  game.svelte.ts       Game store: boot/load/offline, event fan-out, autosave,
-                       floats/log/impacts, banner/toast/victory, keys 1-7 + A.
+  profile.ts           save slots, identity profiles, settings (all UI-owned)
+  persistence.ts       SaveStore: read/write/wipe with the wipe-guard
+  loop.ts              rAF accumulator
+  game.svelte.ts       Game store (one per slot): boots the sim from its slot's
+                       store, drains events, autosaves, floats/impacts, keys.
                        Also implements FxHost — the director calls back in here.
-  sfx.ts               synthesized WebAudio: layered voices (tone + filtered
-                       noise), boss drone, low-HP heartbeat. Still zero assets.
-  format.ts            ticksToSeconds/cooldownLabel/Clock/Duration, stat labels
+  content/identity.ts  classes/origins/signs + the name forge (UI content —
+                       the engine never reads it)
+  sfx.ts format.ts     synth WebAudio; tick/label formatting
   fx/                  the combat effects layer (see "Combat FX" below)
-    spells.ts          THE FILE YOU EDIT. One row per damage source: charge,
-                       release, projectile, impact, crit, aura, sfx. The only
-                       file in the repo with opinions about a specific spell.
+    spells.ts          THE FILE YOU EDIT. One row per damage source.
     recipe.ts          the effect language: the Step union + playRecipe().
-                       Symbolic tints, one scale factor. No spell knowledge.
-    stage.ts           Pixi canvas over the arena; pooled additive particles,
-                       projectiles, shockwaves, bolts, standing emitters;
-                       procedural textures; timeScale (hit-stop), intensity
-    director.ts        CombatEvent → choreography. handle()=one-shots,
-                       sync()=standing state. Owns projectile-delayed impacts.
-    shake.ts           screen-shake impulse, exponential decay, rAF
-    palette.ts         spell tones as hex — mirrors the --tone-* CSS tokens
+    stage.ts           Pixi canvas: pooled particles, projectiles, bolts, bloom
+    director.ts        CombatEvent → choreography; handle()=one-shots, sync()=standing
+    shake.ts palette.ts
   styles/tokens.css    design tokens incl. spell tones + the motion timing scale
+  App.svelte           screen machine: title → create → game
+  GameShell.svelte     the in-game layout (sidebar/topbar/views); owns
+                       game.start()/stop() in onMount, gates attachShake on the
+                       shake setting
+  title/               TitleScreen CharacterCreation TitleSigil ClassEmblem SignMark
   components/          PlayerCard EnemyCard FloatLayer ActionBar AbilityButton
-                       Bar CombatLog Sidebar TopBar ItemTile Modal OfflineModal
-                       VictoryModal LevelUpBanner Toast Background
-                       ArenaFx (mounts the stage, measures anchors)
-                       Vignette (threat / low-HP / combustion screen grade)
-                       BossIntro (GSAP challenge cinematic)
-                       portraits/HeroPortrait portraits/EnemyPortrait(parametric)
-                       icons/AbilityIcon (7 glyphs)
-  views/               CombatView CharacterView TalentsView AtlasView ChronicleView
+                       Bar Sidebar TopBar ItemTile Modal LevelUpBanner Toast
+                       Background Filigree ArenaFx Vignette CritFlash BossIntro
+                       portraits/ icons/
+  views/               CombatView CharacterView TalentsView AtlasView QuestsView
+                       ChronicleView SettingsView
 
-tests/                 helpers.ts (testContent/makeSim/advance…) + 11 spec files
-tools/shots.mjs        npm run shots — README screenshots (fresh fight, boss, bags)
-docs/EXTENDING.md      the cookbook: how to add abilities, effects, enemies,
-                       mechanics, zones, talents, achievements, sounds
+tests/                 helpers.ts (testContent/makeSim/advance…) + 22 spec files
+tools/shots.mjs        npm run shots — README screenshots (passes through the
+                       title screen; injects save+profile blobs for mid-game)
+docs/EXTENDING.md      the cookbook: abilities, effects, enemies, mechanics,
+                       encounters, regions, talents, achievements, sounds, classes
 ```
 
 Data flow: `loop` ticks sim → `Game` drains events once per tick → snapshots
 publish per frame (combat) / on-dirty (progress) → views render. Player
-intents (`use/travel/challengeBoss/equip/sell/spendTalent/respec`) call sim
-methods directly and force-publish.
+intents (`use/startFight/loot/target/enterRegion/equip/sell/spendTalent/
+accept/turnIn…`) call sim methods directly and force-publish.
+
+**Screen flow:** `App.svelte` holds `screen: 'title' | 'create' | 'game'` and
+creates `new Game(slot)` on entry; `GameShell` unmount stops the loop and
+saves. **`App.exitToTitle()` must call `game.flush()` *before* switching
+screens** — the title screen reads the slots the moment it mounts, which can
+happen before GameShell's unmount save lands (this was a real bug, found via
+Playwright).
 
 ## Design identity — "Arcane Observatory" (don't drift)
 
-Everything from v0 still applies: tokens in `tokens.css` are the single
-source of truth; ether=player/casts, arcana=magic/XP, ember=rewards ONLY;
-life/wound vitals; glass panels; gradient bars with trailing loss layer;
-ether→arcana cast bar; conic cooldown wipes (fainter for GCD); spring-pop
-floats (crits bigger, absorbs shield-blue); one-shot `pulse()` classes for
-shake/bloom; Fraunces display / Inter UI, tabular nums everywhere; reserved
-space over reflow (cast slot, buff chips row); full reduced-motion support.
-New in v1: rarity color tokens (only ever mean rarity), parametric enemy
-portraits (8 families, hue-tinted, eyes flare on enrage), zone hue accents,
-enemy hardcast bar reads as *danger* (orange) vs the player's ether cast.
+Tokens in `tokens.css` are the single source of truth; ether=player/casts,
+arcana=magic/XP, ember=rewards ONLY; life/wound vitals; glass panels; gradient
+bars with trailing loss layer; ether→arcana cast bar; conic cooldown wipes
+(fainter for GCD); spring-pop floats (crits bigger, absorbs shield-blue);
+one-shot `pulse()` classes for shake/bloom; Fraunces display / Inter UI,
+tabular nums everywhere; reserved space over reflow; full reduced-motion
+support (OS *and* the in-game setting via `:root[data-motion='reduced']` in
+`base.css`). Rarity tokens only ever mean rarity; parametric enemy portraits
+(8 families, hue-tinted, idle animations per family, eyes flare on enrage);
+region hue relights the whole app (`--rh`, Background nebula + weather moods
+derived from hue bands — keep moods a pure function of hue). Ornament
+language: `Filigree.svelte` corners and the `.rule` engraved hairline. Class
+hues live on `ClassDef.hue` and theme emblems/creation/slot cards the same
+way regions theme the sky.
 
-## Combat FX — "the arena is a place" (v1.1)
+## Combat FX — "the arena is a place"
 
-The combat page used to be two info panels: a number appeared and the card
-jiggled. It is now a **stage**: a Pixi canvas over both cards, spells that fly
+The combat page is a **stage**: a Pixi canvas over the cards, spells that fly
 card-to-card, and effects that cling to the cards themselves.
 
 ### The four layers (do not collapse them)
@@ -184,10 +224,11 @@ If you find yourself adding `if (id === 'fireball')` anywhere else, stop.
 ### Adding things → **`docs/EXTENDING.md`**
 
 That is the cookbook: abilities, ability-effect kinds, new visual `Step`
-primitives, enemies, enemy mechanics, zones, talents, achievements, sounds. Each
-recipe is a complete, verified file list with the traps marked. **Read it before
-adding anything, and update it when you change what a recipe touches** — it is
-the file that stops this codebase from needing archaeology.
+primitives, enemies, encounters, enemy mechanics, regions, talents,
+achievements, sounds, identity content. Each recipe is a complete, verified
+file list with the traps marked. **Read it before adding anything, and update
+it when you change what a recipe touches** — it is the file that stops this
+codebase from needing archaeology.
 
 The short version for an ability: engine (`types.ts` union → `abilities.ts` ×3 →
 `autoAct()` rotation), then look (`tokens.css` tone → `palette.ts` → one row in
@@ -224,7 +265,7 @@ Combustion's sun).
   one-shots; `sync(snapshot)` for standing state (auras, charges). Persistent
   effects *must* be reconciled from the snapshot — an Ignite that expires
   quietly emits no event and would otherwise burn forever. Adding an aura is
-  one `hold(...)` line in `sync`.
+  one `hold(...)` line in `sync`. Enemy standing state keys on the mob's `iid`.
 - Gather emitters read cast progress from **fields**, not from a captured
   snapshot: a snapshot closed over at emitter-creation time is frozen at 0%.
 - **Sound is not a motion effect.** `cue()` runs even under reduced motion; only
@@ -263,88 +304,85 @@ keep them out of Vite's hashed pipeline.
 - Balance: tweak content → run `tests/balance.test.ts`; for tuning detail,
   write a temporary diag test that plays campaigns and writes a report file
   (see git history for the pattern), then delete it.
-- App level: throwaway Playwright drivers **inside the repo** (vite JS API,
-  `port: 0`, `page.addInitScript` to inject a `mythreach-save-v1` blob for
-  mid/late-game states, screenshot to scratchpad, view the PNG). Delete the
-  driver when done. `tools/shots.mjs` is the committed example of all of this.
-- **Looking at the FX is the only way to verify the FX**, and it caught every
-  real bug in this work. Tricks that paid off:
+- App level: throwaway Playwright drivers **inside the repo or importing the
+  repo's node_modules by absolute path** (vite JS API, `port: 0`,
+  `page.addInitScript` to inject `mythreach-save-v1` + `mythreach-profile-s1-v1`
+  blobs for mid/late-game states, screenshot, view the PNG). Delete the driver
+  when done. `tools/shots.mjs` is the committed example — note it now clicks
+  *through the title screen* ("Enter the Reach" / "Begin a new legend" /
+  "Begin the long hunt") before it can reach "Start fight".
+- **Looking at the FX is the only way to verify the FX.** Tricks that paid off:
   - *Force the state you want.* Crits are rare — inject gear with `crit: 400`
-    and every hit crits. Want a hardcast? Challenge a boss and
-    `page.getByText('interrupt!').waitFor()`.
+    and every hit crits.
   - *Step, don't guess.* Press the key, then screenshot every ~85 ms for a few
     seconds and read the strip. Effects live 200–800 ms; a single timed
-    screenshot will miss them, and the combat log outlives the flash, so
-    "the log says crit" is **not** evidence you captured one.
-  - *Probe the DOM, not the pixels, for structural bugs.* `document.querySelector
-    ('.fx-host').contains(canvas)` is how the dead-canvas bug was found and
-    proven fixed — the page still *looked* animated because the DOM bars and
-    numbers kept moving.
+    screenshot will miss them.
+  - *Probe the DOM, not the pixels, for structural bugs.* The dead-canvas bug
+    was found via `document.querySelector('.fx-host').contains(canvas)` — the
+    page still *looked* animated because the DOM bars kept moving.
   - *Always run a `reducedMotion: 'reduce'` context too* and assert
     `canvas count === 0`.
 - Perf/size: `npm run build`. The hard byte budget is **retired** (owner's call,
-  2026-07-13) — richer effects are worth the bytes. The entry chunk is ~57 KB
-  gzip; Pixi (~129 KB) and GSAP (~27 KB) stay *dynamically imported* anyway,
-  because that is about **time to first fight**, not about size: the game is
-  playable before Pixi lands, GSAP only loads on a boss challenge, and a
-  reduced-motion player downloads neither. Keep new heavy deps async for the
-  same reason.
+  2026-07-13) — richer effects are worth the bytes. Pixi (~129 KB) and GSAP
+  (~27 KB) stay *dynamically imported* anyway, because that is about **time to
+  first fight**, not size. Keep new heavy deps async for the same reason.
 
 ## Known quirks & gotchas
 
-- Svelte 5: track previous values inside `$effect` (see `wasAlive` /
-  `lastDefId` patterns in the cards) to avoid `state_referenced_locally`.
+- Svelte 5: track previous values inside `$effect` (see the card components)
+  to avoid `state_referenced_locally`.
 - One-shot CSS animations are re-armed by `classList.remove` → force reflow →
   `add` (the `pulse()` helper). Don't convert to reactive classes.
-- `Game` store: field initializers may reference earlier fields (`boot()`
-  runs first); don't move sim creation into the constructor body — `$state`
-  initializers need it.
-- The enemy card renders `lastEnemy` (a kept snapshot) while `combat.enemy`
-  is null so the "Slain" veil + respawn countdown work; clear `lastEnemy` on
-  travel/challenge/spawn.
-- The kill line in the log is folded from three events (enemyDied + xpGained
-  + goldGained) inside `Game.step()` — don't log those individually.
+- `Game` store: the sim and its dependent `$state` fields are created **in the
+  constructor** (`this.combat = $state(...)` — the Svelte-5-supported
+  constructor-assignment form), because the sim needs the slot argument.
+  Fields that don't depend on the sim keep plain field initializers. Don't
+  move sim-dependent state back to field initializers — they run before the
+  constructor body assigns `this.sim`.
+- Wordmark gradient: `background-clip: text` on a *parent* fails through
+  animated child spans in Chromium — each title letter carries its own
+  offset slice of the gradient instead (`--bp` in `TitleScreen.svelte`).
 - Enemy timers count the spawn tick: first swing lands at `swingTicks − 1`
   after spawn, first hardcast at `cooldown/2 − 1`. Tests encode this.
-- `.gold` is both a TopBar chip class and a log-entry tone — scope selectors
-  (`.stat.gold`) in drivers.
 - **`FxStage.mount()` is not a one-shot.** `CombatView` (and so `ArenaFx`) is
   destroyed and rebuilt every time the player visits another tab, so mount is
-  called again with a *new* host element. It must re-parent the canvas into it
+  called again with a *new* host element. It must re-parent the canvas
   (`adopt`). An early `if (this.app) return` leaves the canvas in the old,
-  destroyed div and effects silently die forever — and the DOM bars/log/floats
-  keep animating, so it looks like the game is fine. `ArenaFx` pauses the stage
-  on unmount; `ready` is false while paused, so nothing spawns unrendered.
+  destroyed div and effects silently die forever — and the DOM keeps
+  animating, so it looks fine. `ArenaFx` pauses the stage on unmount.
 - "WebGL context was lost" in the console at boot is **benign**: it is Pixi's
   `isWebGLSupported` probe deliberately calling `loseContext()` on a throwaway
   context. Don't chase it. (Real losses are handled in `stage.ts`.)
 - Vitest runs only `tests/**/*.test.ts`; tools/ scripts are plain node.
-- Commits follow "Mx: summary" milestone prefixes (v1 shipped as M6).
+- Older commits follow "Mx: summary" milestone prefixes (v1 shipped as M6);
+  later builds use plain descriptive messages.
 
 ## Where the game goes next (when the user asks)
 
 The owner likes the card-based combat framing and wants it pushed further, not
-replaced. Both the content pack *and* the FX layer are now data, so new
-zones, enemies and spells are cheap.
+replaced. The content pack, the FX layer, *and now character identity* are all
+data, so new content is cheap.
 
 Candidates, in rough order of leverage:
 
-- **New abilities.** The cheapest big win now. Engine ability + one `SPELL_FX`
-  row. A frost school (slows, shatter crits) or a shadow drain would give the
-  registry a second colour family to prove itself against.
-- **Non-combat skills that feed combat** — the original dashboard-of-skills
-  vision.
-- **Prestige/rebirth**, gear enchanting as a gold sink.
-- **More enemy mechanics**: dispellable enemy buffs, stacking debuffs,
-  add-summoning. Mechanics are a tagged union in the engine; the FX for a new
-  one is a `hold(...)` line in `director.sync` plus a recipe.
-- Cloud saves.
+- **Make a sealed class playable.** The creation screen already sells five
+  (Gravewright / Hourwarden / Cartomancer / Thornspeaker / Riftblade), each
+  with a designed signature mechanic. Flipping one `playable: true` is the
+  promise the title screen makes — the engine work is a new ability school +
+  the mechanic.
+- **Origins and signs start to matter** — small stat leans in `deriveStats()`
+  read from the profile at Game construction (identity would finally cross
+  into the sim as *parameters*, still never as engine imports).
+- **New abilities.** Engine ability + one `SPELL_FX` row.
+- **Crafting** over the material bags; gear enchanting as a gold sink.
+- **More enemy mechanics**: dispellable buffs, stacking debuffs, add-summons.
+- Cloud saves (the world-boss HP pool and records are the designated seams).
 
 Ideas considered and *not* done, with reasons:
 
 - **Real audio samples.** Rejected in favour of upgrading the synth — zero
-  asset bytes, no licensing surface, and layered noise+tone impacts got
-  genuinely punchy. Revisit only if the owner wants a composed soundtrack.
+  asset bytes, no licensing surface. Revisit only if the owner wants a
+  composed soundtrack.
 - **Sizing damage numbers by share of target HP.** Tried, reverted: it draws a
   *timid* number on a boss, because bosses have more health. Absolute damage
   is correct. Don't re-derive this.

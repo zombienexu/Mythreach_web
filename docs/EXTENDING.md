@@ -26,10 +26,12 @@ simulation. Keep it that way.
 - [Add an enemy](#add-an-enemy)
 - [Add an encounter](#add-an-encounter)
 - [Add an enemy mechanic](#add-an-enemy-mechanic)
-- [Add a zone](#add-a-zone)
+- [Add a region](#add-a-region)
+- [Add a companion](#add-a-companion)
 - [Add a talent](#add-a-talent)
 - [Add an achievement](#add-an-achievement)
 - [Add a sound](#add-a-sound)
+- [Add a class, origin, or birth sign](#add-a-class-origin-or-birth-sign)
 - [Invariants — the rules that bite](#invariants--the-rules-that-bite)
 
 ---
@@ -126,8 +128,8 @@ Only if a talent modifies the cast time do you also touch `castTicksOf()`
 (~line 315) and `deriveStats()` in `progression.ts` — see [Add a talent](#add-a-talent).
 
 **At this point the ability is fully playable.** It casts, it costs mana, it
-rolls damage, it crits, it goes on cooldown, the combat log narrates it. It just
-looks like nothing. Now give it a face.
+rolls damage, it crits, it goes on cooldown. It just looks like nothing. Now
+give it a face.
 
 ### 2. The look (`src/ui/`)
 
@@ -367,7 +369,7 @@ Pure content. One file: `engine/content/enemies.ts`.
 }
 ```
 
-Then slot the id into one of the zone's encounters (see below). No FX work:
+Then slot the id into one of the region's encounters (see below). No FX work:
 enemies share `enemySwing` / `enemyCast` rows in `SPELL_FX`.
 
 Balance is a contract, not a vibe — `tests/balance.test.ts` asserts the HP and
@@ -380,7 +382,9 @@ you.
 
 An encounter is a pack of 1–3 mobs that spawn and fight together. **The
 encounter is the template; the slots are the mobs you plug in.** Pure content,
-one file: `engine/content/zones.ts`, using the helpers at the top:
+one file: `engine/content/zones.ts` — the raw data the regions are recast from
+(`regions.ts` reuses each zone's encounter tables verbatim) — using the helpers
+at the top:
 
 ```ts
 solo('cave-golem', 26),                                        // one mob
@@ -391,15 +395,15 @@ vanguard(['mire-whelp', 'mire-whelp'], 'witchlight-wisp', 12), // two front, one
 Add the line to a zone's `encounters` array and you are done. Everything else
 follows from data the engine already has:
 
-- **Weights** are relative within the zone, exactly like the old spawn table.
+- **Weights** are relative within the region, exactly like the old spawn table.
 - **Rows.** `vanguard` marks its third mob `row: 'back'`: it renders raised
   centre, and auto-retargeting prefers front-row mobs, so the screen falls
   before the thing it screens. Rows change nothing else — any mob can be hit
   at any time by clicking its card or Tab-cycling.
-- **Every mob pays its own XP/gold/loot** at the moment it dies; the *pack*
-  clearing counts as **one** kill toward the zone's boss gate. Budget
+- **Every mob pays XP at the moment it dies** and banks its gold/items/
+  materials in its own corpse's `LootBundle` for the looting phase. Budget
   accordingly: a pack's summed XP should land near a solo mob of the same
-  weight, or the zone levels twice as fast.
+  weight, or the region levels twice as fast.
 - **Targeting is where the fun lives.** A caster in the back row forces a
   target swap to interrupt (Counterspell reads *your target's* cast, nobody
   else's). A weak flanker forces a focus-fire decision. If a new encounter
@@ -462,9 +466,13 @@ goes false, and does nothing while it stays the same. One line.
 
 ---
 
-## Add a zone
+## Add a region
 
-Pure content: `engine/content/zones.ts`.
+Two files. A region's identity (name, epithet, hue, encounter tables) lives in
+the **raw zone data**; the region layer recasts it as an un-gated hunting
+ground with a difficulty band and materials.
+
+**`engine/content/zones.ts`** — the raw entry:
 
 ```ts
 {
@@ -472,103 +480,33 @@ Pure content: `engine/content/zones.ts`.
   name: 'Frostmere Hollow',
   epithet: 'the lake that never finished freezing',
   minLevel: 13,
-  hue: 220,                 // drives the zone banner, arena floor light, pips
+  hue: 220,                 // drives the banner, the sky, arena light, pips
   encounters: [
     solo('frost-revenant', 30),
     solo('rime-stalker', 25),
     pair('icicle-sprite', 'frost-revenant', 15),
     vanguard(['icicle-sprite', 'icicle-sprite'], 'hoarfrost-elemental', 12),
   ],
-  eliteEncounters: [solo('hoarfrost-elemental', 1)],   // the `elite` node table
-  travelLines: [                                        // one is picked per hop
-    'Your breath crystallises and falls, tinkling, to the ice.',
-    'The lake creaks a question you would rather not answer.',
-    'Snow fills your last footprint before you take the next.',
-    'Something vast turns over, far below the ice.',
-  ],
-  bossId: 'queen-solenne',
+  eliteEncounters: [solo('hoarfrost-elemental', 1)],  // occasional elite spawns
+  travelLines: [],          // legacy field — unused since expeditions were cut
+  bossId: '',               // legacy field — unused since boss gates were cut
   intro: 'The ice remembers every step you have not yet taken.',
 }
 ```
 
+**`engine/content/regions.ts`** — one `region(...)` line wiring it into
+`REGIONS` with its tier, level band, and two material ids:
+
+```ts
+region('frostmere', 'hard', 13, 15, ['glacier-core', 'hoarfrost-sliver']),
+```
+
 `weight` is relative, not a percentage — they need not sum to 100. `hue` is an
-OKLCH hue angle and it propagates automatically: banner, arena floor glow.
-`eliteEncounters` is a second weighted table used by `elite` nodes, and
-`travelLines` are the flavor lines shown while walking the trail.
-
-Add the boss to `enemies.ts` with `rank: 'boss'`, and give it an achievement
-(`boss-<id>` — `sim.ts` fires `checkAchievement(\`boss-${def.id}\`, true)`
-automatically, so the id must match).
-
----
-
-## Add a node kind
-
-An expedition is a trail of `NodeKind`s (`engine/expedition.ts` generates the
-route; `engine/sim.ts` interprets each on arrival). A new kind is: one union
-member, one weight, and one interpreter branch — the same content-as-data shape
-as an enemy mechanic.
-
-**`engine/types.ts`** — extend the `NodeKind` union:
-
-```ts
-export type NodeKind = 'battle' | 'elite' | 'cache' | 'shrine' | 'rest' | 'boss' | 'merchant'
-```
-
-**`engine/expedition.ts`** — add its weight to `NODE_WEIGHTS`, and a rule to
-`legal()` if it needs placement constraints (e.g. "never at index 0"). The
-re-roll loop stays bounded because `battle` is always legal.
-
-**`engine/sim.ts`** — add a `case` to `resolveArrival()`. A combat node sets
-`pendingSpawn` + `spawnIn`; an instant node does its thing and marks the node
-resolved:
-
-```ts
-case 'merchant':
-  this.openMerchant()          // your behavior — emit an event, mark resolved
-  break
-// ...
-private openMerchant(): void {
-  // ... offer/act ...
-  this.nodeResolvedFlag = true
-  this.push({ kind: 'nodeResolved', index: this.nodeIndex })
-}
-```
-
-Give the UI a glyph in `TrailRibbon.svelte`'s `GLYPH` map, and (if it emits a new
-event) a log line + case in `game.svelte.ts`. Pin the route rule and the arrival
-behavior in `tests/expedition.test.ts`.
-
----
-
-## Add a blessing
-
-Expedition-scoped buffs offered at shrines. They apply as a **post-derive**
-modifier pass, read from a data table — no per-blessing code in `sim.ts`.
-
-**`engine/types.ts`** — extend the `BlessingId` union.
-
-**`engine/content/blessings.ts`** — one `BLESSINGS` row: `{ id, name,
-description, effect }`. The `effect` is data the sim interprets:
-
-```ts
-frostheart: {
-  id: 'frostheart',
-  name: 'Frostheart',
-  description: 'Your crits bite 10% deeper.',   // shown on the shrine card
-  effect: { kind: 'stat', stat: 'critPct', add: 10 },
-}
-```
-
-The four effect shapes (`stat`, `maxHpPct`, `regenMult`, `travelMult`) are
-interpreted in `sim.ts`'s `applyBlessings()` (a stat pass) and `startTravel()`
-(travel time). If your effect fits one of those shapes you write **zero** new
-sim code; a genuinely new shape means one `case` in `applyBlessings`. Shrines
-offer two random unheld blessings, so a new one is in the pool automatically.
-
-Test it the way `expedition.test.ts` does: two sims, same seed, one blessed —
-compare an **ignite tick** (never crits, so it is a clean read of a fire/stat
-change).
+OKLCH hue angle and it propagates automatically: the region banner, the night
+sky's nebula and weather mood (`Background.svelte` derives the weather from hue
+bands), and the arena light. Add the two materials to `materials.ts`, and
+consider giving the region traveler quests in `quests.ts` — every existing
+region has three.
 
 ---
 
@@ -590,7 +528,7 @@ brand: {
 }
 ```
 
-`hireCompanion(id)` (camp only, pays `cost`, persists `companionId`) and the
+`hireCompanion(id)` (pays `cost`, persists `companionId`) and the
 per-tick swing (`companionSwing_`, which swings at your current target through
 the normal `damage` event with `source: 'companion'`) are already generic over
 the table — a new companion needs no new sim code. The FX director degrades an
@@ -636,7 +574,9 @@ Lifetime counters (`kills`, `deaths`, `interrupts`, `goldEarned`) already exist 
 `this.lifetime` — add a field there if you need a new one, and remember it must be
 persisted in the save.
 
-Boss achievements are conventional: id `boss-<enemyId>`, fired automatically.
+The five `boss-<enemyId>` achievements are relics of the boss-gated zones and
+currently have no call site — if you bring the old bosses back (a bounty or
+challenge system), reuse those ids.
 
 ---
 
@@ -665,11 +605,53 @@ charge; two detuned voices always sound better than one loud one.
 
 ---
 
+## Add a class, origin, or birth sign
+
+Character identity is **UI-owned content** in `src/ui/content/identity.ts` —
+the engine never reads it. A class here is a *declaration* (lore, mechanic,
+ability previews, hue, `playable` flag) shown at character creation and on
+save-slot cards; making one actually playable is separate engine work
+(abilities, effects, an auto-battle rotation — see [Add an ability](#add-an-ability)).
+
+**A class:**
+
+1. `identity.ts` — add the id to the `ClassId` union and a `CLASSES` row:
+   name, epithet, one-word `role`, an OKLCH `hue` (themes the emblem, the
+   creation sky, and the slot card), `playable`, two–three sentences of
+   second-person lore, a `mechanic` (the gimmick no other calling gets), and
+   exactly **three** ability previews — `tests/identity.test.ts` pins all of
+   this shape.
+2. `src/ui/title/ClassEmblem.svelte` — a sigil branch: line art in
+   `viewBox="0 0 48 48"`, stroke-based, matching the portraits' duotone hand.
+   > ⚠️ **Trap:** the `{#if}` chain ends in a bare `{:else}` that draws the
+   > Riftblade's split sword. A new class with no branch silently renders as
+   > a Riftblade. Add your branch *before* the final `{:else}`.
+
+When a class graduates to playable, flip `playable: true` — creation's
+"Begin the long hunt" gate reads that flag and nothing else.
+
+**An origin:** one `ORIGINS` row — name, a flavor `line`, and a `promise`
+phrased "Will lean toward …" (the test checks the phrasing; origins are
+chosen-and-remembered today, and the promise is the contract for when they
+start feeding `deriveStats()`).
+
+**A birth sign:** one `SIGNS` row — name, a one-line omen, hue, and a
+constellation as `stars` (coordinates in a 0–100 box) plus `lines` (pairs of
+star indices). `SignMark.svelte` renders any well-formed sign; the test
+verifies every line joins real stars.
+
+Where identity is stored: per-slot profiles under `mythreach-profile-sN-v1`
+(`src/ui/profile.ts`), written at creation, erased with the slot. Legacy saves
+have no profile and present as the default Arcanist.
+
+---
+
 ## Invariants — the rules that bite
 
 **Engine purity.** `src/engine/` imports nothing from the DOM, Svelte, or
-`window`. It is deterministic given a seed. This is what makes 100 tests possible
-and offline progress correct. There is no lint rule for it; there is only you.
+`window`. It is deterministic given a seed. This is what makes 175 tests
+possible. `tests/purity.test.ts` reads every engine source and enforces it —
+including that `rng` stays a *required* constructor option.
 
 **Ticks, not milliseconds.** The sim runs at 20 ticks/second. Every duration in
 `engine/` is an integer tick count. `50` is 2.5 seconds. Convert at the UI edge
@@ -721,9 +703,9 @@ fix for a bug, not an oversight.
 ## The contract
 
 ```bash
-npm test        # 100 cases. Green, always.
+npm test        # 175 cases. Green, always.
 npm run check   # 0 errors, 0 warnings. Both, always.
-npm run build   # entry chunk stays lean; Pixi and GSAP are lazy chunks
+npm run build   # Pixi and GSAP stay lazy chunks — time to first fight
 ```
 
 If you add a mechanic, add a test for it. `tests/helpers.ts` gives you

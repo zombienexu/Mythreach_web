@@ -1,18 +1,27 @@
 <script lang="ts">
+  import { CLASS_BY_ID, ORIGIN_BY_ID, SIGN_BY_ID } from '../content/identity'
   import type { Game } from '../game.svelte'
 
-  let { game }: { game: Game } = $props()
+  let { game, onexit }: { game: Game; onexit: () => void } = $props()
 
   let confirming: 'new' | 'delete' | null = $state(null)
 
   const region = $derived(game.progress.regions.find((r) => r.current))
   const p = $derived(game.progress)
+  const cls = $derived(CLASS_BY_ID[game.profile?.classId ?? 'arcanist'])
+  const origin = $derived(game.profile ? ORIGIN_BY_ID[game.profile.originId] : undefined)
+  const sign = $derived(game.profile ? SIGN_BY_ID[game.profile.signId] : undefined)
 </script>
 
 <div class="stack">
   <section class="glass pane" aria-label="Current character">
-    <h2>The Arcanist</h2>
-    <p class="sub">Your save lives in this browser and autosaves as you play.</p>
+    <h2>{game.profile?.name ?? 'The Arcanist'}</h2>
+    <p class="sub">
+      {cls.name} — save slot {game.slot}. Your save lives in this browser and autosaves as you play.
+      {#if origin || sign}
+        <br />{origin?.name ?? ''}{origin && sign ? ', born under ' : ''}{sign?.name ?? ''}.
+      {/if}
+    </p>
     <div class="facts">
       <div class="fact"><span class="k">Level</span><span class="v num">{p.level}</span></div>
       <div class="fact"><span class="k">Gold</span><span class="v num">{p.gold.toLocaleString()}</span></div>
@@ -20,6 +29,14 @@
       <div class="fact"><span class="k">Kills</span><span class="v num">{p.lifetime.kills.toLocaleString()}</span></div>
       <div class="fact"><span class="k">Deaths</span><span class="v num">{p.lifetime.deaths.toLocaleString()}</span></div>
       <div class="fact"><span class="k">Epics found</span><span class="v num">{p.lifetime.epicsFound}</span></div>
+    </div>
+  </section>
+
+  <section class="glass pane" aria-label="Leave the table">
+    <h3>Step away</h3>
+    <p class="warn-text">Back to the title screen — the run is saved on the way out.</p>
+    <div class="row">
+      <button class="btn" onclick={onexit}>Return to title</button>
     </div>
   </section>
 

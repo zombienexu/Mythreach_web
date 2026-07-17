@@ -1,6 +1,7 @@
 // npm run shots — build, boot the preview server, and capture the README
-// screenshots: a fresh fight, a mid-game pull, the bags, and the quest board.
-// Fights are discrete now: each shot clicks "Start fight" to raise a pack.
+// screenshots: the title screen, character creation, a fresh fight, a
+// mid-game pull, the bags, and the quest board. The game opens on the title
+// screen now, so every shot passes through it.
 import { mkdir } from 'node:fs/promises'
 import { chromium } from 'playwright'
 import { build, preview } from 'vite'
@@ -13,11 +14,16 @@ await mkdir('docs', { recursive: true })
 
 const browser = await chromium.launch()
 
-// ── shot 1: a fresh hero's first fight in the Verdant Reach ─────────
+// ── shots 0+1: a fresh hero — creation ceremony, then the first fight ──
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
   await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1500) // settle fonts
+  await page.waitForTimeout(2200) // settle fonts + the wordmark's arrival
+  await page.getByRole('button', { name: /Begin a new legend/ }).first().click()
+  await page.waitForTimeout(1200)
+  await page.screenshot({ path: 'docs/shot-create.png', fullPage: true })
+  await page.getByRole('button', { name: 'Begin the long hunt' }).click()
+  await page.waitForTimeout(1200)
   await page.getByRole('button', { name: 'Start fight' }).click()
   await page.waitForTimeout(500)
   await page.keyboard.press('2') // Ignite
@@ -57,12 +63,48 @@ const save = {
   completed: false,
 }
 
+// The identity the title screen shows for that save.
+const profile = {
+  name: 'Vespermere',
+  classId: 'arcanist',
+  originId: 'guild-courier',
+  signId: 'moth',
+  createdAt: Date.now() - 3 * 86_400_000,
+  playedAt: Date.now() - 2 * 3_600_000,
+}
+
+/** Seed the mid-game save + profile and land on the title screen. */
+async function openTitle(page) {
+  await page.addInitScript(
+    ([s, p]) => {
+      localStorage.setItem('mythreach-save-v1', s)
+      localStorage.setItem('mythreach-profile-s1-v1', p)
+    },
+    [JSON.stringify(save), JSON.stringify(profile)],
+  )
+  await page.goto(`http://localhost:${port}/`)
+  await page.waitForTimeout(2200)
+}
+
+/** Click through the occupied slot into the world. */
+async function enterReach(page) {
+  await page.getByRole('button', { name: /Enter the Reach/ }).click()
+  await page.waitForTimeout(1000)
+}
+
+// ── shot-title: the front door, with a legend waiting on slot 1 ──────
+{
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  await openTitle(page)
+  await page.screenshot({ path: 'docs/shot-title.png' })
+  await page.close()
+}
+
 // ── shot 2: a geared hero fighting in the Emberwild (v2 save → region) ──
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-  await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
-  await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1500)
+  await openTitle(page)
+  await enterReach(page)
   await page.getByRole('button', { name: 'Start fight' }).click()
   await page.waitForTimeout(500)
   await page.keyboard.press('2') // Ignite
@@ -78,9 +120,8 @@ const save = {
 // ── shot 3: the bags ────────────────────────────────────────────────
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-  await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
-  await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1000)
+  await openTitle(page)
+  await enterReach(page)
   await page.getByRole('button', { name: 'Character' }).click()
   await page.waitForTimeout(500)
   await page.screenshot({ path: 'docs/shot-3.png' })
@@ -90,16 +131,15 @@ const save = {
 // ── shot 4: the quest board ─────────────────────────────────────────
 {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
-  await page.addInitScript((s) => localStorage.setItem('mythreach-save-v1', s), JSON.stringify(save))
-  await page.goto(`http://localhost:${port}/`)
-  await page.waitForTimeout(1000)
+  await openTitle(page)
+  await enterReach(page)
   await page.getByRole('button', { name: 'Quests' }).click()
   await page.waitForTimeout(500)
   await page.screenshot({ path: 'docs/shot-4.png' })
   await page.close()
 }
 
-console.log('wrote docs/shot-1.png docs/shot-2.png docs/shot-3.png docs/shot-4.png')
+console.log('wrote docs/shot-title.png shot-create.png shot-1..4.png')
 
 await browser.close()
 server.httpServer.close()

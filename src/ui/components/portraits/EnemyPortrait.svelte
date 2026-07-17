@@ -22,6 +22,7 @@
   aria-label="{name} portrait"
   style:color="oklch(0.72 0.09 {hue})"
   style:--eye={enraged ? 'oklch(0.72 0.19 25)' : `oklch(0.82 0.13 ${hue})`}
+  class="fam-{family}"
   class:enraged
 >
   <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none">
@@ -117,5 +118,115 @@
 
   .eyes {
     filter: drop-shadow(0 0 4px var(--eye));
+    animation: eye-smoulder 3.4s ease-in-out infinite alternate;
+  }
+
+  /* ---- Idle life ----------------------------------------------------
+     Nothing on the field is a statue. Each family idles in its own way;
+     enrage doubles the tempo of whatever the body was already doing. */
+  svg.fam-golem,
+  svg.fam-titan {
+    animation: heave 5.6s ease-in-out infinite;
+    transform-origin: 50% 92%;
+  }
+
+  svg.fam-beast,
+  svg.fam-drake {
+    animation: breathe 3.8s ease-in-out infinite;
+    transform-origin: 50% 80%;
+  }
+
+  svg.fam-spider {
+    animation: dangle 4.6s ease-in-out infinite;
+  }
+
+  svg.fam-wisp {
+    animation: guttering 3s ease-in-out infinite;
+  }
+
+  svg.fam-revenant,
+  svg.fam-void {
+    animation: drift-idle 6.4s ease-in-out infinite;
+  }
+
+  svg.enraged {
+    animation-duration: 1.9s;
+  }
+
+  @keyframes heave {
+    0%,
+    100% {
+      transform: scale(1, 1);
+    }
+    50% {
+      transform: scale(1.008, 1.022);
+    }
+  }
+
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scale(1) translateY(0);
+    }
+    50% {
+      transform: scale(1.015) translateY(-0.7px);
+    }
+  }
+
+  @keyframes dangle {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-2.2px);
+    }
+  }
+
+  @keyframes guttering {
+    0%,
+    100% {
+      transform: scale(1) translateY(0);
+      opacity: 1;
+    }
+    38% {
+      transform: scale(0.99, 1.03) translateY(-1.4px);
+      opacity: 0.88;
+    }
+    62% {
+      opacity: 1;
+    }
+    74% {
+      opacity: 0.93;
+    }
+  }
+
+  @keyframes drift-idle {
+    0%,
+    100% {
+      transform: translate(0, 0) rotate(0deg);
+    }
+    33% {
+      transform: translate(0.8px, -1.6px) rotate(0.5deg);
+    }
+    66% {
+      transform: translate(-0.8px, -0.6px) rotate(-0.5deg);
+    }
+  }
+
+  @keyframes eye-smoulder {
+    from {
+      opacity: 0.78;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    svg,
+    .eyes {
+      animation: none;
+    }
   }
 </style>

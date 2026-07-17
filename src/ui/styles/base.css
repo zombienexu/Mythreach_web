@@ -113,6 +113,40 @@ button {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
 }
 
+/* ---- Engraved rule -------------------------------------------------- */
+/* A scribe's section rule: the heading, then a hairline falling away into
+   the dark. Inherits currentColor, so hue-tinted headers tint their rule. */
+.rule {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rule::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, currentColor 45%, transparent),
+    color-mix(in oklch, currentColor 8%, transparent) 60%,
+    transparent
+  );
+}
+
+/* Centered variant, for titles that stand alone: ─────◆───── */
+.rule.mid::before {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: linear-gradient(
+    -90deg,
+    color-mix(in oklch, currentColor 45%, transparent),
+    color-mix(in oklch, currentColor 8%, transparent) 60%,
+    transparent
+  );
+}
+
 /* ---- Wax-seal action button --------------------------------------- */
 .seal {
   display: inline-flex;
@@ -166,4 +200,14 @@ button {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* The in-game setting mirrors the OS switch: title-screen "Reduced motion"
+   stamps data-motion on the root, and the sky goes still. */
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }

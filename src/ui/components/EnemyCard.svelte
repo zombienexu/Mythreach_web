@@ -66,6 +66,7 @@
   class:compact
   class:targeted={targeted && !dead}
   class:enraged={!dead && enemy.enraged}
+  class:elite={enemy.rank === 'elite'}
   class:boss={enemy.rank === 'boss'}
   class:back={enemy.row === 'back'}
   class:casting
@@ -95,6 +96,9 @@
 
   <div class="body">
     <div class="portrait" data-fx-anchor="enemy">
+      {#if enemy.rank !== 'normal'}
+        <span class="rank-ring" aria-hidden="true"></span>
+      {/if}
       <EnemyPortrait
         family={enemy.portrait.family}
         hue={enemy.portrait.hue}
@@ -284,6 +288,54 @@
     width: 58px;
     height: 58px;
     padding: 7px;
+  }
+
+  /* Rank is worn, not printed: elites turn a ring of arcana, bosses are
+     wreathed in gilt. The dead wear neither. */
+  .rank-ring {
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .card.elite .rank-ring {
+    border: 1.5px dashed oklch(0.72 0.15 300 / 0.55);
+    box-shadow: 0 0 14px -3px oklch(0.72 0.15 300 / 0.4);
+    animation: ring-turn 14s linear infinite;
+  }
+
+  .card.boss .rank-ring {
+    border: 1.5px solid oklch(0.8 0.13 80 / 0.6);
+    box-shadow:
+      0 0 16px -2px oklch(0.8 0.13 80 / 0.45),
+      inset 0 0 10px -2px oklch(0.8 0.13 80 / 0.35);
+  }
+
+  .card.boss .rank-ring::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: inherit;
+    border: 1px dotted oklch(0.8 0.13 80 / 0.5);
+    animation: ring-turn 22s linear infinite reverse;
+  }
+
+  .card.dead .rank-ring {
+    opacity: 0.25;
+    animation: none;
+  }
+
+  @keyframes ring-turn {
+    to {
+      rotate: 360deg;
+    }
+  }
+
+  /* A corpse holds still — the idle life belongs to the living. */
+  .card.dead .portrait :global(svg),
+  .card.dead .portrait :global(svg *) {
+    animation: none;
   }
 
   /* A hardcast is a threat with a timer on it. Say so, loudly. */
@@ -497,8 +549,36 @@
   }
 
   .spoil {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
     font-size: 12.5px;
     font-weight: 600;
+  }
+
+  /* Every spoil wears its shape: coin-diamond, gear-star, material-orb. */
+  .spoil::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    flex: none;
+    background: currentColor;
+    box-shadow: 0 0 6px color-mix(in oklch, currentColor 70%, transparent);
+  }
+
+  .spoil.gold::before {
+    transform: rotate(45deg);
+  }
+
+  .spoil.drop::before {
+    clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+    width: 8px;
+    height: 8px;
+  }
+
+  .spoil.mat::before {
+    border-radius: 50%;
   }
 
   .spoil.gold {
@@ -651,6 +731,8 @@
   @media (prefers-reduced-motion: reduce) {
     .enrage-tag,
     .card.casting .portrait,
+    .rank-ring,
+    .card.boss .rank-ring::after,
     .reticle,
     :global(.card.enemy.hit),
     :global(.card.enemy.crit-hit),

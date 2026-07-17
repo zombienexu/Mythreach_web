@@ -3,6 +3,7 @@
   import { ticksToSeconds } from '../format'
   import type { Impact } from '../game.svelte'
   import Bar from './Bar.svelte'
+  import Filigree from './Filigree.svelte'
   import HeroPortrait from './portraits/HeroPortrait.svelte'
 
   let {
@@ -59,6 +60,7 @@
   data-fx-card="player"
   bind:this={el}
 >
+  <Filigree />
   <div class="body">
     <div class="portrait" data-fx-anchor="player">
       <HeroPortrait />

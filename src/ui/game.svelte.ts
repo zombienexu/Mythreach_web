@@ -17,6 +17,16 @@ import { FxDirector, type FxHost } from './fx/director'
 import type { Spot } from './fx/stage'
 import { startLoop, type LoopHandle } from './loop'
 import { SaveStore } from './persistence'
+import {
+  loadSettings,
+  profileKeyFor,
+  readProfile,
+  saveKeyFor,
+  saveSettings,
+  touchProfile,
+  type SlotId,
+  type SlotProfile,
+} from './profile'
 import { Sfx, type SfxName } from './sfx'
 
 export type View = 'combat' | 'character' | 'talents' | 'regions' | 'quests' | 'chronicle' | 'settings'
@@ -45,11 +55,6 @@ export interface Impact {
   crit: boolean
 }
 
-const SAVE_KEY = 'mythreach-save-v1'
-/** UI-owned settings, kept out of the engine save entirely. */
-const SETTINGS_KEY = 'mythreach-settings-v1'
-/** Owns read/write/wipe of the save; the wipe guard lives here. */
-const store = new SaveStore(localStorage, SAVE_KEY)
 const FLOAT_LIFETIME_MS = 950
 /** how far apart stacked damage numbers sit, and how close counts as a clash */
 const LANE_HEIGHT = 34
@@ -69,7 +74,7 @@ function byAbility<T>(v: T): Record<AbilityId, T> {
   return Object.fromEntries(ABILITY_IDS.map((id) => [id, v])) as Record<AbilityId, T>
 }
 
-function boot(): GameSim {
+function boot(store: SaveStore): GameSim {
   try {
     const raw = store.load()
     if (raw) {
@@ -82,25 +87,6 @@ function boot(): GameSim {
   return new GameSim({ rng: Math.random })
 }
 
-/** Mute lives in the UI now — the engine owns no settings. */
-function loadMuted(): boolean {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY)
-    if (raw) return (JSON.parse(raw) as { muted?: boolean }).muted === true
-  } catch {
-    // unreadable settings — default to unmuted
-  }
-  return false
-}
-
-function saveMuted(muted: boolean): void {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ muted }))
-  } catch {
-    // storage unavailable — the toggle still holds for this session
-  }
-}
-
 /** Reactive bridge between the pure sim and the Svelte UI.
  *  Sim events are drained exactly once, inside step(); everything the UI
  *  shows is either a snapshot or an effect spawned from those events.
@@ -109,10 +95,14 @@ function saveMuted(muted: boolean): void {
  *  a card recoil or a sound happens (a fireball's lands when the bolt does),
  *  and calls back in here to actually make it happen. */
 export class Game implements FxHost {
-  readonly sim = boot()
+  /** Which save slot this run lives in — decides the storage keys. */
+  readonly slot: SlotId
+  /** Identity written at character creation; null for saves that predate it. */
+  readonly profile: SlotProfile | null
+  readonly sim: GameSim
 
-  combat: CombatSnapshot = $state(this.sim.combatSnapshot())
-  progress: ProgressSnapshot = $state(this.sim.progressSnapshot())
+  combat: CombatSnapshot
+  progress: ProgressSnapshot
   /** Both derived from ABILITY_IDS, never hand-listed — adding an ability must
    *  not require remembering to add a slot here. */
   usable: Record<AbilityId, boolean> = $state(byAbility(false))
@@ -135,11 +125,13 @@ export class Game implements FxHost {
   toast: { id: number; title: string; body: string } | null = $state(null)
   /** the boss's name, while the challenge cinematic is on screen */
   bossIntro: string | null = $state(null)
-  muted = $state(loadMuted())
-  auto = $state(this.sim.autoBattle)
+  muted: boolean
+  auto: boolean
 
   readonly fx = new FxDirector()
 
+  /** Owns read/write/wipe of this slot's save; the wipe guard lives here. */
+  private readonly store: SaveStore
   private readonly audio = new Sfx()
   private nextId = 1
   private loop: LoopHandle | null = null
@@ -148,9 +140,21 @@ export class Game implements FxHost {
   private toastTimer: ReturnType<typeof setTimeout> | null = null
   private progressDirty = false
 
+  constructor(slot: SlotId = 1) {
+    this.slot = slot
+    this.store = new SaveStore(localStorage, saveKeyFor(slot))
+    this.profile = readProfile(localStorage, slot)
+    this.sim = boot(this.store)
+    this.combat = $state(this.sim.combatSnapshot())
+    this.progress = $state(this.sim.progressSnapshot())
+    this.muted = $state(loadSettings(localStorage).muted)
+    this.auto = $state(this.sim.autoBattle)
+  }
+
   start(): void {
     this.audio.muted = this.muted
     this.fx.bind(this)
+    touchProfile(localStorage, this.slot)
 
     this.loop = startLoop(
       () => this.step(),
@@ -293,7 +297,7 @@ export class Game implements FxHost {
   toggleMute(): void {
     this.muted = !this.muted
     this.audio.muted = this.muted
-    saveMuted(this.muted)
+    saveSettings(localStorage, { ...loadSettings(localStorage), muted: this.muted })
   }
 
   enterRegion(regionId: string): void {
@@ -370,13 +374,20 @@ export class Game implements FxHost {
     if (this.sim.respec()) this.publishAll()
   }
 
-  /** Wipe the save and reload into a fresh level-1 character. Detaches the save
+  /** Wipe the save and reload back to the title screen. Detaches the save
    *  timer and unload handler first so nothing re-writes the erased save. */
   private wipeAndReload(): void {
     if (this.saveTimer) clearInterval(this.saveTimer)
     window.removeEventListener('beforeunload', this.saveNow)
-    store.wipe()
+    this.store.wipe()
+    localStorage.removeItem(profileKeyFor(this.slot))
     location.reload()
+  }
+
+  /** Write the save right now — called before handing control back to the
+   *  title screen, which reads slots the moment it mounts. */
+  flush(): void {
+    this.saveNow()
   }
 
   newCharacter(): void {
@@ -503,7 +514,7 @@ export class Game implements FxHost {
 
   private saveNow = (): void => {
     try {
-      store.save(JSON.stringify(this.sim.serialize()))
+      this.store.save(JSON.stringify(this.sim.serialize()))
     } catch {
       // storage full or unavailable — the run continues unsaved
     }

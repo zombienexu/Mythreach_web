@@ -99,10 +99,26 @@
 
 <style>
   .top {
+    position: relative;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 20px;
+    padding-bottom: 12px;
+  }
+
+  /* The page is ruled off from the work below it, the way a ledger opens. */
+  .top::after {
+    content: '';
+    position: absolute;
+    inset: auto 0 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      oklch(0.78 0.1 85 / 0.4),
+      oklch(0.78 0.08 82 / 0.12) 45%,
+      transparent 85%
+    );
   }
 
   .heading {

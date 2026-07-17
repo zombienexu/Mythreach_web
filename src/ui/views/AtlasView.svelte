@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Game } from '../game.svelte'
   import Bar from '../components/Bar.svelte'
+  import Filigree from '../components/Filigree.svelte'
 
   let { game }: { game: Game } = $props()
 
@@ -13,6 +14,12 @@
 <section class="atlas" aria-label="Regions">
   {#each game.progress.regions as region (region.id)}
     <article class="glass zone" class:current={region.current} style:--zh={region.hue}>
+      <!-- the plate: a strip of this region's sky and skyline, inked in its hue -->
+      <div class="plate" aria-hidden="true">
+        <span class="plate-star"></span>
+        <span class="ridge far"></span>
+        <span class="ridge near"></span>
+      </div>
       <header class="zone-head">
         <div>
           <h2>{region.name}</h2>
@@ -46,6 +53,7 @@
 </section>
 
 <section class="glass colossus" aria-label="The Rift Colossus">
+  <Filigree />
   <header class="col-head">
     <div>
       <h2>{wb.name}</h2>
@@ -89,6 +97,68 @@
       0 0 0 1px oklch(0.72 0.13 calc(var(--zh) * 1) / 0.4),
       0 0 26px -8px oklch(0.72 0.13 calc(var(--zh) * 1) / 0.5),
       0 18px 40px -18px oklch(0.05 0.02 280 / 0.9);
+  }
+
+  /* ---- The map plate ------------------------------------------------ */
+  .plate {
+    position: relative;
+    height: 54px;
+    margin: -18px -20px 2px;
+    border-radius: calc(var(--radius) - 2px) calc(var(--radius) - 2px) 0 0;
+    overflow: hidden;
+    background:
+      radial-gradient(85% 120% at 72% -10%, oklch(0.52 0.11 calc(var(--zh) * 1) / 0.3) 0%, transparent 70%),
+      linear-gradient(180deg, oklch(0.32 0.06 calc(var(--zh) * 1) / 0.3), oklch(0.2 0.03 calc(var(--zh) * 1) / 0.06));
+  }
+
+  /* this region's own star, fixed in its corner of the sky */
+  .plate-star {
+    position: absolute;
+    top: 11px;
+    right: 24px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: oklch(0.9 0.07 calc(var(--zh) * 1));
+    box-shadow: 0 0 9px 1px oklch(0.85 0.1 calc(var(--zh) * 1) / 0.8);
+  }
+
+  .ridge {
+    position: absolute;
+    inset: auto 0 0;
+    height: 30px;
+    background: oklch(0.34 0.08 calc(var(--zh) * 1) / 0.45);
+    clip-path: polygon(
+      0 100%, 0 55%, 12% 28%, 24% 60%, 38% 18%, 52% 56%, 66% 26%, 80% 52%, 91% 32%, 100% 50%, 100% 100%
+    );
+  }
+
+  .ridge.near {
+    height: 20px;
+    background: oklch(0.2 0.05 calc(var(--zh) * 1) / 0.8);
+    clip-path: polygon(
+      0 100%, 0 42%, 14% 68%, 29% 26%, 46% 66%, 62% 34%, 77% 64%, 89% 42%, 100% 58%, 100% 100%
+    );
+  }
+
+  .zone.current .plate-star {
+    animation: star-pulse 2.8s ease-in-out infinite;
+  }
+
+  @keyframes star-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 9px 1px oklch(0.85 0.1 calc(var(--zh) * 1) / 0.8);
+    }
+    50% {
+      box-shadow: 0 0 14px 3px oklch(0.85 0.1 calc(var(--zh) * 1) / 0.95);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zone.current .plate-star {
+      animation: none;
+    }
   }
 
   .zone-head,

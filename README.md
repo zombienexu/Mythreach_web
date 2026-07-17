@@ -9,13 +9,14 @@ and healing decisions under pressure. It is **active-only**: no away-from-game
 progression, no passive accrual. When you step away, the world simply waits for
 you.
 
-This repository is **v1 — "The Wayfarer's Atlas"**: a complete single-player
-campaign. Five zones walked as **expeditions**, twenty-five enemies, five
-bosses, seven abilities, mana, crits, XP and levels, loot with rarities,
-talents, achievements, auto-battle, and save games — all driven by one
-deterministic, pure engine.
+The current build is a complete single-player game: a title screen with three
+save slots and a character-creation ceremony, five free-choice hunting regions,
+thirty-five enemies fought as discrete pack encounters, seven abilities, mana,
+crits, XP and levels, loot with rarities, crafting materials, fifteen traveler
+quests, talents, achievements, a persistent world boss, a hireling companion,
+auto-battle, and local saves — all driven by one deterministic, pure engine.
 
-![Combat mid-fight](docs/shot-1.png)
+![The title screen](docs/shot-title.png)
 
 ## The concept
 
@@ -27,9 +28,9 @@ rotation, clutching a heal at 10% HP).
 
 Design pillars:
 
-1. **The dashboard is the world.** No 3D, no sprites, no art pipeline. Two
-   cards, bars, floating numbers and a log carry the entire fight — an
-   aesthetic commitment that keeps information density high and runs anywhere.
+1. **The dashboard is the world.** No 3D, no sprites, no art pipeline. Cards,
+   bars and floating numbers carry the entire fight — an aesthetic commitment
+   that keeps information density high and runs anywhere.
 2. **But the cards are a stage, not a spreadsheet.** Spells are *thrown* from
    one card to the other. They gather in your hand, cross the gap, and
    detonate. Fire clings to what it burns. The presentation is austere by
@@ -41,8 +42,8 @@ Design pillars:
 4. **Respect absence — don't simulate it.** The game is active-only: no
    away-from-game catch-up and no passive accrual. Close the tab and nothing
    happens; your absence is respected by the world simply waiting for you.
-   Auto-battle is an active-session assist (tab open, you present), and camp
-   heals you between expeditions.
+   Auto-battle is an active-session assist (tab open, you present), and you
+   heal quickly between fights.
 5. **Numbers you can feel.** A damage number's *size is its value*. A burn tick
    is a small violet 11; a Pyroblast crit is an enormous stroked 240 that
    overshoots, snaps back and hangs in the air while the card it hit is still
@@ -53,17 +54,30 @@ time is your own.**
 
 ## The game
 
-An Arcanist of the Observatory pushes out through five zones toward Malgrath
-the Worldrender. Each zone is not a farm field but a **trail**: from camp — the
-Wayfarer's Rest — you **embark** on an expedition, a generated route of eight
-nodes plus a final boss that you walk node by node. Fights come as *encounters*
-— a lone brute, a pair, or a vanguard of two screening minions with something
-meaner chanting behind them. Click a card (or Tab) to switch targets;
-Counterspell only reads your target's lips, so the wisp hiding behind its whelps
-is your problem to solve. Complete the boss node to finish the expedition and,
-the first time, unlock the next zone. You may **turn back** at any point,
-keeping everything earned. On full auto the campaign arc runs a couple of hours;
-played actively (and with better gear luck) it's faster.
+The game opens on the title screen: three save slots, a settings panel (sound,
+screen shake, reduced motion), and — on an unwritten page — the
+**character-creation ceremony**: name your hero (or let fate write it), choose
+a calling, an origin, and the constellation you were born under.
+
+![Character creation](docs/shot-create.png)
+
+Six callings are designed; the **Arcanist** is playable today, and five sealed
+classes (Gravewright, Hourwarden, Cartomancer, Thornspeaker, Riftblade) are
+fully browsable — lore, signature mechanic, ability previews — awaiting later
+chapters. Origins and birth signs are chosen and remembered now, and will start
+echoing into the simulation later. All of this identity lives in the UI layer
+(`src/ui/content/identity.ts`); the engine never reads it.
+
+In the world, your Arcanist hunts across **five free-choice regions** —
+Hollowroot Cavern to the Ruined Spire, level bands 1–3 up to 13–15, all open
+from the start, none gated. Combat comes as **discrete, player-started
+fights**: press Start fight (or let auto-battle chain them) and a pack of one
+to three mobs spawns — a lone brute, a pair, or a vanguard of minions screening
+something meaner casting in the back row. Click a card (or Tab) to switch
+targets; Counterspell only reads *your target's* lips, so the caster hiding
+behind its whelps is your problem to solve. When the pack falls, the fight ends
+in a **looting phase**: each corpse banks its own gold, materials and items —
+collect per card, or sweep the field with `R`.
 
 **The spellbook** (keys `1`–`7`, unlocked by level):
 
@@ -85,33 +99,26 @@ died mid-flight fizzle and refund their mana.
 
 **Enemies fight back with mechanics**: elites and bosses *enrage* below 30%
 HP (faster, harder swings), casters wind up interruptible *hardcasts*, and
-venomous creatures stack damage-over-time on you. Bosses combine mechanics
-and always drop rare-or-better loot.
+venomous creatures stack damage-over-time on you.
 
 **Progression**: XP → levels 1–15 (new spells, talent points, full restore),
 gold, and generated items in four rarities across five slots — power, stamina,
 spirit, and crit budgets that scale with item level. Six talents with five
-ranks each shape your build; respec costs 50 gold. Fifteen achievements track
-your deeds.
+ranks each shape your build; respec costs 50 gold. Ten **crafting materials**
+drop by region tier — inert for now, they stack, sell, and wait for a crafting
+system. Seventeen achievements track your deeds.
 
-**Expeditions**: from camp you `embark` (Space) on a generated route of eight
-nodes plus a boss. You **travel** between nodes (fog of war hides each kind
-until you walk toward it), resolve what you find, and press on. Node kinds are
-data-interpreted like enemy mechanics: **battle** and **elite** packs; **cache**
-(gold and sometimes an item); **shrine** (pick one of two expedition-scoped
-**blessings**); **rest** (restore health and mana); and the final **boss**. Die
-and the expedition ends; turn back and you keep the loot. Toggle auto-battle
-(`A`) and your echo walks the whole route hands-free — embarking, advancing,
-fighting, and taking the first blessing offered.
+**Quests**: fifteen one-shot traveler quests on the Quests board — kill or
+collect objectives tied to a region, up to three underway at once, paying XP,
+gold, and sometimes gear. Each giver speaks in their own voice; abandon freely,
+turn in when the traveler pays up.
 
-**Scaffolds of the multiplayer future**: three systems ship as single-player
-scaffolds for features a server will someday own. **The Rift Colossus** is a
-world boss with a persistent HP pool that survives across assaults (the one
-field a server would own), banking your damage each time and paying out when
-felled. **Records** track expeditions completed, world-boss fells, best assault
-damage, and per-zone fastest boss kills. And you can **hire a companion** — a
-sellsword who fights at your side on their own timer. Each is deliberately one
-field and one interpreter away from going networked.
+**Scaffolds of the multiplayer future**: systems shipped single-player for
+features a server would someday own. **The Rift Colossus** is a world boss with
+a persistent HP pool that survives across assaults, banking your damage each
+time and paying out when felled. **Records** track world-boss fells and best
+assault damage. And you can **hire a companion** — a sellsword who fights at
+your side on her own timer.
 
 ### Run it
 
@@ -124,7 +131,7 @@ npm run dev
 |--------|--------------|
 | `npm run dev` | dev server with HMR |
 | `npm run build` / `preview` | production build / serve it |
-| `npm test` | the engine contract — 122 Vitest cases incl. an engine-purity guard and a campaign balance envelope |
+| `npm test` | the contract — 175 Vitest cases incl. an engine-purity guard and a progression balance envelope |
 | `npm run check` | svelte-check + tsc, strict mode |
 | `npm run shots` | build + headless Playwright screenshots into `docs/` (first run: `npx playwright install chromium`) |
 
@@ -147,58 +154,68 @@ There are no floats and no wall-clock time inside the simulation, which makes
 every rule exactly testable: *"damage lands on tick 44 and not on 43"* is an
 assertion, not a hope.
 
-`GameSim` is the whole game — combat **and** progression — behind four moves:
+`GameSim` is the whole game — combat **and** progression — behind a few moves:
 
 ```ts
 const sim = new GameSim({ rng })   // rng is required — the engine owns no wall clock
-sim.embark()                 // set out from camp on a generated expedition
+sim.startFight()             // raise the next pack in the current region
 sim.useAbility('fireball')   // start, queue, or refuse
 sim.tick()                   // advance exactly one tick → CombatEvent[]
-sim.combatSnapshot()         // phase, expedition, HP/mana/shield, casts, cooldowns, enemy state
-sim.progressSnapshot()       // level, gold, gear, talents, zones, records, achievements
+sim.collectLoot(iid)         // claim one corpse's spoils (or collectAllLoot())
+sim.combatSnapshot()         // phase, HP/mana/shield, casts, cooldowns, pack state
+sim.progressSnapshot()       // level, gold, gear, talents, regions, quests, records
 ```
 
 Everything else follows from a few load-bearing ideas:
 
 - **Events out, not callbacks in.** `tick()` returns a `CombatEvent[]`
   discriminated union (~25 kinds: damage with crit/absorb detail, casts,
-  interrupts, enrages, loot, level-ups, boss flow, achievements). The UI
+  interrupts, enrages, loot, level-ups, quest flow, achievements). The UI
   drains each tick's events exactly once and derives *all* one-shot effects
-  (floats, log lines, shakes, sounds, toasts) from them — never from state
-  diffs.
-- **Content is data.** The bestiary, zones, item affixes, talents, and
-  achievements are plain typed objects in `src/engine/content/`. Enemy
-  *mechanics* (enrage / hardcast / venom) are a tagged union the engine
-  interprets — a new monster is data, not logic. Tests inject tiny custom
-  content packs to pin rules independently of live balance numbers.
+  (floats, shakes, sounds, toasts) from them — never from state diffs.
+- **Content is data.** The bestiary, regions, encounter tables, item affixes,
+  materials, quests, talents, and achievements are plain typed objects in
+  `src/engine/content/`. Enemy *mechanics* (enrage / hardcast / venom) are a
+  tagged union the engine interprets — a new monster is data, not logic. Tests
+  inject tiny custom content packs to pin rules independently of live balance
+  numbers.
 - **Injected RNG, required.** The engine takes its randomness as a constructor
   option — seeded mulberry32 in tests, the platform PRNG in the game — and has
   no `Math.random` default and no wall clock of its own. Loot, crits, enemy
-  rolls, and route generation all flow through it, which is why the balance
-  suite can Monte-Carlo the entire campaign headlessly. A `purity.test.ts` reads
+  rolls, and encounter picks all flow through it, which is why the balance
+  suite can Monte-Carlo the entire arc headlessly. A `purity.test.ts` reads
   every engine source and fails the build on any ambient global, `Date.now`, or
-  reach into the UI world. Saves are **v2** (v1 saves still load, their dead
-  fields ignored); expedition state is never persisted — reload and you are at
-  camp.
+  reach into the UI world. Saves are **v4** (v1–v3 saves still load, their dead
+  fields ignored); live fight state is never persisted — reload and the field
+  is clear.
 - **Active-only, by construction.** There is no away-from-game path.
   `src/ui/loop.ts` discards a backgrounded tab's gap rather than replaying it, so
   absence never progresses the game.
 
 ### The UI: a 60 fps view of a 20 Hz truth
 
+The app opens on a **title screen** (`src/App.svelte` is a small screen
+machine: title → character creation → game). Three **save slots** live in
+`src/ui/profile.ts` — slot 1 keeps the original save key, so pre-title-screen
+characters surface on it unmigrated — alongside per-slot identity profiles
+(name, class, origin, birth sign) and shared settings (sound, screen shake,
+reduced motion, the latter stamping `data-motion` on the document for CSS).
+The engine save never learns any of this exists.
+
 `src/ui/loop.ts` is a `requestAnimationFrame` accumulator stepping the sim once
 per elapsed 50 ms. `src/ui/game.svelte.ts` is the bridge: a runes-based `Game`
-store that owns the sim, publishes snapshots, writes the log, and autosaves to
-`localStorage` every five seconds. It
-hands every event to the FX director (below), which decides *when* each number,
-recoil and sound actually happens — a fireball's damage is dealt on the tick the
-sim says so, but it isn't *shown* until the bolt lands.
+store that owns the sim for one slot, publishes snapshots, and autosaves to
+`localStorage` every five seconds. It hands every event to the FX director
+(below), which decides *when* each number, recoil and sound actually happens —
+a fireball's damage is dealt on the tick the sim says so, but it isn't *shown*
+until the bolt lands.
 
-Five views hang off a sidebar: **Combat** (zone banner with the expedition trail
-ribbon, the enemy pack up top, your card above the action bar, the log between),
-**Character** (stats, paper-doll, bags with stat-delta compare), **Talents**,
-**Atlas** (travel between zones and the Rift Colossus panel), and **Chronicle**
-(lifetime stats, records, achievements). The sim never pauses while you shop.
+Seven views hang off a sidebar: **Combat** (the pack in formation up top, your
+card above the action bar), **Character** (stats, paper-doll, bags with
+stat-delta compare, materials), **Talents**, **Regions** (free travel and the
+Rift Colossus panel), **Quests** (the traveler board), **Chronicle** (lifetime
+stats, records, achievements), and **Settings** (identity, save management,
+return to title). The sim never pauses while you shop.
 
 ### The combat FX: effects as data
 
@@ -224,7 +241,7 @@ Adding an ability is ~24 lines in that table plus a colour token — the directo
 the stage, the recipe engine and every component are untouched.
 **[`docs/EXTENDING.md`](docs/EXTENDING.md) is the cookbook** for that and for
 every other kind of content: new abilities, new effect primitives, enemies, enemy
-mechanics, zones, talents, achievements, sounds. Four strata:
+mechanics, regions, talents, achievements, sounds, classes. Four strata:
 
 | | |
 |---|---|
@@ -265,7 +282,8 @@ nearly dead.
 
 Everything above is gated behind `prefers-reduced-motion`, which is a hard
 off-switch: no canvas is created, no shake, and Pixi's chunk is never even
-downloaded — while every number, colour and sound survives.
+downloaded — while every number, colour and sound survives. The title-screen
+**Reduced motion** setting applies the same stillness by choice, on any system.
 
 ### The design system: "Arcane Observatory"
 
@@ -273,9 +291,11 @@ Luminous glass panes floating over a living void — deep, translucent, lit from
 within. The chrome is vanilla modern CSS: `oklch()` design tokens
 (`src/ui/styles/tokens.css` is the single source of truth), `color-mix()`
 interaction tints, conic-gradient cooldown wipes (a fainter one for the GCD),
-backdrop-filter glass with gradient 1 px edges, and a drifting-blob background.
-Type is variable Fraunces (display) and Inter (UI), self-hosted and preloaded;
-every number renders in tabular figures.
+backdrop-filter glass with gradient 1 px edges, and a living night sky that
+relights in the current region's hue — nebula, aurora, and hue-derived weather
+(embers rise, spores wander, storms streak, void motes fall upward). Type is
+variable Fraunces (display) and Inter (UI), self-hosted and preloaded; every
+number renders in tabular figures.
 
 **Every spell owns a hue**, and wears it everywhere it appears — its icon, its
 cast bar, its particles, its damage numbers. Charging a Fireball *looks* like
@@ -284,7 +304,9 @@ fire gathering; charging a Barrier looks like ice. Around that, the accent trio
 strictly for rewards — keeps colour meaningful, joined by four rarity hues that
 only ever mean rarity. Enemy portraits are one parametric duotone line-art
 component: eight creature families, tinted per creature, eyes that flare red on
-enrage.
+enrage. The title screen carries the same language to its logical extreme: a
+gilt astrolabe sigil that inscribes itself on arrival, and a wordmark whose
+letters each carry a slice of one long gold gradient.
 
 Motion follows one timing scale — fast (130 ms) for buttons, medium (240 ms)
 for panels, slow (480 ms) for navigation, epic (1100 ms) for level-ups and boss
@@ -293,35 +315,38 @@ challenges. Nothing invents its own duration.
 Runtime dependencies are deliberately few: **PixiJS** for the effects canvas and
 **GSAP** for exactly one thing (the boss-intro cinematic). Both are dynamically
 imported — the fight is playable before Pixi arrives, GSAP loads only when a
-boss node announces itself, and a reduced-motion player downloads neither.
+boss announces itself, and a reduced-motion player downloads neither.
 
 ### The tests: the contract
 
-`tests/` holds 122 cases across sixteen files: an **engine-purity guard** that
-fails the build on any ambient global or wall-clock in the engine, the unit
-rules (combatant, DoT, RNG), every ability's exact timing (GCD, queueing, fizzle
-refunds, cooldown-at-resolve), enemy mechanics on custom content packs,
-progression math pinned to formulas, item generation budgets, the full
-**expedition** state machine (route rules, fog of war, retreat/death/completion,
-hands-free auto-battle), the world boss, companion, and save round-trips
-(including v1→v2 migration) — and a **balance envelope** that auto-plays the
-whole campaign with a smart-player heuristic and asserts the arc (first boss
-inside 15 minutes with ≤2 deaths; full clear in 0.5–3 hours with <25 deaths).
-Balance changes that break the feel break the build.
+`tests/` holds 175 cases across twenty-two files: an **engine-purity guard**
+that fails the build on any ambient global or wall-clock in the engine, the
+unit rules (combatant, DoT, RNG), every ability's exact timing (GCD, queueing,
+fizzle refunds, cooldown-at-resolve), enemy mechanics and encounters on custom
+content packs, progression math pinned to formulas, item generation budgets,
+the fight/looting state machine, regions, quests, materials, the world boss,
+companion, save round-trips (including v1→v4 migration), save-slot and
+settings persistence, the identity content (classes, origins, signs, the name
+forge) — and a **balance envelope** that auto-plays the whole arc with a
+smart-player heuristic and asserts the feel (level cap inside 0.5–3 hours with
+few deaths). Balance changes that break the feel break the build.
 
-`npm test` and `npm run check` green is the bar for every change. The entry
-chunk ships at ~59 KB gzipped; Pixi and GSAP load asynchronously behind it.
+`npm test` and `npm run check` green is the bar for every change.
 
 ## Where this goes next
 
-v1 proves the full loop, and the FX layer is now data, so new spells are cheap.
-Candidate directions: non-combat skills that feed combat (the original
-dashboard-of-skills vision), prestige/rebirth systems, more zone mechanics
-(dispellable buffs, positioning-as-a-resource), gear enchanting as a gold sink,
-and cloud saves. See `HANDOFF.md` for the working state of the codebase and a
-recipe for adding an ability.
+The loop is proven and both the content pack and the FX layer are data, so new
+spells, enemies and regions are cheap. The character-creation screen shows the
+declared roadmap: five sealed classes (each with a designed signature mechanic
+— a ledger of the dead, borrowed time, a living deck, a growing garden, a
+blade between formation rows), origins and birth signs waiting to echo into
+talents. Other candidates: crafting over the material bags, prestige/rebirth,
+more enemy mechanics, gear enchanting as a gold sink, and cloud saves. See
+`HANDOFF.md` for the working state of the codebase.
 
 ## More shots
 
-![Pyroblast detonating on the Bramble Widow](docs/shot-2.png)
+![Combat mid-fight](docs/shot-1.png)
+![Pyroblast detonating](docs/shot-2.png)
 ![Character and bags](docs/shot-3.png)
+![The quest board](docs/shot-4.png)
