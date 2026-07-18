@@ -80,7 +80,8 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
   frostbolt: {
     id: 'frostbolt',
     name: 'Frostbolt',
-    key: '8',              // must be unique — a test enforces this
+    key: '8',              // must be unique WITHIN its class — a test enforces this
+    classId: 'arcanist',   // which calling owns it; only that class sees it
     unlockLevel: 5,
     manaCost: 18,
     castTicks: 30,         // 1.5 s. Ticks, always. 20 ticks = 1 second.
@@ -96,26 +97,21 @@ export const ABILITY_EFFECTS: Record<AbilityId, AbilityEffect> = {
   // ...
   frostbolt: { kind: 'damage', min: 22, max: 30 },
 }
-
-export const ABILITY_IDS: readonly AbilityId[] = [
-  // ...
-  'frostbolt',   // ← action-bar ORDER. See the warning below.
-]
 ```
 
-> ⚠️ **`ABILITY_IDS` is the one place the compiler cannot help you.** It is typed
-> `readonly AbilityId[]`, so forgetting your ability there compiles fine — it
-> just never appears on the action bar, and its cooldown/usable/denied slots go
-> missing, because those records are all *derived* from this array. So there is a
-> test: `tests/abilities.test.ts` asserts `ABILITY_IDS` contains every key of
-> `ABILITIES`, exactly once, with unique hotkeys. Forget the array and `npm test`
-> fails. Good.
+**`content/classes.ts`** — add the id to its class's `abilities` list, in
+action-bar order. `ABILITY_IDS` is *derived* from the kits, so an ability that
+exists in `ABILITIES` but sits in no kit never reaches an action bar — and
+`tests/abilities.test.ts` (`kit registration`) asserts every kit entry is
+owned by that class, hotkeys are unique per class, and every class has a
+level-1 button. Forget the kit and `npm test` fails. Good.
 
-**`sim.ts`** — the auto-battle rotation, `autoAct()` (~line 830). This is a plain
-priority list, read top to bottom; the first ability that `canUse()` wins:
+**`sim.ts`** — the auto-battle rotation. Each calling has its own priority
+list (`autoArcanist()`, `autoGravewright()`, … near the bottom of the file),
+read top to bottom; the first ability that `canUse()` wins:
 
 ```ts
-if (!e.ignite?.active && this.canUse('ignite')) return void this.useAbility('ignite')
+if (!t.unit.bane?.active && this.canUse('ignite')) return void this.useAbility('ignite')
 if (this.canUse('pyroblast')) return void this.useAbility('pyroblast')
 if (this.canUse('frostbolt')) return void this.useAbility('frostbolt')   // ← above fireball
 if (this.canUse('fireball')) return void this.useAbility('fireball')
@@ -124,8 +120,9 @@ if (this.canUse('fireball')) return void this.useAbility('fireball')
 Forgetting this is not a bug, it is a decision: the ability simply never gets
 used by the idle loop. Manual play still works.
 
-Only if a talent modifies the cast time do you also touch `castTicksOf()`
-(~line 315) and `deriveStats()` in `progression.ts` — see [Add a talent](#add-a-talent).
+Cast-time talents no longer need engine surgery: give the talent a
+`castTicks` effect (see [Add a talent](#add-a-talent)) and
+`castTicksFor(stats, id)` in `progression.ts` applies it.
 
 **At this point the ability is fully playable.** It casts, it costs mana, it
 rolls damage, it crits, it goes on cooldown. It just looks like nothing. Now
@@ -203,9 +200,10 @@ timing — the impact fires when the bolt *arrives*, and the director arranges t
 **`components/icons/AbilityIcon.svelte`** — the glyph. 24×24, 2px strokes, round
 caps, matching the portrait line-art language.
 
-> ⚠️ **Trap:** the `{#if}` chain ends in a bare `{:else}` that draws Combustion's
-> sun. A new ability with no branch of its own silently renders as a sun. Add your
-> `{:else if id === 'frostbolt'}` branch *before* the final `{:else}`.
+> ⚠️ **Trap:** the `{#if}` chain ends in a bare `{:else}` that draws Doorway
+> Duel's arch. A new ability with no branch of its own silently renders as a
+> doorway. Add your `{:else if id === 'frostbolt'}` branch *before* the final
+> `{:else}`.
 
 ### 3. Verify
 
@@ -220,12 +218,12 @@ The full touch list, and which sites the compiler guards:
 | `engine/types.ts` | `AbilityId` union | — (this is the trigger) |
 | `engine/abilities.ts` | `ABILITIES` row | ✅ exhaustive record |
 | `engine/abilities.ts` | `ABILITY_EFFECTS` row | ✅ exhaustive record |
-| `engine/abilities.ts` | `ABILITY_IDS` array | ⚠️ **test only** |
-| `engine/sim.ts` | `autoAct()` rotation | ❌ (a choice, not a bug) |
+| `engine/content/classes.ts` | the class kit's `abilities` list | ⚠️ **test only** |
+| `engine/sim.ts` | the class's `auto…()` rotation | ❌ (a choice, not a bug) |
 | `ui/styles/tokens.css` | `--tone-<id>` | ❌ (falls back to inherit) |
 | `ui/fx/palette.ts` | `TONE`, `TONE_DEEP` | ✅ exhaustive records |
 | `ui/fx/spells.ts` | `SPELL_FX` row | ✅ exhaustive record |
-| `ui/components/icons/AbilityIcon.svelte` | glyph | ⚠️ **silently renders a sun** |
+| `ui/components/icons/AbilityIcon.svelte` | glyph | ⚠️ **silently renders a doorway** |
 
 Cooldown, usable and denied slots used to be hand-listed too. They are now
 derived from `ABILITY_IDS` (`zeroCooldowns()` in `playerUnit.ts`, `byAbility()`
@@ -542,25 +540,36 @@ loot, and XP all fall out for free. Pin it in `tests/companion.test.ts`.
 
 ## Add a talent
 
+Talents are **data**: a row in `TALENTS` with a list of typed effects, and
+`deriveStats()` folds them into the stat block without knowing any talent by
+name. Most talents never touch another file.
+
 **`engine/types.ts`** — the `TalentId` union.
 
-**`engine/content/talents.ts`** — the `TALENTS` row (name, `maxRanks`, `perRank`
-for UI copy, description) and the `TALENT_IDS` array.
-
-**`engine/progression.ts`** — `deriveStats()` is where a talent becomes a number.
-This function is **pure**: `(level, talents, gear) → DerivedStats`. It is the only
-place talents may take effect.
+**`engine/content/talents.ts`** — the `TALENTS` row: name, `maxRanks`,
+`perRank` for UI copy, description, and `effects`:
 
 ```ts
-const rank = (id: TalentId) => Math.min(talents[id] ?? 0, TALENTS[id].maxRanks)
-// ...
-frostbiteCastTicks: ABILITIES.frostbolt.castTicks - 2 * rank('impFrostbolt'),
+impFrostbolt: {
+  id: 'impFrostbolt',
+  name: 'Improved Frostbolt',
+  maxRanks: 5,
+  perRank: '−0.1 s cast',
+  description: 'Frostbolt leaves the hand 0.1 s sooner per rank.',
+  effects: [{ kind: 'castTicks', ability: 'frostbolt', ticksPerRank: 2 }],
+},
 ```
 
-If the talent changes a *cast time*, add the field to `DerivedStats` and read it
-in `sim.ts`'s `castTicksOf()` (~line 315), which currently special-cases fireball
-and renew. If it changes damage or crit, it belongs in `rollSpell()`'s existing
-multipliers instead — prefer that, it is where the school multipliers already live.
+The effect kinds: `castTicks` (per-ability cast cut), `school` (+% damage to
+one school), `crit`, `maxHp`, `regen`, `healing`, `gold`, `gcd` (the
+Riftblade's tempo lane), and `mod` — a named class dial (`ClassMod` in
+`types.ts`) that the sim reads where the mechanic lives (`ledgerCap`,
+`reckoningReliefPct`, `briarTicks`, …). Add a new `ClassMod` key when a
+talent needs to turn a knob no generic effect covers.
+
+**`engine/content/classes.ts`** — add the id to its class's `talents` list
+(each kit shows exactly six; `tests/classes.test.ts` pins that). A talent in
+no kit can never be learned: `spendTalent()` checks kit membership.
 
 ---
 
@@ -607,42 +616,54 @@ charge; two detuned voices always sound better than one loud one.
 
 ## Add a class, origin, or birth sign
 
-Character identity is **UI-owned content** in `src/ui/content/identity.ts` —
-the engine never reads it. A class here is a *declaration* (lore, mechanic,
-ability previews, hue, `playable` flag) shown at character creation and on
-save-slot cards; making one actually playable is separate engine work
-(abilities, effects, an auto-battle rotation — see [Add an ability](#add-an-ability)).
+Identity is split down the engine/UI seam. The **engine** owns everything
+that acts: the class kit (`engine/content/classes.ts`), origin leanings and
+sign boons (`engine/content/identity.ts`), the mechanic's state and rules
+(`sim.ts`). The **UI** owns everything that speaks: epithets, lore, hues,
+signature-ability blurbs, and the constellation art
+(`src/ui/content/identity.ts`). The two halves share ids and are joined at
+character creation; `tests/identity.test.ts` asserts every UI preview names a
+real kit ability.
 
-**A class:**
+**A class** is real work — it is a whole way of playing. The tour:
 
-1. `identity.ts` — add the id to the `ClassId` union and a `CLASSES` row:
-   name, epithet, one-word `role`, an OKLCH `hue` (themes the emblem, the
-   creation sky, and the slot card), `playable`, two–three sentences of
-   second-person lore, a `mechanic` (the gimmick no other calling gets), and
-   exactly **three** ability previews — `tests/identity.test.ts` pins all of
-   this shape.
-2. `src/ui/title/ClassEmblem.svelte` — a sigil branch: line art in
-   `viewBox="0 0 48 48"`, stroke-based, matching the portraits' duotone hand.
-   > ⚠️ **Trap:** the `{#if}` chain ends in a bare `{:else}` that draws the
-   > Riftblade's split sword. A new class with no branch silently renders as
-   > a Riftblade. Add your branch *before* the final `{:else}`.
+1. `engine/types.ts` — the `ClassId` union, the new ability/talent ids, a
+   `ClassResourceSnapshot` variant if the mechanic has a resource, and any
+   new `ClassMod` dials.
+2. `engine/content/classes.ts` — the kit: ability ids in bar order, six
+   talent ids, the resource kind, the mechanic's name.
+3. `engine/abilities.ts` + `engine/content/talents.ts` — the registries
+   ([Add an ability](#add-an-ability), [Add a talent](#add-a-talent)).
+   Bespoke mechanics are `{ kind: 'special' }` effects resolved in
+   `sim.ts`'s `applySpecial()`; per-fight state lives on `PlayerUnit`
+   and resets in `resetFightState()`.
+4. `sim.ts` — an `auto<Class>()` rotation, a `resourceSnapshot()` branch,
+   and `canUse()` gates for resource costs (no page, no rite).
+5. The look: `ClassEmblem.svelte` sigil branch (48×48 line art — the chain
+   ends in the Riftblade's split sword, so a missing branch renders as a
+   Riftblade), `HeroPortrait.svelte` hue + focus charm, icons, tones,
+   `SPELL_FX` rows, and the class's row in the UI `FLAVOR` table.
+6. Tests: a `describe` block in `tests/classes.test.ts` for the signature
+   mechanic, plus the auto-generated "every calling can play the real game"
+   balance smoke test picks the class up from `CLASS_IDS` for free.
 
-When a class graduates to playable, flip `playable: true` — creation's
-"Begin the long hunt" gate reads that flag and nothing else.
+**An origin:** one row in `engine/content/identity.ts` — name, flavor
+`line`, a `boon` sentence, and `effects` (`xpPct`, `hpPct`, `goldPct`,
+`regenPct`). `deriveStats()` folds it in; nothing else needs to know.
 
-**An origin:** one `ORIGINS` row — name, a flavor `line`, and a `promise`
-phrased "Will lean toward …" (the test checks the phrasing; origins are
-chosen-and-remembered today, and the promise is the contract for when they
-start feeding `deriveStats()`).
-
-**A birth sign:** one `SIGNS` row — name, a one-line omen, hue, and a
-constellation as `stars` (coordinates in a 0–100 box) plus `lines` (pairs of
-star indices). `SignMark.svelte` renders any well-formed sign; the test
-verifies every line joins real stars.
+**A birth sign:** one engine row — name, `omen`, `boon`, and `effects`
+(`dropPct`, `materialPct`, `respawnCutPct`, `critPct`, `cheatDeath`) — plus
+its constellation in the UI's `SIGN_ART` table: `stars` (coordinates in a
+0–100 box) and `lines` (pairs of star indices). `SignMark.svelte` renders any
+well-formed sign; the test verifies every line joins real stars. Signs that
+*act* mid-fight (the Tower's cheat-death) hook `damagePlayer()` /
+`onPlayerDied()` in `sim.ts`.
 
 Where identity is stored: per-slot profiles under `mythreach-profile-sN-v1`
-(`src/ui/profile.ts`), written at creation, erased with the slot. Legacy saves
-have no profile and present as the default Arcanist.
+(`src/ui/profile.ts`), written at creation, erased with the slot — and since
+save v5, sealed into the engine save itself (`classId`/`originId`/`signId`).
+The save's copy wins on load; the profile covers pre-v5 saves, which present
+as the default Arcanist.
 
 ---
 

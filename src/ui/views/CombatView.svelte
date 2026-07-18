@@ -2,6 +2,7 @@
   import type { Game, Impact } from '../game.svelte'
   import ActionBar from '../components/ActionBar.svelte'
   import ArenaFx from '../components/ArenaFx.svelte'
+  import ClassResource from '../components/ClassResource.svelte'
   import EnemyCard from '../components/EnemyCard.svelte'
   import Filigree from '../components/Filigree.svelte'
   import FloatLayer from '../components/FloatLayer.svelte'
@@ -100,6 +101,8 @@
       level={game.progress.level}
       impact={game.impacts.player}
       bloom={game.bloom}
+      name={game.profile?.name ?? 'You'}
+      classId={game.progress.classId}
     />
   </div>
 
@@ -122,7 +125,9 @@
 </section>
 
 <div class="foot">
+  <ClassResource resource={game.combat.resource} echo={game.combat.echo} classId={game.progress.classId} />
   <ActionBar
+    abilityIds={game.kitIds}
     cast={game.combat.cast}
     queued={game.combat.queued}
     cooldowns={game.combat.cooldowns}
@@ -457,6 +462,10 @@
   .foot {
     margin-top: auto;
     padding-block: 10px 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
   }
 
   @media (max-width: 1000px) {

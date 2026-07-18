@@ -179,7 +179,7 @@ export class FxDirector {
     // field — a cleared pack must not leave three burns smouldering on air.
     const iids = new Set(c.enemies.map((e) => e.iid))
     for (const key of [...this.standing.keys()]) {
-      const m = /^(?:enemyCharge|ignite|enrage)-(\d+)$/.exec(key)
+      const m = /^(?:enemyCharge|bane|enrage)-(\d+)/.exec(key)
       if (m && !iids.has(Number(m[1]))) this.stop(key)
     }
     for (const iid of [...this.enemyCharges.keys()]) {
@@ -191,8 +191,12 @@ export class FxDirector {
       this.hold(`enemyCharge-${e.iid}`, e.cast != null, () =>
         this.gather(SPELL_FX.enemyCast, 'enemy', () => this.enemyCharges.get(e.iid) ?? 0, e.iid),
       )
-      this.hold(`ignite-${e.iid}`, e.dot != null && e.alive, () =>
-        this.aura(SPELL_FX.ignite, SPELL_FX.ignite.aura!, 'enemy', e.iid),
+      // The affliction wears its source's colours: Ignite burns orange-violet,
+      // Gravechill frosts, Sow Briar sprouts. Key by source so a re-dot in a
+      // different colour restarts the emitter.
+      const baneSpec = this.dotSpec(e.dot?.source)
+      this.hold(`bane-${e.iid}-${e.dot?.source ?? ''}`, e.dot != null && e.alive && baneSpec.aura != null, () =>
+        this.aura(baneSpec, baneSpec.aura!, 'enemy', e.iid),
       )
       this.hold(`enrage-${e.iid}`, e.enraged && e.alive, () =>
         this.aura(ENRAGE_AURA, ENRAGE_AURA, 'enemy', e.iid),
@@ -201,10 +205,26 @@ export class FxDirector {
 
     this.hold('venom', c.player.dot != null, () => this.aura(SPELL_FX.venom, SPELL_FX.venom.aura!, 'player'))
 
-    const lit = c.player.buffs.some((b) => b.id === 'combustion')
-    this.hold('combustion', lit, () => this.aura(SPELL_FX.combustion, SPELL_FX.combustion.aura!, 'player'))
+    // Player buffs: any buff whose spell declares an aura wears it while it
+    // holds — Combustion, House Rules, Wildswell, Seamstep, the Doorway.
+    const buffIds = new Set(c.player.buffs.map((b) => b.id))
+    for (const key of [...this.standing.keys()]) {
+      const m = /^buff-(\w+)$/.exec(key)
+      if (m && !buffIds.has(m[1] as (typeof c.player.buffs)[number]['id'])) this.stop(key)
+    }
+    for (const b of c.player.buffs) {
+      const spec = SPELL_FX[b.id as FxSource] as SpellFx | undefined
+      if (!spec?.aura) continue
+      this.hold(`buff-${b.id}`, true, () => this.aura(spec, spec.aura!, 'player'))
+    }
     // your fire is literally hotter — every fire effect gets denser
-    this.stage.setIntensity(lit ? 1.6 : 1)
+    this.stage.setIntensity(buffIds.has('combustion') ? 1.6 : 1)
+  }
+
+  /** The FX spec an affliction should wear, from its `source`. */
+  private dotSpec(source: string | undefined): SpellFx {
+    const spec = source ? (SPELL_FX[source as FxSource] as SpellFx | undefined) : undefined
+    return spec ?? SPELL_FX.ignite
   }
 
   /** Start an emitter when a condition turns on, stop it when it turns off. */
@@ -271,7 +291,7 @@ export class FxDirector {
       return
     }
     if (event.kind === 'heal') {
-      const spec = SPELL_FX.renew
+      const spec = (SPELL_FX[event.source as FxSource] as SpellFx | undefined) ?? SPELL_FX.renew
       const w = this.weigh(event.amount, event.crit)
       this.host?.float({
         side: 'player',
@@ -299,8 +319,22 @@ export class FxDirector {
       case 'dotApplied':
         this.host?.sfx(event.target === 'enemy' ? 'ignite' : 'warn')
         break
-      case 'buffApplied':
-        this.host?.sfx(SPELL_FX[event.id === 'barrier' ? 'barrier' : 'combustion'].sfx?.release ?? 'cast')
+      case 'buffApplied': {
+        const spec = SPELL_FX[event.id as FxSource] as SpellFx | undefined
+        this.host?.sfx(spec?.sfx?.release ?? 'cast')
+        break
+      }
+      case 'echoRaised':
+        this.host?.sfx('cast')
+        break
+      case 'enemyFrozen':
+        this.host?.sfx('interrupt')
+        break
+      case 'signIntervened':
+        this.host?.sfx('absorb')
+        break
+      case 'cardPlayed':
+        this.host?.sfx('target')
         break
       case 'shieldBroken':
         this.host?.sfx('shatter')
@@ -332,15 +366,31 @@ export class FxDirector {
         break
       case 'dotApplied': {
         const on: Side = event.target === 'enemy' ? 'enemy' : 'player'
-        const spec = SPELL_FX[event.target === 'enemy' ? 'ignite' : 'venom']
+        const spec = event.target === 'enemy' ? this.dotSpec(event.abilityId) : SPELL_FX.venom
         this.play(spec.release, spec, on === 'enemy' ? 'player' : 'enemy', on, 1, event.iid)
         break
       }
       case 'buffApplied': {
-        const spec = SPELL_FX[event.id === 'barrier' ? 'barrier' : 'combustion']
+        const spec = (SPELL_FX[event.id as FxSource] as SpellFx | undefined) ?? SPELL_FX.barrier
         this.play(spec.release, spec, 'player', 'player')
         break
       }
+      case 'echoRaised': {
+        // The ground gives its tenant back, beside you.
+        const spec = event.name === 'Afterimage' ? SPELL_FX.afterimage : SPELL_FX.exhume
+        this.play(spec.release, spec, 'player', 'player')
+        break
+      }
+      case 'enemyFrozen':
+        this.play(SPELL_FX.stasis.release, SPELL_FX.stasis, 'player', 'enemy', 1, event.iid)
+        break
+      case 'signIntervened':
+        // The Tower holds: a hard, quiet shell of light around you.
+        this.play(SPELL_FX.barrier.release, SPELL_FX.barrier, 'player', 'player', 1.3)
+        break
+      case 'cardPlayed':
+        this.play(SPELL_FX.dealFate.release, SPELL_FX.dealFate, 'player', 'player', event.card === 'fiftyThird' ? 1.6 : 1)
+        break
       case 'shieldBroken':
         this.play(BARRIER_SHATTER, SPELL_FX.barrier, 'player', 'player')
         break

@@ -75,9 +75,10 @@ describe('serialize / deserialize', () => {
     expect(progress.level).toBe(7)
     expect(progress.gold).toBe(250)
     expect(progress.xp).toBe(12)
-    // Re-serializing yields a clean v4 blob with none of the dead fields.
+    // Re-serializing yields a clean v5 blob with none of the dead fields.
     const reserialized = restored!.serialize() as unknown as Record<string, unknown>
-    expect(reserialized.version).toBe(4)
+    expect(reserialized.version).toBe(5)
+    expect(reserialized.classId).toBe('arcanist')
     expect(reserialized.savedAt).toBeUndefined()
     expect(reserialized.zoneId).toBeUndefined()
     expect(reserialized.materials).toEqual({})

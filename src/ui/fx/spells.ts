@@ -22,7 +22,14 @@ import { TONE, TONE_DEEP, VENOM, WOUND } from './palette'
 import type { Recipe, Step } from './recipe'
 
 /** Everything that can produce a damage/heal effect. */
-export type FxSource = AbilityId | 'enemySwing' | 'enemyCast' | 'venom'
+export type FxSource =
+  | AbilityId
+  | 'enemySwing'
+  | 'enemyCast'
+  | 'venom'
+  | 'echo'
+  | 'reckoning'
+  | 'thorns'
 
 export interface ChargeSpec {
   /** seconds between mote spawns — lower is denser */
@@ -269,6 +276,566 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
     ],
     aura: { rate: 0.018, alpha: 1 },
     sfx: { release: 'epic' },
+  },
+
+  // ── gravewright: grave-lantern light and old paper ──────────────────
+
+  gravebolt: {
+    tone: TONE.gravebolt,
+    deep: TONE_DEEP.gravebolt,
+    css: 'var(--tone-gravebolt)',
+    charge: { rate: 0.024, radius: 60, tighten: 0.55 },
+    release: [
+      { fx: 'flash', at: 'source', tint: 'tone', size: 66, life: 0.18, alpha: 0.85, grow: 1.4 },
+      { fx: 'burst', at: 'source', count: 8, speed: [160, 400], size: [5, 12], life: [0.2, 0.4], spread: 'away', drag: 2 },
+    ],
+    projectile: {
+      flight: 0.16,
+      size: 18,
+      haloSize: 70,
+      arc: 14, // ink sags — it wants to be in the ground
+      trailRate: 0.012,
+      trail: { fx: 'burst', count: 2, speed: [20, 120], size: [4, 11], life: [0.25, 0.6], tint: 'mix', gravity: 320, drag: 1.5 },
+    },
+    impact: [
+      ...DETONATE(66, 210),
+      DEBRIS(22, 620, 15),
+      { fx: 'shake', amp: 4 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'cast', impact: 'hit-void', crit: 'crit' },
+  },
+
+  gravechill: {
+    tone: TONE.gravechill,
+    deep: TONE_DEEP.gravechill,
+    css: 'var(--tone-gravechill)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 84, life: 0.3, alpha: 0.75, grow: 1.4 },
+      { fx: 'ring', tint: 'tone', from: 20, to: 140, life: 0.4, alpha: 0.7 },
+      { fx: 'implode', count: 14, radius: 90, size: [4, 10], life: [0.3, 0.55] },
+    ],
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 38, life: 0.22, alpha: 0.4 },
+      { fx: 'burst', count: 6, speed: [20, 90], size: [4, 11], life: [0.35, 0.7], gravity: 120, drag: 1.6, tex: 'shard' },
+    ],
+    crit: [
+      { fx: 'flash', tint: 'white', size: 60, life: 0.1, alpha: 0.75, grow: 2 },
+      { fx: 'shake', amp: 3 },
+    ],
+    aura: { rate: 0.04, alpha: 0.6 },
+    sfx: { release: 'ignite', impact: 'burn', crit: 'burn' },
+  },
+
+  lastRites: {
+    tone: TONE.lastRites,
+    deep: TONE_DEEP.lastRites,
+    css: 'var(--tone-lastRites)',
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 90, life: 0.4, alpha: 0.7, grow: 1.6 },
+      // a torn page settling into you
+      { fx: 'burst', count: 8, speed: [50, 150], size: [7, 13], life: [0.5, 0.9], spread: 'up', gravity: 60, drag: 2.2, tex: 'shard', alpha: 0.8 },
+      { fx: 'implode', count: 14, radius: 84, size: [4, 9], life: [0.32, 0.55] },
+    ],
+    crit: [
+      { fx: 'flash', tint: 'white', size: 80, life: 0.13, alpha: 0.8, grow: 2 },
+      { fx: 'rays', tint: 'tone', count: 7, reach: 150, width: 9, life: 0.24 },
+    ],
+    sfx: { impact: 'heal', crit: 'heal' },
+  },
+
+  exhume: {
+    tone: TONE.exhume,
+    deep: TONE_DEEP.exhume,
+    css: 'var(--tone-exhume)',
+    // the ground gives its tenant back — played at the player on echoRaised
+    release: [
+      { fx: 'implode', count: 26, radius: 130, size: [4, 12], life: [0.35, 0.6] },
+      { fx: 'flash', tint: 'tone', size: 110, life: 0.4, alpha: 0.7, grow: 1.5 },
+      { fx: 'ring', tint: 'deep', from: 20, to: 170, life: 0.5, alpha: 0.6 },
+      { fx: 'burst', count: 12, speed: [60, 200], size: [6, 14], life: [0.4, 0.8], spread: 'up', gravity: -80, drag: 1.4 },
+      { fx: 'shake', amp: 3, dur: 0.3 },
+    ],
+    sfx: { release: 'boss' },
+  },
+
+  requiem: {
+    tone: TONE.requiem,
+    deep: TONE_DEEP.requiem,
+    css: 'var(--tone-requiem)',
+    charge: { rate: 0.02, radius: 74, tighten: 0.6 },
+    // read aloud: every corpse-to-be hears it at once
+    impact: [
+      ...DETONATE(60, 190),
+      { fx: 'burst', count: 10, speed: [60, 220], size: [5, 13], life: [0.4, 0.8], spread: 'up', gravity: -60, drag: 1.4 },
+      { fx: 'shake', amp: 3 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'pyro-cast', impact: 'hit-void', crit: 'crit' },
+  },
+
+  boneward: {
+    tone: TONE.boneward,
+    deep: TONE_DEEP.boneward,
+    css: 'var(--tone-boneward)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 110, life: 0.32, alpha: 0.75, grow: 1.3 },
+      { fx: 'implode', count: 26, radius: 120, size: [4, 12], life: [0.3, 0.55] },
+      { fx: 'ring', tint: 'tone', from: 125, to: 76, life: 0.4, alpha: 0.9 },
+    ],
+    sfx: { release: 'barrier' },
+  },
+
+  finalChapter: {
+    tone: TONE.finalChapter,
+    deep: TONE_DEEP.finalChapter,
+    css: 'var(--tone-finalChapter)',
+    // the book slams shut: one enormous full-stop
+    impact: [
+      ...DETONATE(100, 360),
+      { fx: 'rays', tint: 'hot', count: 10, reach: 240, width: 15, life: 0.28 },
+      { fx: 'burst', count: 30, speed: [200, 700], size: [7, 16], life: [0.4, 0.9], tint: 'mix', gravity: 300, drag: 1.4, tex: 'shard', endScale: 0.4 },
+      { fx: 'smoke', count: 6 },
+      { fx: 'shake', amp: 11, dur: 0.5 },
+      { fx: 'hitStop', hold: 0.06 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'crit-heavy', crit: 'crit-heavy' },
+  },
+
+  // ── hourwarden: glass, gears, and the colour of 4 a.m. ──────────────
+
+  secondhandStrike: {
+    tone: TONE.secondhandStrike,
+    deep: TONE_DEEP.secondhandStrike,
+    css: 'var(--tone-secondhandStrike)',
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.14, width: 3, jitter: 12, forks: 1 },
+      { fx: 'flash', tint: 'hot', size: 56, life: 0.12, alpha: 0.85, grow: 1.9 },
+      { fx: 'ring', tint: 'tone', from: 16, to: 130, life: 0.26, alpha: 0.7 },
+      { fx: 'burst', count: 10, speed: [140, 380], size: [4, 11], life: [0.25, 0.5], tint: 'mix', drag: 1.8, tex: 'shard', endScale: 0.4 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'hit-arcane', crit: 'crit' },
+  },
+
+  rewindWound: {
+    tone: TONE.rewindWound,
+    deep: TONE_DEEP.rewindWound,
+    css: 'var(--tone-rewindWound)',
+    // the blow runs backwards: motes return to where they were struck from
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 90, life: 0.4, alpha: 0.7, grow: 1.5 },
+      { fx: 'implode', count: 22, radius: 110, size: [4, 10], life: [0.4, 0.7] },
+      { fx: 'ring', tint: 'tone', from: 120, to: 30, life: 0.4, alpha: 0.6 },
+    ],
+    crit: [
+      { fx: 'flash', tint: 'white', size: 80, life: 0.13, alpha: 0.8, grow: 2 },
+    ],
+    sfx: { impact: 'heal', crit: 'heal' },
+  },
+
+  splitSecond: {
+    tone: TONE.splitSecond,
+    deep: TONE_DEEP.splitSecond,
+    css: 'var(--tone-splitSecond)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 120, life: 0.4, alpha: 0.85, grow: 1.7 },
+      // the moment cleaves in two
+      { fx: 'ring', tint: 'tone', from: 20, to: 190, life: 0.4, alpha: 0.85 },
+      { fx: 'ring', tint: 'deep', from: 20, to: 190, life: 0.55, alpha: 0.5 },
+      { fx: 'rays', tint: 'hot', count: 6, reach: 150, width: 9, life: 0.26 },
+    ],
+    aura: { rate: 0.03, alpha: 0.7 },
+    sfx: { release: 'cast' },
+  },
+
+  stasis: {
+    tone: TONE.stasis,
+    deep: TONE_DEEP.stasis,
+    css: 'var(--tone-stasis)',
+    // time closes around them like an eyelid
+    release: [
+      { fx: 'ring', tint: 'tone', from: 180, to: 60, life: 0.32, alpha: 0.95 },
+      { fx: 'flash', tint: 'tone', size: 90, life: 0.3, alpha: 0.7, grow: 0.6 },
+      { fx: 'implode', count: 20, radius: 120, size: [4, 10], life: [0.28, 0.5] },
+      { fx: 'hitStop', hold: 0.05 },
+    ],
+    sfx: { release: 'interrupt' },
+  },
+
+  borrowedBlade: {
+    tone: TONE.borrowedBlade,
+    deep: TONE_DEEP.borrowedBlade,
+    css: 'var(--tone-borrowedBlade)',
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.16, width: 4.5, jitter: 8, forks: 0 },
+      ...DETONATE(84, 280),
+      { fx: 'rays', tint: 'hot', count: 8, reach: 190, width: 12, life: 0.24 },
+      DEBRIS(30, 800, 18),
+      { fx: 'shake', amp: 8, dur: 0.4 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'crit', crit: 'crit-heavy' },
+  },
+
+  hourglassShatter: {
+    tone: TONE.hourglassShatter,
+    deep: TONE_DEEP.hourglassShatter,
+    css: 'var(--tone-hourglassShatter)',
+    // every grain of the debt, all at once
+    impact: [
+      ...DETONATE(96, 360),
+      { fx: 'burst', count: 40, speed: [220, 820], size: [5, 13], life: [0.4, 0.9], tint: 'mix', gravity: 520, drag: 1.2, tex: 'shard', endScale: 0.3 },
+      { fx: 'rays', tint: 'hot', count: 10, reach: 240, width: 13, life: 0.28 },
+      { fx: 'smoke', count: 5 },
+      { fx: 'shake', amp: 12, dur: 0.5 },
+      { fx: 'hitStop', hold: 0.07 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'shatter', crit: 'crit-heavy' },
+  },
+
+  // ── cartomancer: lamplight, gilt edges, terrible odds ────────────────
+
+  cardflick: {
+    tone: TONE.cardflick,
+    deep: TONE_DEEP.cardflick,
+    css: 'var(--tone-cardflick)',
+    charge: { rate: 0.026, radius: 56, tighten: 0.5 },
+    release: [
+      { fx: 'flash', at: 'source', tint: 'tone', size: 56, life: 0.14, alpha: 0.8, grow: 1.4 },
+    ],
+    projectile: {
+      flight: 0.12,
+      size: 15,
+      haloSize: 54,
+      arc: -26, // a flat, spinning throw
+      trailRate: 0.014,
+      trail: { fx: 'burst', count: 1, speed: [20, 100], size: [4, 9], life: [0.2, 0.45], tint: 'mix', drag: 1.8, tex: 'shard' },
+    },
+    impact: [
+      { fx: 'flash', tint: 'hot', size: 54, life: 0.12, alpha: 0.9, grow: 1.9 },
+      { fx: 'ring', tint: 'tone', from: 14, to: 120, life: 0.28, alpha: 0.75 },
+      { fx: 'burst', count: 12, speed: [160, 420], size: [4, 10], life: [0.25, 0.55], tint: 'mix', gravity: 300, drag: 1.6, tex: 'shard', endScale: 0.4 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'cast', impact: 'hit', crit: 'crit' },
+  },
+
+  dealFate: {
+    tone: TONE.dealFate,
+    deep: TONE_DEEP.dealFate,
+    css: 'var(--tone-dealFate)',
+    release: [
+      { fx: 'flash', at: 'source', tint: 'tone', size: 80, life: 0.2, alpha: 0.9, grow: 1.6 },
+      { fx: 'burst', at: 'source', count: 6, speed: [120, 300], size: [7, 12], life: [0.3, 0.55], spread: 'away', drag: 2, tex: 'shard', alpha: 0.9 },
+    ],
+    impact: [
+      ...DETONATE(70, 220),
+      { fx: 'burst', count: 14, speed: [140, 480], size: [5, 12], life: [0.3, 0.65], tint: 'mix', gravity: 340, drag: 1.5, tex: 'shard', endScale: 0.4 },
+      { fx: 'shake', amp: 5 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'cast', impact: 'hit-arcane', crit: 'crit' },
+  },
+
+  cutTheDeck: {
+    tone: TONE.cutTheDeck,
+    deep: TONE_DEEP.cutTheDeck,
+    css: 'var(--tone-cutTheDeck)',
+    // a riffle of gilt edges around your hands
+    release: [
+      { fx: 'flash', tint: 'tone', size: 80, life: 0.24, alpha: 0.6, grow: 1.3 },
+      { fx: 'burst', count: 16, speed: [80, 260], size: [6, 11], life: [0.3, 0.6], spread: 'up', gravity: 240, drag: 1.8, tex: 'shard', alpha: 0.85 },
+    ],
+    sfx: { release: 'cast' },
+  },
+
+  houseRules: {
+    tone: TONE.houseRules,
+    deep: TONE_DEEP.houseRules,
+    css: 'var(--tone-houseRules)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 140, life: 0.45, alpha: 0.9, grow: 1.8 },
+      { fx: 'ring', tint: 'tone', from: 24, to: 240, life: 0.5, alpha: 0.85 },
+      { fx: 'rays', tint: 'hot', count: 10, reach: 200, width: 12, life: 0.3 },
+      { fx: 'burst', count: 24, speed: [120, 420], size: [6, 14], life: [0.4, 0.9], tint: 'mix', gravity: -60, drag: 1.3 },
+    ],
+    aura: { rate: 0.024, alpha: 0.8 },
+    sfx: { release: 'epic' },
+  },
+
+  foldTheWorld: {
+    tone: TONE.foldTheWorld,
+    deep: TONE_DEEP.foldTheWorld,
+    css: 'var(--tone-foldTheWorld)',
+    // reality creases along a gold line
+    impact: [
+      { fx: 'flash', tint: 'hot', size: 74, life: 0.12, alpha: 0.95, grow: 2 },
+      { fx: 'ring', tint: 'tone', from: 200, to: 40, life: 0.3, alpha: 0.85 },
+      { fx: 'burst', count: 18, speed: [160, 520], size: [5, 13], life: [0.3, 0.7], tint: 'mix', gravity: 380, drag: 1.4, tex: 'shard', endScale: 0.35 },
+      { fx: 'shake', amp: 6 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'pyro-hit', crit: 'crit-heavy' },
+  },
+
+  fiftyThirdCard: {
+    tone: TONE.fiftyThirdCard,
+    deep: TONE_DEEP.fiftyThirdCard,
+    css: 'var(--tone-fiftyThirdCard)',
+    charge: { rate: 0.012, radius: 96, tighten: 0.75 },
+    release: [
+      { fx: 'flash', at: 'source', tint: 'white', size: 150, life: 0.3, alpha: 1, grow: 1.8 },
+      { fx: 'ring', at: 'source', tint: 'tone', from: 30, to: 220, life: 0.45, alpha: 0.8 },
+      { fx: 'rays', at: 'source', tint: 'hot', count: 12, reach: 200, width: 13, life: 0.3 },
+    ],
+    impact: [
+      ...DETONATE(110, 420),
+      { fx: 'rays', tint: 'hot', count: 13, reach: 300, width: 16, life: 0.32 },
+      { fx: 'burst', count: 44, speed: [180, 900], size: [6, 16], life: [0.5, 1.1], tint: 'mix', gravity: 200, drag: 1.2, tex: 'shard', endScale: 0.35 },
+      { fx: 'smoke', count: 8 },
+      { fx: 'shake', amp: 13, dur: 0.6 },
+      { fx: 'hitStop', hold: 0.08 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'epic', impact: 'crit-heavy', crit: 'crit-heavy' },
+  },
+
+  // ── thornspeaker: chlorophyll with intent ────────────────────────────
+
+  thornlash: {
+    tone: TONE.thornlash,
+    deep: TONE_DEEP.thornlash,
+    css: 'var(--tone-thornlash)',
+    charge: { rate: 0.026, radius: 58, tighten: 0.5 },
+    release: [
+      { fx: 'flash', at: 'source', tint: 'tone', size: 58, life: 0.15, alpha: 0.8, grow: 1.4 },
+    ],
+    // the lash is already there — a green line and a bite
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.15, width: 4, jitter: 26, forks: 2 },
+      { fx: 'flash', tint: 'hot', size: 58, life: 0.12, alpha: 0.85, grow: 1.8 },
+      { fx: 'ring', tint: 'tone', from: 16, to: 130, life: 0.28, alpha: 0.7 },
+      { fx: 'burst', count: 12, speed: [150, 420], size: [4, 11], life: [0.3, 0.6], tint: 'mix', gravity: 320, drag: 1.6, stretch: 2 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'cast', impact: 'claw', crit: 'crit' },
+  },
+
+  sowBriar: {
+    tone: TONE.sowBriar,
+    deep: TONE_DEEP.sowBriar,
+    css: 'var(--tone-sowBriar)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 76, life: 0.3, alpha: 0.75, grow: 1.4 },
+      { fx: 'burst', count: 14, speed: [60, 220], size: [5, 12], life: [0.4, 0.9], spread: 'up', gravity: -100, drag: 1.4 },
+      { fx: 'ring', tint: 'deep', from: 16, to: 110, life: 0.36, alpha: 0.6 },
+    ],
+    // each tick: the garden takes another inch
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 40, life: 0.2, alpha: 0.4 },
+      { fx: 'burst', count: 7, speed: [40, 140], size: [5, 13], life: [0.3, 0.6], spread: 'up', gravity: -80, drag: 1.3, stretch: 1.6 },
+    ],
+    crit: [
+      { fx: 'flash', tint: 'white', size: 60, life: 0.1, alpha: 0.75, grow: 2 },
+    ],
+    aura: { rate: 0.032, alpha: 0.75 },
+    sfx: { release: 'ignite', impact: 'burn', crit: 'burn' },
+  },
+
+  sapdraw: {
+    tone: TONE.sapdraw,
+    deep: TONE_DEEP.sapdraw,
+    css: 'var(--tone-sapdraw)',
+    charge: { rate: 0.028, radius: 66, tighten: 0.45 },
+    // the drain: a bite at them...
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.2, width: 3.5, jitter: 18, forks: 2 },
+      { fx: 'flash', tint: 'tone', size: 66, life: 0.22, alpha: 0.7, grow: 1.5 },
+      { fx: 'burst', count: 12, speed: [100, 300], size: [4, 11], life: [0.3, 0.6], spread: 'back', drag: 1.5 },
+      // ...and the green coming home
+      { fx: 'implode', at: 'source', count: 12, radius: 80, size: [4, 9], life: [0.3, 0.55] },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'cast', impact: 'heal', crit: 'crit' },
+  },
+
+  brambleWard: {
+    tone: TONE.brambleWard,
+    deep: TONE_DEEP.brambleWard,
+    css: 'var(--tone-brambleWard)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 110, life: 0.32, alpha: 0.75, grow: 1.3 },
+      { fx: 'burst', count: 20, speed: [40, 160], size: [5, 13], life: [0.4, 0.8], spread: 'up', gravity: -40, drag: 1.6, stretch: 1.8 },
+      { fx: 'ring', tint: 'tone', from: 125, to: 78, life: 0.4, alpha: 0.9 },
+    ],
+    sfx: { release: 'barrier' },
+  },
+
+  wildswell: {
+    tone: TONE.wildswell,
+    deep: TONE_DEEP.wildswell,
+    css: 'var(--tone-wildswell)',
+    release: [
+      { fx: 'flash', tint: 'tone', size: 140, life: 0.5, alpha: 0.85, grow: 1.8 },
+      { fx: 'ring', tint: 'tone', from: 24, to: 250, life: 0.55, alpha: 0.8 },
+      { fx: 'burst', count: 34, speed: [120, 460], size: [6, 16], life: [0.5, 1], tint: 'mix', gravity: -120, drag: 1.2, stretch: 1.5 },
+      { fx: 'shake', amp: 5 },
+    ],
+    aura: { rate: 0.02, alpha: 0.9 },
+    sfx: { release: 'epic' },
+  },
+
+  verdantCataract: {
+    tone: TONE.verdantCataract,
+    deep: TONE_DEEP.verdantCataract,
+    css: 'var(--tone-verdantCataract)',
+    charge: { rate: 0.018, radius: 80, tighten: 0.65 },
+    // the whole growing season, collected
+    impact: [
+      ...DETONATE(96, 360),
+      { fx: 'burst', count: 36, speed: [140, 640], size: [7, 18], life: [0.5, 1.1], tint: 'mix', gravity: 260, drag: 1.3, stretch: 2 },
+      { fx: 'rays', tint: 'tone', count: 9, reach: 220, width: 14, life: 0.3 },
+      { fx: 'smoke', count: 5 },
+      { fx: 'shake', amp: 10, dur: 0.5 },
+      { fx: 'hitStop', hold: 0.06 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'pyro-cast', impact: 'pyro-hit', crit: 'crit-heavy' },
+  },
+
+  // ── riftblade: violet geometry, sudden edges ─────────────────────────
+
+  throughCut: {
+    tone: TONE.throughCut,
+    deep: TONE_DEEP.throughCut,
+    css: 'var(--tone-throughCut)',
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.12, width: 3.5, jitter: 5, forks: 0 },
+      { fx: 'flash', tint: 'hot', size: 52, life: 0.1, alpha: 0.9, grow: 2 },
+      { fx: 'rays', tint: 'tone', count: 3, reach: 120, width: 7, life: 0.16 },
+      { fx: 'burst', count: 9, speed: [160, 420], size: [4, 10], life: [0.22, 0.45], tint: 'mix', drag: 1.8, stretch: 2.2 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'hit-arcane', crit: 'crit' },
+  },
+
+  seamstep: {
+    tone: TONE.seamstep,
+    deep: TONE_DEEP.seamstep,
+    css: 'var(--tone-seamstep)',
+    // you are briefly a rumor
+    release: [
+      { fx: 'flash', tint: 'tone', size: 100, life: 0.28, alpha: 0.8, grow: 1.5 },
+      { fx: 'implode', count: 18, radius: 110, size: [4, 10], life: [0.26, 0.5] },
+      { fx: 'ring', tint: 'tone', from: 110, to: 40, life: 0.3, alpha: 0.7 },
+    ],
+    aura: { rate: 0.05, alpha: 0.5 },
+    sfx: { release: 'cast' },
+  },
+
+  phaseEdge: {
+    tone: TONE.phaseEdge,
+    deep: TONE_DEEP.phaseEdge,
+    css: 'var(--tone-phaseEdge)',
+    // every banked charge arrives as one edge
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.16, width: 5, jitter: 4, forks: 0 },
+      ...DETONATE(90, 320),
+      { fx: 'rays', tint: 'hot', count: 9, reach: 230, width: 13, life: 0.26 },
+      DEBRIS(34, 900, 17),
+      { fx: 'shake', amp: 10, dur: 0.45 },
+      { fx: 'hitStop', hold: 0.06 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { impact: 'crit', crit: 'crit-heavy' },
+  },
+
+  afterimage: {
+    tone: TONE.afterimage,
+    deep: TONE_DEEP.afterimage,
+    css: 'var(--tone-afterimage)',
+    // a you-shaped argument steps out of you
+    release: [
+      { fx: 'flash', tint: 'tone', size: 100, life: 0.3, alpha: 0.75, grow: 1.4 },
+      { fx: 'implode', count: 22, radius: 120, size: [4, 11], life: [0.3, 0.55] },
+      { fx: 'ring', tint: 'deep', from: 24, to: 150, life: 0.4, alpha: 0.6 },
+    ],
+    sfx: { release: 'cast' },
+  },
+
+  riftTear: {
+    tone: TONE.riftTear,
+    deep: TONE_DEEP.riftTear,
+    css: 'var(--tone-riftTear)',
+    charge: { rate: 0.02, radius: 76, tighten: 0.6 },
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.18, width: 4.5, jitter: 30, forks: 3 },
+      ...DETONATE(84, 300),
+      { fx: 'burst', count: 22, speed: [180, 620], size: [5, 13], life: [0.35, 0.75], tint: 'mix', gravity: 200, drag: 1.4, tex: 'shard', endScale: 0.4 },
+      { fx: 'shake', amp: 7 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'cast', impact: 'hit-void', crit: 'crit-heavy' },
+  },
+
+  doorwayDuel: {
+    tone: TONE.doorwayDuel,
+    deep: TONE_DEEP.doorwayDuel,
+    css: 'var(--tone-doorwayDuel)',
+    // a door only two people fit through
+    release: [
+      { fx: 'ring', tint: 'tone', from: 30, to: 260, life: 0.5, alpha: 0.9 },
+      { fx: 'ring', tint: 'deep', from: 30, to: 340, life: 0.65, alpha: 0.5 },
+      { fx: 'flash', tint: 'tone', size: 120, life: 0.4, alpha: 0.8, grow: 1.6 },
+      { fx: 'rays', tint: 'hot', count: 8, reach: 200, width: 12, life: 0.3 },
+      { fx: 'shake', amp: 6, dur: 0.4 },
+    ],
+    aura: { rate: 0.04, alpha: 0.6 },
+    sfx: { release: 'boss' },
+  },
+
+  // ── allies and consequences ──────────────────────────────────────────
+
+  /** The exhumed echo / afterimage's blade. Spectral, quick, no theatrics. */
+  echo: {
+    tone: 0x9fe0c0,
+    deep: 0x4f8f6a,
+    css: 'oklch(0.83 0.09 160)',
+    impact: [
+      { fx: 'bolt', tint: 'tone', life: 0.11, width: 2.5, jitter: 8, forks: 0 },
+      { fx: 'flash', tint: 'tone', size: 44, life: 0.14, alpha: 0.6, grow: 1.6 },
+      { fx: 'burst', count: 6, speed: [120, 300], size: [3, 8], life: [0.2, 0.4], tint: 'mix', drag: 1.8 },
+    ],
+    sfx: { impact: 'claw' },
+  },
+
+  /** The Hourwarden's debt coming due: sand, everywhere, briefly. */
+  reckoning: {
+    tone: 0xd9c08a,
+    deep: 0x8f7a4f,
+    css: 'oklch(0.8 0.08 85)',
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 110, life: 0.3, alpha: 0.85, grow: 1.6 },
+      { fx: 'ring', tint: 'deep', from: 20, to: 220, life: 0.45, alpha: 0.7 },
+      { fx: 'burst', count: 30, speed: [80, 380], size: [4, 10], life: [0.4, 0.9], tint: 'mix', gravity: 520, drag: 1.1 },
+      { fx: 'shake', amp: 7, dur: 0.4 },
+    ],
+    sfx: { impact: 'shatter' },
+  },
+
+  /** The Bramble Ward biting whoever swung at it. */
+  thorns: {
+    tone: TONE.brambleWard,
+    deep: TONE_DEEP.brambleWard,
+    css: 'var(--tone-brambleWard)',
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 40, life: 0.16, alpha: 0.6, grow: 1.6 },
+      { fx: 'burst', count: 8, speed: [140, 360], size: [3, 9], life: [0.25, 0.5], tint: 'mix', drag: 1.6, stretch: 2.4 },
+    ],
+    sfx: { impact: 'claw' },
   },
 
   // ── what the enemy does to you ─────────────────────────────────────

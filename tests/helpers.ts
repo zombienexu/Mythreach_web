@@ -6,6 +6,7 @@ import type {
   EncounterDef,
   EnemyDef,
   EnemySnapshot,
+  HeroIdentity,
   MaterialDef,
   QuestDef,
   RegionDef,
@@ -89,10 +90,13 @@ export function testContent(
 
 export function blankSave(over: Partial<SaveData> = {}): SaveData {
   return {
-    version: 4,
+    version: 5,
     level: 1,
     xp: 0,
     gold: 0,
+    classId: 'arcanist',
+    originId: '',
+    signId: '',
     talents: {},
     equipped: {},
     inventory: [],
@@ -106,6 +110,7 @@ export function blankSave(over: Partial<SaveData> = {}): SaveData {
     records: { worldBossFells: 0, bestAssaultDamage: 0 },
     worldBossHp: 40_000,
     companionId: null,
+    ledgerPages: 0,
     autoBattle: false,
     ...over,
   }
@@ -141,6 +146,7 @@ export interface MakeSimOptions {
   level?: number
   content?: ContentPack
   save?: Partial<SaveData>
+  identity?: HeroIdentity
 }
 
 /** A sim on test content, optionally pre-leveled via the save path. */
@@ -148,9 +154,15 @@ export function makeSim(opts: MakeSimOptions = {}): GameSim {
   const content = opts.content ?? testContent()
   const rng = mulberry32(opts.seed ?? 1)
   if (opts.level !== undefined || opts.save !== undefined) {
-    return GameSim.deserialize(blankSave({ level: opts.level ?? 1, ...opts.save }), { content, rng })
+    const identityFields: Partial<SaveData> = opts.identity
+      ? { classId: opts.identity.classId, originId: opts.identity.originId, signId: opts.identity.signId }
+      : {}
+    return GameSim.deserialize(blankSave({ level: opts.level ?? 1, ...identityFields, ...opts.save }), {
+      content,
+      rng,
+    })
   }
-  return new GameSim({ content, rng })
+  return new GameSim({ content, rng, ...(opts.identity ? { identity: opts.identity } : {}) })
 }
 
 /** Put the next pack on the field: sweeps a pending loot screen, starts a

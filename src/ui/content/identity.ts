@@ -1,23 +1,27 @@
-/** Who you are before the first fireball: classes, origins, and birth signs.
+/** Who you are before the first fireball — the *presentation* half.
  *
- *  This is UI-owned *identity* content — the engine never reads it. One class
- *  is playable today (the Arcanist — the game you already have); the rest are
- *  sealed callings: fully designed, browsable at character creation, waiting
- *  for their chapter. Origins and signs are chosen now and *remembered* now,
- *  and will start echoing into the sim in a later update.
- */
+ *  The engine owns the mechanics (class kits, origin leanings, sign boons);
+ *  this file owns the poetry: epithets, lore, hues, and the constellation
+ *  art. Every id here is an engine id — the two halves are joined at
+ *  character creation and never drift, because the kit list and ability
+ *  names come straight from the engine registries. */
+import {
+  ABILITIES,
+  CLASS_KITS,
+  ORIGINS as ENGINE_ORIGINS,
+  SIGNS as ENGINE_SIGNS,
+  type ClassId,
+  type OriginDef,
+} from '../../engine'
 
-export type ClassId =
-  | 'arcanist'
-  | 'gravewright'
-  | 'hourwarden'
-  | 'cartomancer'
-  | 'thornspeaker'
-  | 'riftblade'
+export type { ClassId }
+export type { OriginDef }
 
 export interface ClassAbilityPreview {
   name: string
+  /** The blurb, in the atlas's voice. */
   blurb: string
+  unlockLevel: number
 }
 
 export interface ClassDef {
@@ -29,196 +33,154 @@ export interface ClassDef {
   role: string
   /** oklch hue angle that themes the class everywhere it appears. */
   hue: number
-  playable: boolean
   /** Two or three sentences, second person, in the atlas's voice. */
   lore: string
   /** The class gimmick — the thing no other calling gets. */
   mechanic: { name: string; text: string }
-  /** Three signature previews. For the Arcanist these are real; for sealed
-   *  callings they are the design promise. */
+  /** Three signature previews, real abilities from the engine kit. */
   abilities: ClassAbilityPreview[]
 }
 
-export const CLASSES: readonly ClassDef[] = [
-  {
-    id: 'arcanist',
-    name: 'Arcanist',
+/** The flavor half, keyed by engine class id. `signature` picks which three
+ *  kit abilities to preview, with a hand-written blurb each. */
+interface ClassFlavor {
+  epithet: string
+  hue: number
+  lore: string
+  mechanicText: string
+  signature: Array<{ id: string; blurb: string }>
+}
+
+const FLAVOR: Record<ClassId, ClassFlavor> = {
+  arcanist: {
     epithet: 'The Candle That Answers Back',
-    role: 'Spellweaver',
     hue: 195,
-    playable: true,
     lore:
       'You studied in the Observatory until the Observatory started studying you. Fire obeys you, the arcane hums under your fingernails, and a small stubborn light in your chest refuses to be put out. The classic calling — and the reach has never once regretted it.',
-    mechanic: {
-      name: 'The Weave',
-      text: 'Chain fire, arcane, and mending in one breath. Combustion turns a careful rotation into a bonfire; Counterspell shuts a caster’s mouth mid-word.',
-    },
-    abilities: [
-      { name: 'Fireball', blurb: 'The old reliable. Arcs across the field and lands with an opinion.' },
-      { name: 'Pyroblast', blurb: 'A long breath, then a very short argument.' },
-      { name: 'Renew', blurb: 'The candle relights itself. Healing over time, warm as a hearth.' },
+    mechanicText:
+      'Chain fire, arcane, and mending in one breath. Combustion turns a careful rotation into a bonfire; Counterspell shuts a caster’s mouth mid-word.',
+    signature: [
+      { id: 'fireball', blurb: 'The old reliable. Arcs across the field and lands with an opinion.' },
+      { id: 'pyroblast', blurb: 'A long breath, then a very short argument.' },
+      { id: 'renew', blurb: 'The candle relights itself. Healing over time, warm as a hearth.' },
     ],
   },
-  {
-    id: 'gravewright',
-    name: 'Gravewright',
+  gravewright: {
     epithet: 'Sexton of the Unquiet Field',
-    role: 'Summoner',
     hue: 135,
-    playable: false,
     lore:
       'Every kill in the reach is inked into somebody’s ledger. Yours. You keep the book of the fallen, and when you need a hand, you tear out a page and the page stands up. The dead don’t mind — it beats lying in the rain.',
-    mechanic: {
-      name: 'The Ledger of the Dead',
-      text: 'Slain foes are written into your ledger. Spend entries to raise brief, loyal echoes of the very monsters you buried.',
-    },
-    abilities: [
-      { name: 'Exhume', blurb: 'The last thing you killed fights the next thing you kill.' },
-      { name: 'Gravechill', blurb: 'A cold that files paperwork in the marrow. Damage over time.' },
-      { name: 'Last Rites', blurb: 'Trade a page of the ledger for a heartbeat of your own.' },
+    mechanicText:
+      'Every kill writes a page into your ledger. Spend pages on Last Rites and Exhume — or hold the whole book and slam it shut with Final Chapter.',
+    signature: [
+      { id: 'exhume', blurb: 'The last thing you killed fights the next thing you kill.' },
+      { id: 'gravechill', blurb: 'A cold that files paperwork in the marrow. It also slows the hand that swings.' },
+      { id: 'lastRites', blurb: 'Trade a page of the ledger for a heartbeat of your own.' },
     ],
   },
-  {
-    id: 'hourwarden',
-    name: 'Hourwarden',
+  hourwarden: {
     epithet: 'Keeper of the Borrowed Second',
-    role: 'Tempomancer',
     hue: 240,
-    playable: false,
     lore:
       'You keep time the way other people keep debts — carefully, and never in your favor for long. Every miracle is borrowed from a future you, and future you always collects. So far you have stayed one second ahead. So far.',
-    mechanic: {
-      name: 'Sand Debt',
-      text: 'Abilities borrow seconds from your future self. The debt comes due as a Reckoning — survive it, and the borrowing was free.',
-    },
-    abilities: [
-      { name: 'Split Second', blurb: 'Act twice. Owe once.' },
-      { name: 'Rewind Wound', blurb: 'The last blow that landed on you politely un-lands.' },
-      { name: 'Hourglass Shatter', blurb: 'The target experiences next Tuesday all at once.' },
+    mechanicText:
+      'Nothing you do has a cast time — everything adds Sand Debt, and every 16 seconds the Reckoning collects it in blood. Finish the fight first and the borrowing was free; or break the hourglass over their head and make the debt *theirs*.',
+    signature: [
+      { id: 'splitSecond', blurb: 'Act in both halves of the moment. Owe for both.' },
+      { id: 'rewindWound', blurb: 'The last blow that landed on you politely un-lands.' },
+      { id: 'hourglassShatter', blurb: 'The target experiences your entire debt all at once.' },
     ],
   },
-  {
-    id: 'cartomancer',
-    name: 'Cartomancer',
+  cartomancer: {
     epithet: 'Dealer of the Fifty-Third Card',
-    role: 'Gambler',
     hue: 80,
-    playable: false,
     lore:
       'Fifty-two cards describe the world. The fifty-third edits it. You found the deck in a dead man’s coat — or the deck found you, it enjoys telling the story both ways. You never draw a bad hand; you draw hands other people are bad at.',
-    mechanic: {
-      name: 'The Living Deck',
-      text: 'Each fight deals you a hand of fate. Every card plays once, every achievement shuffles a new card into the deck. The Wager loves you back.',
-    },
-    abilities: [
-      { name: 'Deal Fate', blurb: 'Flip the top card. It is never a two. It is occasionally a tower.' },
-      { name: 'House Rules', blurb: 'For six seconds, the odds work for you and hate it.' },
-      { name: 'Fold the World', blurb: 'Discard your hand. Reality discards something too.' },
+    mechanicText:
+      'Every fight deals you a hand of fate. Deal Fate plays the top card — a tower, a comet, an ace of hearts. Cut the deck when the hand is bad; fold the whole world when it’s worse.',
+    signature: [
+      { id: 'dealFate', blurb: 'Flip the top card. It is never a two. It is occasionally a tower.' },
+      { id: 'houseRules', blurb: 'For eight seconds, the odds work for you and hate it.' },
+      { id: 'foldTheWorld', blurb: 'Discard your hand. Reality discards something too.' },
     ],
   },
-  {
-    id: 'thornspeaker',
-    name: 'Thornspeaker',
+  thornspeaker: {
     epithet: 'Voice of the Patient Green',
-    role: 'Cultivator',
     hue: 150,
-    playable: false,
     lore:
       'The wilds do not hurry, and neither do you. You plant a quarrel the way others plant a garden and harvest it in screams of foliage. Long fights are your growing season — nothing outlasts a person the forest agrees with.',
-    mechanic: {
-      name: 'Rootbound Garden',
-      text: 'Seed the battlefield and your foes alike. Everything you plant keeps growing as the fight runs — the longer the hunt, the harder the bloom.',
-    },
-    abilities: [
-      { name: 'Sow Briar', blurb: 'A seed today, a hedge of knives tomorrow. Tomorrow comes fast.' },
-      { name: 'Sapdraw', blurb: 'Their vigor, rerouted. The garden must be watered.' },
-      { name: 'Verdant Cataract', blurb: 'The whole garden blooms at once. Bring shears. It won’t help.' },
+    mechanicText:
+      'Everything you plant keeps growing — each briar tick hits harder than the last. Force the bloom with Wildswell, or harvest the whole garden at once with Verdant Cataract.',
+    signature: [
+      { id: 'sowBriar', blurb: 'A seed today, a hedge of knives tomorrow. Tomorrow comes fast.' },
+      { id: 'sapdraw', blurb: 'Their vigor, rerouted. The garden must be watered.' },
+      { id: 'verdantCataract', blurb: 'The whole garden blooms at once. Bring shears. It won’t help.' },
     ],
   },
-  {
-    id: 'riftblade',
-    name: 'Riftblade',
+  riftblade: {
     epithet: 'Edge of the Elsewhere',
-    role: 'Spellblade',
     hue: 305,
-    playable: false,
     lore:
       'Somewhere between here and there is a seam, and you carry the only knife that fits it. You fight in footnotes — behind them, beside them, briefly *inside* the space they were standing in. Front row, back row: suggestions.',
-    mechanic: {
-      name: 'Blink Tempo',
-      text: 'Step through the seam between formation rows. Strikes from elsewhere ignore the front line entirely — position is a weapon.',
-    },
-    abilities: [
-      { name: 'Through-Cut', blurb: 'The blade arrives before you do. Rude, effective.' },
-      { name: 'Afterimage', blurb: 'Leave a you-shaped argument behind. It also has a sword.' },
-      { name: 'Doorway Duel', blurb: 'Drag one enemy into the elsewhere. Only you are invited back.' },
+    mechanicText:
+      'Fast strikes bank rift charges; Phase Edge spends them all on one blow from elsewhere. Seamstep makes the next hit miss the space you were in — and Doorway Duel locks the whole pack outside while you finish someone privately.',
+    signature: [
+      { id: 'throughCut', blurb: 'The blade arrives before you do. Rude, effective.' },
+      { id: 'afterimage', blurb: 'Leave a you-shaped argument behind. It also has a sword.' },
+      { id: 'doorwayDuel', blurb: 'Drag one enemy into the elsewhere. Only you are invited back.' },
     ],
   },
-]
+}
+
+export const CLASSES: readonly ClassDef[] = Object.values(CLASS_KITS).map((kit) => {
+  const flavor = FLAVOR[kit.id]
+  return {
+    id: kit.id,
+    name: kit.name,
+    epithet: flavor.epithet,
+    role: kit.role,
+    hue: flavor.hue,
+    lore: flavor.lore,
+    mechanic: { name: kit.mechanic, text: flavor.mechanicText },
+    abilities: flavor.signature.map((s) => {
+      const def = ABILITIES[s.id as keyof typeof ABILITIES]
+      return { name: def.name, blurb: s.blurb, unlockLevel: def.unlockLevel }
+    }),
+  }
+})
 
 export const CLASS_BY_ID: Record<ClassId, ClassDef> = Object.fromEntries(
   CLASSES.map((c) => [c.id, c]),
 ) as Record<ClassId, ClassDef>
 
-/** Where you were before the atlas had your name in it. Chosen now,
- *  remembered forever; starts granting a leaning (never a cage) later. */
-export interface OriginDef {
-  id: string
-  name: string
-  /** The flavor line. */
-  line: string
-  /** What it will one day mean, stated as a promise. */
-  promise: string
-}
-
-export const ORIGINS: readonly OriginDef[] = [
-  {
-    id: 'lamplit-scholar',
-    name: 'Lamplit Scholar',
-    line: 'Raised in the Observatory stacks, where the books read back.',
-    promise: 'Will lean toward wisdom — experience comes a little easier.',
-  },
-  {
-    id: 'ashmarch-survivor',
-    name: 'Ashmarch Survivor',
-    line: 'You walked out of a burning province. The province did not.',
-    promise: 'Will lean toward grit — a little more health, a lot more nerve.',
-  },
-  {
-    id: 'guild-courier',
-    name: 'Guild Courier',
-    line: 'You know every road in the reach and exactly what each toll-keeper drinks.',
-    promise: 'Will lean toward coin — gold finds a familiar pocket.',
-  },
-  {
-    id: 'hedgewitch-ward',
-    name: 'Hedge-Witch’s Ward',
-    line: 'Brought up on soup, superstition, and things that were technically true.',
-    promise: 'Will lean toward spirit — mana returns like it missed you.',
-  },
-]
+/** Where you were before the atlas had your name in it — engine truth,
+ *  boons and all. */
+export const ORIGINS = ENGINE_ORIGINS
 
 export const ORIGIN_BY_ID: Record<string, OriginDef> = Object.fromEntries(
   ORIGINS.map((o) => [o.id, o]),
 )
 
 /** The constellation overhead on the night you were written into the myth.
- *  Star coordinates live in a 0–100 box; `lines` joins star indices. */
+ *  Mechanics from the engine; star coordinates live in a 0–100 box and
+ *  `lines` joins star indices. */
 export interface SignDef {
   id: string
   name: string
   /** The omen, one line. */
   omen: string
+  /** What the stars actually do — engine truth. */
+  boon: string
   hue: number
   stars: ReadonlyArray<readonly [number, number]>
   lines: ReadonlyArray<readonly [number, number]>
 }
 
-export const SIGNS: readonly SignDef[] = [
-  {
-    id: 'lantern',
-    name: 'The Lantern',
-    omen: 'Lost things find you. Found things stay.',
+const SIGN_ART: Record<
+  string,
+  { hue: number; stars: SignDef['stars']; lines: SignDef['lines'] }
+> = {
+  lantern: {
     hue: 85,
     stars: [
       [50, 12],
@@ -237,10 +199,7 @@ export const SIGNS: readonly SignDef[] = [
       [4, 5],
     ],
   },
-  {
-    id: 'serpent',
-    name: 'The Serpent',
-    omen: 'Endings coil into beginnings. Bring both.',
+  serpent: {
     hue: 150,
     stars: [
       [14, 22],
@@ -262,10 +221,7 @@ export const SIGNS: readonly SignDef[] = [
       [6, 7],
     ],
   },
-  {
-    id: 'tower',
-    name: 'The Tower',
-    omen: 'You bend before you break — and then you don’t break.',
+  tower: {
     hue: 240,
     stars: [
       [38, 88],
@@ -287,10 +243,7 @@ export const SIGNS: readonly SignDef[] = [
       [5, 6],
     ],
   },
-  {
-    id: 'moth',
-    name: 'The Moth',
-    omen: 'Drawn to what burns. Unburnt — so far.',
+  moth: {
     hue: 305,
     stars: [
       [50, 30],
@@ -314,7 +267,12 @@ export const SIGNS: readonly SignDef[] = [
       [0, 7],
     ],
   },
-]
+}
+
+export const SIGNS: readonly SignDef[] = ENGINE_SIGNS.map((s) => {
+  const art = SIGN_ART[s.id]!
+  return { id: s.id, name: s.name, omen: s.omen, boon: s.boon, ...art }
+})
 
 export const SIGN_BY_ID: Record<string, SignDef> = Object.fromEntries(SIGNS.map((s) => [s.id, s]))
 

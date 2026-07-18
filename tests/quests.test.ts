@@ -185,7 +185,7 @@ describe('quest persistence', () => {
     huntUntil(sim, () => qv(sim, 'tq-dummy').state === 'complete')
     expect(sim.turnInQuest('tq-dummy')).toBe(true)
     const save = sim.serialize()
-    expect(save.version).toBe(4)
+    expect(save.version).toBe(5)
     const restored = GameSim.deserialize(JSON.parse(JSON.stringify(save)), {
       content,
       rng: mulberry32(2),

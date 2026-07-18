@@ -4,9 +4,11 @@ import {
   ABILITY_IDS,
   ACHIEVEMENT_BY_ID,
   GameSim,
+  abilityIdsFor,
   type AbilityId,
   type CombatEvent,
   type CombatSnapshot,
+  type HeroIdentity,
   type Item,
   type ProgressSnapshot,
   type SaveData,
@@ -29,7 +31,7 @@ import {
 } from './profile'
 import { Sfx, type SfxName } from './sfx'
 
-export type View = 'combat' | 'character' | 'talents' | 'regions' | 'quests' | 'chronicle' | 'settings'
+export type View = 'combat' | 'character' | 'talents' | 'regions' | 'quests' | 'hearth' | 'chronicle' | 'settings'
 
 export interface FloatText {
   id: number
@@ -65,26 +67,23 @@ const LANE_WIDTH = 68
 const LANE_FRESH_MS = 450
 const SAVE_EVERY_MS = 5000
 
-const KEY_TO_ABILITY: ReadonlyMap<string, AbilityId> = new Map(
-  ABILITY_IDS.map((id) => [ABILITIES[id].key, id]),
-)
-
 /** One slot per ability, seeded with `v`. */
 function byAbility<T>(v: T): Record<AbilityId, T> {
   return Object.fromEntries(ABILITY_IDS.map((id) => [id, v])) as Record<AbilityId, T>
 }
 
-function boot(store: SaveStore): GameSim {
+function boot(store: SaveStore, identity: HeroIdentity | undefined): GameSim {
+  const opts = identity ? { rng: Math.random, identity } : { rng: Math.random }
   try {
     const raw = store.load()
     if (raw) {
       const data = JSON.parse(raw) as SaveData
-      return GameSim.deserialize(data, { rng: Math.random })
+      return GameSim.deserialize(data, opts)
     }
   } catch {
     // corrupted or incompatible save — start fresh
   }
-  return new GameSim({ rng: Math.random })
+  return new GameSim(opts)
 }
 
 /** Reactive bridge between the pure sim and the Svelte UI.
@@ -140,13 +139,24 @@ export class Game implements FxHost {
   private toastTimer: ReturnType<typeof setTimeout> | null = null
   private progressDirty = false
 
+  /** The active class's action bar, in kit order — hotkeys 1..n map onto it. */
+  readonly kitIds: readonly AbilityId[]
+  private readonly keyToAbility: ReadonlyMap<string, AbilityId>
+
   constructor(slot: SlotId = 1) {
     this.slot = slot
     this.store = new SaveStore(localStorage, saveKeyFor(slot))
     this.profile = readProfile(localStorage, slot)
-    this.sim = boot(this.store)
+    // The profile carries the identity for saves that predate v5; a v5 save's
+    // own sealed-in identity wins inside deserialize.
+    const identity: HeroIdentity | undefined = this.profile
+      ? { classId: this.profile.classId, originId: this.profile.originId, signId: this.profile.signId }
+      : undefined
+    this.sim = boot(this.store, identity)
     this.combat = $state(this.sim.combatSnapshot())
     this.progress = $state(this.sim.progressSnapshot())
+    this.kitIds = abilityIdsFor(this.progress.classId)
+    this.keyToAbility = new Map(this.kitIds.map((id) => [ABILITIES[id].key, id]))
     this.muted = $state(loadSettings(localStorage).muted)
     this.auto = $state(this.sim.autoBattle)
   }
@@ -497,6 +507,19 @@ export class Game implements FxHost {
         this.audio.play('loot')
         break
       }
+      case 'cardPlayed':
+        // The Fifty-Third gets a proclamation; ordinary cards speak through
+        // their own effects (the numbers, the gold, the shield).
+        if (event.card === 'fiftyThird') {
+          this.showToast(event.label, 'The fifty-third card is played.')
+          this.audio.play('epic')
+        }
+        if (event.card === 'coins' || event.label === 'The Mint') this.progressDirty = true
+        break
+      case 'signIntervened':
+        this.showToast('The Tower holds', 'A killing blow leaves you at 1 HP. Once per fight.')
+        this.audio.play('barrier')
+        break
     }
   }
 
@@ -545,7 +568,7 @@ export class Game implements FxHost {
       this.lootAll()
       return
     }
-    const id = KEY_TO_ABILITY.get(e.key)
+    const id = this.keyToAbility.get(e.key)
     if (!id) return
     this.pressed.add(e.key)
     this.use(id)

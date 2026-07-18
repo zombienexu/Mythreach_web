@@ -61,14 +61,21 @@ a calling, an origin, and the constellation you were born under.
 
 ![Character creation](docs/shot-create.png)
 
-Six callings are designed; the **Arcanist** is playable today, and five sealed
-classes (Gravewright, Hourwarden, Cartomancer, Thornspeaker, Riftblade) are
-fully browsable — lore, signature mechanic, ability previews — awaiting later
-chapters. Origins and birth signs are chosen and remembered now, and will start
-echoing into the simulation later. All of this identity lives in the UI layer
-(`src/ui/content/identity.ts`); the engine never reads it.
+**All six callings are playable**, each with its own kit, talents, resource
+and auto-battle brain: the **Arcanist** (the classic rotation), the
+**Gravewright** (kills become ledger pages; pages become pets, heals, or one
+enormous Final Chapter), the **Hourwarden** (everything is instant, everything
+is borrowed, and every 16 seconds the Reckoning collects), the **Cartomancer**
+(a visible hand of fate cards, with control valves for the variance), the
+**Thornspeaker** (a briar that grows every tick — let it ride or harvest it),
+and the **Riftblade** (build rift charges with fast strikes, spend them all on
+one edge; lock a pack outside a Doorway Duel). Origins lean (+XP, +HP, +gold,
++regen) and birth signs intervene — the Tower turns one killing blow per fight
+into 1 HP. Design notes per class live in `docs/CLASSES.md`; mechanics live in
+the engine (`src/engine/content/classes.ts`, `identity.ts`), while the lore
+and constellation art stay UI-side (`src/ui/content/identity.ts`).
 
-In the world, your Arcanist hunts across **five free-choice regions** —
+In the world, your hero hunts across **five free-choice regions** —
 Hollowroot Cavern to the Ruined Spire, level bands 1–3 up to 13–15, all open
 from the start, none gated. Combat comes as **discrete, player-started
 fights**: press Start fight (or let auto-battle chain them) and a pack of one
@@ -325,24 +332,26 @@ unit rules (combatant, DoT, RNG), every ability's exact timing (GCD, queueing,
 fizzle refunds, cooldown-at-resolve), enemy mechanics and encounters on custom
 content packs, progression math pinned to formulas, item generation budgets,
 the fight/looting state machine, regions, quests, materials, the world boss,
-companion, save round-trips (including v1→v4 migration), save-slot and
+companion, save round-trips (including v1→v5 migration), save-slot and
 settings persistence, the identity content (classes, origins, signs, the name
-forge) — and a **balance envelope** that auto-plays the whole arc with a
-smart-player heuristic and asserts the feel (level cap inside 0.5–3 hours with
-few deaths). Balance changes that break the feel break the build.
+forge), every class's signature mechanic (`tests/classes.test.ts`) — and a
+**balance envelope** that auto-plays the whole arc with a smart-player
+heuristic and asserts the feel (level cap inside 0.5–3 hours with few deaths),
+plus a per-class smoke test that runs all six callings through 20 simulated
+minutes at level 1. Balance changes that break the feel break the build.
 
 `npm test` and `npm run check` green is the bar for every change.
 
 ## Where this goes next
 
-The loop is proven and both the content pack and the FX layer are data, so new
-spells, enemies and regions are cheap. The character-creation screen shows the
-declared roadmap: five sealed classes (each with a designed signature mechanic
-— a ledger of the dead, borrowed time, a living deck, a growing garden, a
-blade between formation rows), origins and birth signs waiting to echo into
-talents. Other candidates: crafting over the material bags, prestige/rebirth,
-more enemy mechanics, gear enchanting as a gold sink, and cloud saves. See
-`HANDOFF.md` for the working state of the codebase.
+The loop is proven and the content pack, the FX layer, the talents and the
+class kits are all data, so new spells, enemies, regions and even callings are
+cheap. With all six classes live, the candidates are: class-flavored quests
+and achievements, crafting over the material bags, prestige/rebirth, more
+enemy mechanics that interact with the class kits (dispellable buffs, adds
+worth burying), gear enchanting as a gold sink, and cloud saves. See
+`HANDOFF.md` for the working state of the codebase and `docs/CLASSES.md` for
+the class design notes.
 
 ## More shots
 

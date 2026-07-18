@@ -32,7 +32,7 @@
 
   const cls = $derived(CLASS_BY_ID[classId])
   const nameOk = $derived(validName(name))
-  const ready = $derived(nameOk && cls.playable)
+  const ready = $derived(nameOk)
 
   function begin(): void {
     if (!ready) return
@@ -85,18 +85,14 @@
         <button
           class="calling"
           class:selected={classId === c.id}
-          class:sealed={!c.playable}
           style:--ch={c.hue}
           role="option"
           aria-selected={classId === c.id}
           onclick={() => (classId = c.id)}
         >
-          <span class="c-emblem"><ClassEmblem classId={c.id} dim={!c.playable} /></span>
+          <span class="c-emblem"><ClassEmblem classId={c.id} /></span>
           <span class="c-name">{c.name}</span>
           <span class="c-role">{c.role}</span>
-          {#if !c.playable}
-            <span class="c-seal" title="Sealed">🜍</span>
-          {/if}
         </button>
       {/each}
     </div>
@@ -109,11 +105,7 @@
             <h3>{cls.name}</h3>
             <p class="epithet">{cls.epithet}</p>
           </div>
-          {#if !cls.playable}
-            <span class="sealed-badge">Sealed — awakens in a later chapter</span>
-          {:else}
-            <span class="ready-badge">Ready to swear</span>
-          {/if}
+          <span class="ready-badge">Ready to swear</span>
         </header>
         <p class="lore">{cls.lore}</p>
         <div class="mechanic">
@@ -123,7 +115,10 @@
         <div class="abilities">
           {#each cls.abilities as a (a.name)}
             <div class="ability">
-              <span class="a-name">{a.name}</span>
+              <span class="a-head">
+                <span class="a-name">{a.name}</span>
+                <span class="a-lvl num">Lv {a.unlockLevel}</span>
+              </span>
               <span class="a-blurb">{a.blurb}</span>
             </div>
           {/each}
@@ -135,7 +130,7 @@
   <!-- III. The Origin -->
   <section class="chapter" style:--i={2} aria-label="Origin">
     <h2 class="rule"><span class="numeral">III</span> The Origin</h2>
-    <p class="chapter-note">Where you were before the atlas knew your name. Remembered now; it starts to matter in a later chapter.</p>
+    <p class="chapter-note">Where you were before the atlas knew your name. A leaning, never a cage.</p>
     <div class="origins">
       {#each ORIGINS as o (o.id)}
         <button
@@ -146,7 +141,7 @@
         >
           <span class="o-name">{o.name}</span>
           <span class="o-line">{o.line}</span>
-          <span class="o-promise">{o.promise}</span>
+          <span class="o-promise">{o.boon}</span>
         </button>
       {/each}
     </div>
@@ -155,7 +150,7 @@
   <!-- IV. The Sign -->
   <section class="chapter" style:--i={3} aria-label="Birth sign">
     <h2 class="rule"><span class="numeral">IV</span> The Sign Overhead</h2>
-    <p class="chapter-note">The constellation on the night you were written in. The stars remember, and someday the talents will too.</p>
+    <p class="chapter-note">The constellation on the night you were written in. The stars remember — and now they act.</p>
     <div class="signs">
       {#each SIGNS as s (s.id)}
         <button
@@ -168,15 +163,14 @@
           <span class="s-map"><SignMark sign={s} lit={signId === s.id} /></span>
           <span class="s-name">{s.name}</span>
           <span class="s-omen">{s.omen}</span>
+          <span class="s-boon">{s.boon}</span>
         </button>
       {/each}
     </div>
   </section>
 
   <footer class="foot" style:--i={4}>
-    {#if !cls.playable}
-      <p class="foot-note">The {cls.name}’s gate is sealed for now — study it, covet it, but swear the Arcanist today.</p>
-    {:else if !nameOk}
+    {#if !nameOk}
       <p class="foot-note">The page is waiting on a name.</p>
     {:else}
       <p class="foot-note">{name.trim()}, {cls.name} — born under {SIGNS.find((s) => s.id === signId)?.name}.</p>
@@ -349,27 +343,11 @@
     font-weight: 580;
   }
 
-  .calling.sealed .c-name {
-    color: var(--text-dim);
-  }
-
   .c-role {
     font-size: 9.5px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: oklch(0.72 0.09 var(--ch));
-  }
-
-  .calling.sealed .c-role {
-    color: oklch(0.55 0.03 80);
-  }
-
-  .c-seal {
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    font-size: 11px;
-    color: oklch(0.65 0.08 85 / 0.8);
   }
 
   /* ---- class detail plate --------------------------------------------- */
@@ -410,7 +388,6 @@
     color: var(--text-dim);
   }
 
-  .sealed-badge,
   .ready-badge {
     font-size: 10.5px;
     font-weight: 640;
@@ -418,12 +395,7 @@
     text-transform: uppercase;
     padding: 4px 10px;
     border-radius: 99px;
-    border: 1px solid oklch(0.65 0.08 85 / 0.4);
-    color: oklch(0.72 0.09 85);
-  }
-
-  .ready-badge {
-    border-color: oklch(0.75 0.12 160 / 0.5);
+    border: 1px solid oklch(0.75 0.12 160 / 0.5);
     color: oklch(0.78 0.13 160);
   }
 
@@ -473,11 +445,24 @@
     background: oklch(0.8 0.02 260 / 0.04);
   }
 
+  .a-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+
   .a-name {
     font-family: var(--font-display);
     font-size: 13.5px;
     font-weight: 600;
     color: oklch(0.85 0.08 var(--ch));
+  }
+
+  .a-lvl {
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
   }
 
   .a-blurb {
@@ -580,6 +565,12 @@
     font-style: italic;
     line-height: 1.45;
     color: var(--text-dim);
+  }
+
+  .s-boon {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: oklch(0.75 0.09 var(--sh) / 0.9);
   }
 
   /* ---- footer ----------------------------------------------------------- */

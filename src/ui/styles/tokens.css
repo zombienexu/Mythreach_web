@@ -38,6 +38,7 @@
 
   /* Spell tones — each school of magic owns a hue, and every surface that
      speaks for a spell (icon, cast bar, float, particles) uses its tone. */
+  /* arcanist */
   --tone-fireball: oklch(0.7 0.19 40);
   --tone-ignite: oklch(0.72 0.15 300);
   --tone-renew: oklch(0.78 0.15 160);
@@ -45,6 +46,42 @@
   --tone-counterspell: oklch(0.8 0.11 195);
   --tone-barrier: oklch(0.85 0.06 240);
   --tone-combustion: oklch(0.8 0.13 80);
+  /* gravewright — grave-lantern greens and bone */
+  --tone-gravebolt: oklch(0.75 0.12 145);
+  --tone-gravechill: oklch(0.78 0.1 200);
+  --tone-lastRites: oklch(0.82 0.1 130);
+  --tone-exhume: oklch(0.7 0.11 145);
+  --tone-requiem: oklch(0.72 0.13 155);
+  --tone-boneward: oklch(0.86 0.04 110);
+  --tone-finalChapter: oklch(0.74 0.15 145);
+  /* hourwarden — clock-blue and glass */
+  --tone-secondhandStrike: oklch(0.75 0.11 250);
+  --tone-rewindWound: oklch(0.82 0.07 220);
+  --tone-splitSecond: oklch(0.78 0.1 270);
+  --tone-stasis: oklch(0.83 0.08 210);
+  --tone-borrowedBlade: oklch(0.7 0.12 255);
+  --tone-hourglassShatter: oklch(0.84 0.08 260);
+  /* cartomancer — gilt and lamplight */
+  --tone-cardflick: oklch(0.83 0.11 85);
+  --tone-dealFate: oklch(0.85 0.13 85);
+  --tone-cutTheDeck: oklch(0.83 0.06 85);
+  --tone-houseRules: oklch(0.88 0.1 90);
+  --tone-foldTheWorld: oklch(0.79 0.12 70);
+  --tone-fiftyThirdCard: oklch(0.93 0.08 90);
+  /* thornspeaker — every green the reach has */
+  --tone-thornlash: oklch(0.8 0.15 135);
+  --tone-sowBriar: oklch(0.72 0.14 140);
+  --tone-sapdraw: oklch(0.83 0.13 130);
+  --tone-brambleWard: oklch(0.8 0.08 130);
+  --tone-wildswell: oklch(0.85 0.13 150);
+  --tone-verdantCataract: oklch(0.82 0.16 145);
+  /* riftblade — the violet elsewhere */
+  --tone-throughCut: oklch(0.75 0.15 310);
+  --tone-seamstep: oklch(0.75 0.12 290);
+  --tone-phaseEdge: oklch(0.74 0.16 330);
+  --tone-afterimage: oklch(0.78 0.1 295);
+  --tone-riftTear: oklch(0.72 0.17 340);
+  --tone-doorwayDuel: oklch(0.75 0.14 315);
 
   --radius: 10px;
   --radius-sm: 6px;

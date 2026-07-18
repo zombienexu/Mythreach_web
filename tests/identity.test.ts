@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { ABILITIES } from '../src/engine/abilities'
+import { CLASS_IDS, CLASS_KITS } from '../src/engine/content/classes'
 import {
   CLASSES,
   CLASS_BY_ID,
   ORIGINS,
   SIGNS,
+  SIGN_BY_ID,
   forgeName,
   validName,
 } from '../src/ui/content/identity'
@@ -15,9 +18,17 @@ describe('callings', () => {
     for (const c of CLASSES) expect(CLASS_BY_ID[c.id]).toBe(c)
   })
 
-  it('the Arcanist is playable today; sealed callings exist to be coveted', () => {
-    expect(CLASS_BY_ID.arcanist.playable).toBe(true)
-    expect(CLASSES.some((c) => !c.playable)).toBe(true)
+  it('all six callings are real: flavor joins an engine kit, and previews are real abilities', () => {
+    expect(CLASSES).toHaveLength(CLASS_IDS.length)
+    for (const c of CLASSES) {
+      const kit = CLASS_KITS[c.id]
+      expect(kit, c.id).toBeDefined()
+      const kitNames = new Set(kit.abilities.map((id) => ABILITIES[id].name))
+      for (const a of c.abilities) {
+        expect(kitNames.has(a.name), `${c.id} previews '${a.name}', not in its kit`).toBe(true)
+      }
+      expect(c.mechanic.name).toBe(kit.mechanic)
+    }
   })
 
   it('every calling is fully designed: lore, mechanic, three ability previews, a hue', () => {
@@ -34,10 +45,21 @@ describe('callings', () => {
 })
 
 describe('origins and signs', () => {
-  it('origin ids are unique and each carries a promise', () => {
+  it('origin ids are unique and each carries a real boon', () => {
     const ids = ORIGINS.map((o) => o.id)
     expect(new Set(ids).size).toBe(ids.length)
-    for (const o of ORIGINS) expect(o.promise).toContain('Will lean')
+    for (const o of ORIGINS) {
+      expect(o.boon.length, o.id).toBeGreaterThan(10)
+      // The promise came due: every origin actually does something.
+      expect(Object.keys(o.effects).length, o.id).toBeGreaterThan(0)
+    }
+  })
+
+  it('every sign has a boon and a mechanical effect', () => {
+    for (const s of SIGNS) {
+      expect(s.boon.length, s.id).toBeGreaterThan(10)
+      expect(Object.keys(SIGN_BY_ID[s.id]!).length, s.id).toBeGreaterThan(0)
+    }
   })
 
   it('sign ids are unique and every constellation line joins real stars', () => {

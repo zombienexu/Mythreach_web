@@ -14,6 +14,7 @@
   import CharacterView from './views/CharacterView.svelte'
   import ChronicleView from './views/ChronicleView.svelte'
   import CombatView from './views/CombatView.svelte'
+  import HearthView from './views/HearthView.svelte'
   import QuestsView from './views/QuestsView.svelte'
   import SettingsView from './views/SettingsView.svelte'
   import TalentsView from './views/TalentsView.svelte'
@@ -36,6 +37,7 @@
     talents: 'Talents',
     regions: 'Regions',
     quests: 'Quests',
+    hearth: 'Hearth',
     chronicle: 'Chronicle',
     settings: 'Settings',
   }
@@ -79,6 +81,8 @@
           <AtlasView {game} />
         {:else if game.view === 'quests'}
           <QuestsView {game} />
+        {:else if game.view === 'hearth'}
+          <HearthView {game} />
         {:else if game.view === 'settings'}
           <SettingsView {game} {onexit} />
         {:else}

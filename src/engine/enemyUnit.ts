@@ -22,8 +22,14 @@ export class EnemyUnit {
   castCooldown = 0
   /** Ticks until the next venom application. */
   venomTimer = 0
-  /** The player's burn on this enemy. */
-  ignite: Dot | null = null
+  /** The player's affliction on this enemy (Ignite, Gravechill, Briar…). */
+  bane: Dot | null = null
+  /** What the FX layer should paint the bane with — the ability that set it. */
+  baneSource: string | null = null
+  /** While the bane chills, swings land this % slower (Gravechill). */
+  chillPct = 0
+  /** Ticks left outside time (Stasis, Doorway Duel). Frozen mobs do nothing. */
+  frozen = 0
   /** Spoils banked at death, cleared when the player loots the corpse. */
   loot: LootBundle | null = null
 
@@ -53,9 +59,14 @@ export class EnemyUnit {
   }
 
   get swingTicks(): number {
-    const base = this.def.swingTicks
+    let base = this.def.swingTicks
     const mech = this.enrageMech
-    return this.enraged && mech ? Math.max(10, Math.round(base * mech.swingMult)) : base
+    if (this.enraged && mech) base = Math.max(10, Math.round(base * mech.swingMult))
+    // A chilled thing swings through syrup, enraged or not.
+    if (this.chillPct > 0 && this.bane?.active) {
+      base = Math.round((base * (100 + this.chillPct)) / 100)
+    }
+    return base
   }
 
   get dmgRange(): [number, number] {
@@ -98,10 +109,15 @@ export class EnemyUnit {
           }
         : null,
       enraged: this.enraged,
+      frozenTicks: this.frozen,
       loot: this.loot,
       dot:
-        this.ignite && this.ignite.active
-          ? { name: this.ignite.name, remainingTicks: this.ignite.remainingTicks }
+        this.bane && this.bane.active
+          ? {
+              name: this.bane.name,
+              remainingTicks: this.bane.remainingTicks,
+              ...(this.baneSource !== null ? { source: this.baneSource } : {}),
+            }
           : null,
     }
   }

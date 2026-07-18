@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { RESPEC_COST, TALENT_IDS, TALENTS } from '../../engine'
+  import { CLASS_KITS, RESPEC_COST, TALENTS } from '../../engine'
   import type { Game } from '../game.svelte'
 
   let { game }: { game: Game } = $props()
 
   const points = $derived(game.progress.talentPoints)
-  const spent = $derived(TALENT_IDS.reduce((s, id) => s + game.progress.talentRanks[id], 0))
+  const kitTalents = $derived(CLASS_KITS[game.progress.classId].talents)
+  const spent = $derived(kitTalents.reduce((s, id) => s + game.progress.talentRanks[id], 0))
 </script>
 
 <section class="glass pane" aria-label="Talents">
@@ -25,7 +26,7 @@
   </header>
 
   <div class="grid">
-    {#each TALENT_IDS as id (id)}
+    {#each kitTalents as id (id)}
       {@const def = TALENTS[id]}
       {@const rank = game.progress.talentRanks[id]}
       <div class="talent" class:maxed={rank >= def.maxRanks}>

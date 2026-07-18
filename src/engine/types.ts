@@ -1,4 +1,28 @@
+/** The six callings. The engine owns the ids; the UI owns the poetry. */
+export type ClassId =
+  | 'arcanist'
+  | 'gravewright'
+  | 'hourwarden'
+  | 'cartomancer'
+  | 'thornspeaker'
+  | 'riftblade'
+
+/** Who this hero is, mechanically: calling + origin + birth sign. Chosen at
+ *  character creation, echoed into every derived stat. */
+export interface HeroIdentity {
+  classId: ClassId
+  originId: string
+  signId: string
+}
+
+export const DEFAULT_IDENTITY: HeroIdentity = {
+  classId: 'arcanist',
+  originId: '',
+  signId: '',
+}
+
 export type AbilityId =
+  // ── arcanist ──
   | 'fireball'
   | 'ignite'
   | 'renew'
@@ -6,8 +30,57 @@ export type AbilityId =
   | 'counterspell'
   | 'barrier'
   | 'combustion'
+  // ── gravewright ──
+  | 'gravebolt'
+  | 'gravechill'
+  | 'lastRites'
+  | 'exhume'
+  | 'requiem'
+  | 'boneward'
+  | 'finalChapter'
+  // ── hourwarden ──
+  | 'secondhandStrike'
+  | 'rewindWound'
+  | 'splitSecond'
+  | 'stasis'
+  | 'borrowedBlade'
+  | 'hourglassShatter'
+  // ── cartomancer ──
+  | 'cardflick'
+  | 'dealFate'
+  | 'cutTheDeck'
+  | 'houseRules'
+  | 'foldTheWorld'
+  | 'fiftyThirdCard'
+  // ── thornspeaker ──
+  | 'thornlash'
+  | 'sowBriar'
+  | 'sapdraw'
+  | 'brambleWard'
+  | 'wildswell'
+  | 'verdantCataract'
+  // ── riftblade ──
+  | 'throughCut'
+  | 'seamstep'
+  | 'phaseEdge'
+  | 'afterimage'
+  | 'riftTear'
+  | 'doorwayDuel'
+
 export type Side = 'player' | 'enemy'
-export type School = 'fire' | 'arcane' | 'holy'
+
+/** Each calling casts in its own school; a school owns a damage-bonus lane
+ *  (talents, buffs) and a visual identity. */
+export type School =
+  | 'fire'
+  | 'arcane'
+  | 'holy'
+  | 'shadow'
+  | 'temporal'
+  | 'fortune'
+  | 'nature'
+  | 'rift'
+
 export type StatId = 'power' | 'stamina' | 'spirit' | 'crit'
 export type ItemSlot = 'staff' | 'hood' | 'robe' | 'ring' | 'trinket'
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic'
@@ -21,14 +94,77 @@ export type PortraitFamily =
   | 'revenant'
   | 'titan'
   | 'void'
+
 export type TalentId =
+  // ── arcanist ──
   | 'impFireball'
   | 'searingFlames'
   | 'criticalMass'
   | 'fortitude'
   | 'meditation'
   | 'swiftRenewal'
-export type BuffId = 'barrier' | 'combustion'
+  // ── gravewright ──
+  | 'inkOfTheFallen'
+  | 'deeperCuts'
+  | 'swiftQuill'
+  | 'boundEchoes'
+  | 'gravePact'
+  | 'oldBones'
+  // ── hourwarden ──
+  | 'borrowedTime'
+  | 'finePrint'
+  | 'quickHands'
+  | 'compoundInterest'
+  | 'patientDebt'
+  | 'longCon'
+  // ── cartomancer ──
+  | 'loadedDice'
+  | 'sleightOfHand'
+  | 'extraAce'
+  | 'crookedHouse'
+  | 'luckyPenny'
+  | 'toughCrowd'
+  // ── thornspeaker ──
+  | 'patientGreen'
+  | 'deepRoots'
+  | 'sapSurge'
+  | 'fullBloom'
+  | 'rootedCalm'
+  | 'thickBark'
+  // ── riftblade ──
+  | 'honedEdge'
+  | 'fleetFooted'
+  | 'mirrorTraining'
+  | 'duelistsEye'
+  | 'widenedSeam'
+  | 'scarTissue'
+
+export type BuffId =
+  | 'barrier'
+  | 'combustion'
+  | 'splitSecond'
+  | 'houseRules'
+  | 'wildswell'
+  | 'seamstep'
+  | 'doorway'
+
+/** The Cartomancer's living deck. */
+export type CardId = 'tower' | 'comet' | 'knives' | 'hearts' | 'moon' | 'coins'
+
+/** Class-specific talent dials, read by the sim where the mechanic lives. */
+export type ClassMod =
+  | 'ledgerCap'
+  | 'echoDmgPct'
+  | 'lastRitesHealPct'
+  | 'reckoningReliefPct'
+  | 'shatterBonusPct'
+  | 'extraDraw'
+  | 'houseRulesTicks'
+  | 'briarTicks'
+  | 'sapHealPct'
+  | 'cataractPct'
+  | 'afterimageDmgPct'
+  | 'chargeCap'
 
 /** Difficulty band of a region and the tier of material it yields. */
 export type RegionTier = 'low' | 'medium' | 'hard'
@@ -49,6 +185,18 @@ export const RESPEC_COST = 50
 /** How long auto-battle catches its breath in idle before starting the next
  *  fight (1 s at 20 tps). Manual play ignores it — click when ready. */
 export const AUTO_REST_TICKS = 20
+
+// ── class mechanic constants ──
+/** Ledger pages the Gravewright can hold before talents. */
+export const LEDGER_CAP_BASE = 3
+/** How often the Hourwarden's debt comes due, in combat ticks. */
+export const RECKONING_INTERVAL_TICKS = 320 // 16 s
+/** Share of the debt the Reckoning collects, percent. */
+export const RECKONING_RATE_PCT = 80
+/** Cards in a fresh Cartomancer hand before talents. */
+export const HAND_SIZE_BASE = 3
+/** Rift charges the Riftblade can bank before talents. */
+export const RIFT_CHARGE_CAP_BASE = 5
 
 export interface Item {
   uid: number
@@ -233,7 +381,9 @@ export interface ContentPack {
   quests: readonly QuestDef[]
 }
 
-/** Everything the combat math needs, derived from level + talents + gear. */
+/** Everything the combat math needs, derived from identity + level + talents
+ *  + gear. Class-agnostic lanes (school bonuses, cast cuts, class dials) so a
+ *  new calling never grows a new field here. */
 export interface DerivedStats {
   power: number
   stamina: number
@@ -243,12 +393,26 @@ export interface DerivedStats {
   maxMana: number
   /** Mana restored every REGEN_INTERVAL_TICKS. */
   regenPerInterval: number
-  fireballCastTicks: number
-  renewCastTicks: number
-  /** Fire-school damage multiplier, percent (100 = unmodified). */
-  fireMultPct: number
-  /** Healing multiplier, percent. */
+  /** Global cooldown, after talents (Riftblade tempo). */
+  gcdTicks: number
+  /** Per-ability cast-time reduction from talents, in ticks. */
+  castTickCut: Partial<Record<AbilityId, number>>
+  /** Bonus damage per school, percent (0 = unmodified). */
+  schoolBonusPct: Partial<Record<School, number>>
+  /** Healing multiplier, percent (100 = unmodified). */
   healMultPct: number
+  /** Identity leanings: XP and gold multipliers, percent (100 = unmodified). */
+  xpMultPct: number
+  goldMultPct: number
+  /** Sign leanings: additive drop-chance bonuses, percent points. */
+  dropBonusPct: number
+  materialBonusPct: number
+  /** Respawn-time reduction, percent (0 = the full wait). */
+  respawnCutPct: number
+  /** The Tower overhead: once per fight, a killing blow leaves you at 1 HP. */
+  cheatDeath: boolean
+  /** Class-specific talent dials. */
+  mods: Partial<Record<ClassMod, number>>
 }
 
 export interface CastSnapshot {
@@ -262,12 +426,14 @@ export interface CastSnapshot {
 export interface DotSnapshot {
   name: string
   remainingTicks: number
+  /** What put it there — the FX layer picks the aura's colours by source. */
+  source?: string
 }
 
 export interface BuffSnapshot {
   id: BuffId
   remainingTicks: number
-  /** Absorb remaining, for barrier. */
+  /** Absorb remaining, for barrier-type shields. */
   amount?: number
 }
 
@@ -282,6 +448,15 @@ export interface PlayerSnapshot {
   buffs: BuffSnapshot[]
   dot: DotSnapshot | null
 }
+
+/** The class resource, as the UI sees it. Null for callings that run on
+ *  rotation alone (the Arcanist's Weave). */
+export type ClassResourceSnapshot =
+  | { kind: 'ledger'; pages: number; cap: number; buried: string | null }
+  | { kind: 'debt'; debt: number; reckoningIn: number }
+  | { kind: 'hand'; cards: CardId[] }
+  | { kind: 'growth'; perTick: number; remainingTicks: number }
+  | { kind: 'charge'; charge: number; cap: number }
 
 /** The spoils banked on a corpse, waiting to be looted. Material names are
  *  resolved at roll time so the view needs no content lookup. */
@@ -313,6 +488,8 @@ export interface EnemySnapshot {
   swingProgress: number
   cast: EnemyCastSnapshot | null
   enraged: boolean
+  /** Ticks left outside time (Stasis, Doorway Duel). 0 = acting normally. */
+  frozenTicks: number
   dot: DotSnapshot | null
   /** Unlooted spoils on a corpse; null while alive or once collected. */
   loot: LootBundle | null
@@ -333,6 +510,10 @@ export interface CombatSnapshot {
   cooldowns: Record<AbilityId, number>
   gcdRemaining: number
   autoBattle: boolean
+  /** The class mechanic's live state, or null for resource-less callings. */
+  resource: ClassResourceSnapshot | null
+  /** A raised echo / afterimage fighting beside you, or null. */
+  echo: { name: string; swingProgress: number; remainingTicks: number } | null
   /** The hired companion's live swing state, or null when none is hired. */
   companion: { name: string; swingProgress: number } | null
 }
@@ -370,6 +551,9 @@ export interface ProgressSnapshot {
   xp: number
   xpToNext: number
   gold: number
+  classId: ClassId
+  originId: string
+  signId: string
   stats: DerivedStats
   unlockedAbilities: AbilityId[]
   talentPoints: number
@@ -392,10 +576,14 @@ export interface ProgressSnapshot {
 }
 
 export interface SaveData {
-  version: 4
+  version: 5
   level: number
   xp: number
   gold: number
+  /** Identity, sealed into the save at creation. */
+  classId: ClassId
+  originId: string
+  signId: string
   talents: Partial<Record<TalentId, number>>
   equipped: Partial<Record<ItemSlot, Item>>
   inventory: Item[]
@@ -414,5 +602,7 @@ export interface SaveData {
   worldBossHp: number
   /** Hired companion id, or null. */
   companionId: string | null
+  /** The Gravewright's banked pages — the one class resource that persists. */
+  ledgerPages: number
   autoBattle: boolean
 }

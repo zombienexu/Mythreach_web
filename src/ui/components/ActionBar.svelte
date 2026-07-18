@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { ABILITIES, ABILITY_IDS, type AbilityId, type CastSnapshot } from '../../engine'
+  import { ABILITIES, type AbilityId, type CastSnapshot } from '../../engine'
   import { ticksToSeconds } from '../format'
   import AbilityButton from './AbilityButton.svelte'
   import Bar from './Bar.svelte'
 
   let {
+    abilityIds,
     cast,
     queued,
     cooldowns,
@@ -16,6 +17,8 @@
     denied,
     onactivate,
   }: {
+    /** The active class's kit, in bar order. */
+    abilityIds: readonly AbilityId[]
     cast: CastSnapshot | null
     queued: AbilityId | null
     cooldowns: Record<AbilityId, number>
@@ -58,7 +61,7 @@
   </div>
 
   <div class="buttons" role="toolbar" aria-label="Abilities">
-    {#each ABILITY_IDS as id (id)}
+    {#each abilityIds as id (id)}
       <AbilityButton
         def={ABILITIES[id]}
         cooldown={cooldowns[id]}

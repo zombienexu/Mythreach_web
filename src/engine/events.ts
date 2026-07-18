@@ -1,6 +1,17 @@
-import type { AbilityId, BuffId, EnemyRank, Item, Side } from './types'
+import type { AbilityId, BuffId, CardId, EnemyRank, Item, Side } from './types'
 
-export type DamageSource = AbilityId | 'enemySwing' | 'enemyCast' | 'venom' | 'companion'
+export type DamageSource =
+  | AbilityId
+  | 'enemySwing'
+  | 'enemyCast'
+  | 'venom'
+  | 'companion'
+  /** A raised ally's blade (Exhume, Afterimage). */
+  | 'echo'
+  /** The Hourwarden's debt coming due. */
+  | 'reckoning'
+  /** The Bramble Ward biting back. */
+  | 'thorns'
 
 /** Discriminated union of one-shot happenings; the UI's only event source. */
 export type CombatEvent =
@@ -53,3 +64,14 @@ export type CombatEvent =
   | { kind: 'worldBossFelled' }
   // ── companion ──
   | { kind: 'companionHired'; id: string; name: string }
+  // ── class mechanics ──
+  /** Deal Fate (or the Fifty-Third) flipped a card. */
+  | { kind: 'cardPlayed'; card: CardId | 'fiftyThird'; label: string }
+  /** An echo or afterimage stood up. */
+  | { kind: 'echoRaised'; name: string }
+  /** The Hourwarden's Reckoning collected. */
+  | { kind: 'reckoning'; amount: number }
+  /** A mob was locked out of time (Stasis, Doorway Duel). */
+  | { kind: 'enemyFrozen'; iid: number; name: string }
+  /** The birth sign stepped in: a killing blow left you at 1 HP. */
+  | { kind: 'signIntervened' }

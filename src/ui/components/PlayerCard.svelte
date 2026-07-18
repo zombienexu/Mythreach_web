@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PlayerSnapshot } from '../../engine'
+  import type { BuffId, ClassId, PlayerSnapshot } from '../../engine'
   import { ticksToSeconds } from '../format'
   import type { Impact } from '../game.svelte'
   import Bar from './Bar.svelte'
@@ -11,12 +11,38 @@
     level,
     impact,
     bloom = 0,
+    name = 'You',
+    classId = 'arcanist',
   }: {
     player: PlayerSnapshot
     level: number
     impact: Impact
     bloom?: number
+    name?: string
+    classId?: ClassId
   } = $props()
+
+  /** Chip copy for every buff in the game — a new buff is a row, not a fork. */
+  const BUFF_NAMES: Record<BuffId, string> = {
+    barrier: 'Barrier',
+    combustion: 'Combustion',
+    splitSecond: 'Split Second',
+    houseRules: 'House Rules',
+    wildswell: 'Wildswell',
+    seamstep: 'Seamstep',
+    doorway: 'Doorway Duel',
+  }
+
+  /** Each buff's chip hue (oklch angle) — barrier stays its icy self. */
+  const BUFF_HUES: Record<BuffId, number> = {
+    barrier: 240,
+    combustion: 55,
+    splitSecond: 240,
+    houseRules: 80,
+    wildswell: 150,
+    seamstep: 305,
+    doorway: 305,
+  }
 
   const hpFrac = $derived(player.maxHp > 0 ? player.hp / player.maxHp : 1)
   const critical = $derived(player.alive && hpFrac < 0.35)
@@ -63,7 +89,7 @@
   <Filigree />
   <div class="body">
     <div class="portrait" data-fx-anchor="player">
-      <HeroPortrait />
+      <HeroPortrait {classId} />
       <!-- Barrier is a thing you can see holding, and see break. -->
       {#if player.shield > 0}
         <span class="shell" aria-hidden="true"></span>
@@ -72,7 +98,7 @@
 
     <div class="info">
       <div class="name-row">
-        <h3 class="name">You</h3>
+        <h3 class="name">{name}</h3>
         <span class="level num" title="Level">Lv {level}</span>
       </div>
       <div class="hp-row">
@@ -93,8 +119,8 @@
   <!-- buffs & afflictions, space reserved so the card never reflows -->
   <div class="chips">
     {#each player.buffs as buff (buff.id)}
-      <span class="chip {buff.id}">
-        <span class="chip-name">{buff.id === 'barrier' ? 'Barrier' : 'Combustion'}</span>
+      <span class="chip" style:--bh={BUFF_HUES[buff.id]}>
+        <span class="chip-name">{BUFF_NAMES[buff.id]}</span>
         <span class="num">{ticksToSeconds(buff.remainingTicks)}s</span>
       </span>
     {/each}
@@ -273,17 +299,12 @@
     }
   }
 
-  .chip.barrier {
-    color: var(--shield);
-    background: oklch(0.85 0.06 240 / 0.09);
-    border: 1px solid oklch(0.85 0.06 240 / 0.3);
-  }
-
-  .chip.combustion {
-    color: oklch(0.8 0.15 55);
-    background: oklch(0.8 0.15 55 / 0.1);
-    border: 1px solid oklch(0.8 0.15 55 / 0.35);
-    box-shadow: 0 0 14px oklch(0.8 0.15 55 / 0.2);
+  .chip {
+    --bh: 240;
+    color: oklch(0.8 0.12 var(--bh));
+    background: oklch(0.8 0.12 var(--bh) / 0.09);
+    border: 1px solid oklch(0.8 0.12 var(--bh) / 0.32);
+    box-shadow: 0 0 14px oklch(0.8 0.12 var(--bh) / 0.15);
   }
 
   .chip.venom {

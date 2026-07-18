@@ -2,10 +2,32 @@ import {
   ABILITIES,
   ABILITY_EFFECTS,
   ABILITY_IDS,
+  AFTERIMAGE_DURATION_TICKS,
+  AFTERIMAGE_SWING_TICKS,
+  CARD_IDS,
+  CARDS,
+  CATARACT_PCT,
   COMBUSTION_CRIT_BONUS,
   COMBUSTION_FIRE_BONUS_PCT,
+  DOORWAY_DAMAGE_BONUS_PCT,
+  DOORWAY_FREEZE_TICKS,
+  ECHO_DURATION_TICKS,
+  ECHO_SWING_TICKS,
+  FINAL_CHAPTER_MAX_PER_PAGE,
+  FINAL_CHAPTER_MIN_PER_PAGE,
+  FOLD_MAX_PER_CARD,
+  FOLD_MIN_PER_CARD,
+  HOUSE_RULES_CRIT_BONUS,
+  PHASE_EDGE_MAX_PER_CHARGE,
+  PHASE_EDGE_MIN_CHARGES,
+  PHASE_EDGE_MIN_PER_CHARGE,
+  REWIND_HEAL_PCT,
+  RIFT_TEAR_SPLASH_PCT,
+  STASIS_FREEZE_TICKS,
+  type AbilityEffect,
 } from './abilities'
 import { ACHIEVEMENT_BY_ID } from './content/achievements'
+import { CLASS_KITS, type ClassKit } from './content/classes'
 import { COMPANIONS } from './content/companions'
 import { generateItem, sellValue } from './content/items'
 import { DEFAULT_CONTENT } from './content/regions'
@@ -14,9 +36,10 @@ import { WORLD_BOSS, WORLD_BOSS_MAX_HP } from './content/worldboss'
 import { Dot } from './dot'
 import { EnemyUnit } from './enemyUnit'
 import type { CombatEvent, DamageSource } from './events'
-import { PlayerUnit } from './playerUnit'
+import { PlayerUnit, type TimedBuffId } from './playerUnit'
 import {
   abilitiesUnlockedAt,
+  castTicksFor,
   deriveStats,
   talentPointsEarned,
   talentPointsSpent,
@@ -26,11 +49,14 @@ import {
 import { pickOne, pickWeighted, rollInt, rollPct, type Rng } from './rng'
 import type {
   AbilityId,
+  CardId,
+  ClassResourceSnapshot,
   CombatSnapshot,
   ContentPack,
   DerivedStats,
   EncounterSlot,
   EnemyDef,
+  HeroIdentity,
   Item,
   ItemSlot,
   LifetimeStats,
@@ -49,13 +75,18 @@ import type {
 } from './types'
 import {
   AUTO_REST_TICKS,
-  GCD_TICKS,
+  DEFAULT_IDENTITY,
+  HAND_SIZE_BASE,
   INVENTORY_CAP,
+  LEDGER_CAP_BASE,
   LEVEL_CAP,
   MAX_ACTIVE_QUESTS,
   PLAYER_RESPAWN_TICKS,
+  RECKONING_INTERVAL_TICKS,
+  RECKONING_RATE_PCT,
   REGEN_INTERVAL_TICKS,
   RESPEC_COST,
+  RIFT_CHARGE_CAP_BASE,
 } from './types'
 
 export interface SimOptions {
@@ -63,6 +94,9 @@ export interface SimOptions {
   /** Required: the engine owns no wall clock and no ambient randomness. The UI
    *  passes the platform PRNG; tests pass a seeded `mulberry32`. */
   rng: Rng
+  /** Who this hero is. Defaults to a signless, originless Arcanist — every
+   *  save that predates the callings. */
+  identity?: HeroIdentity
 }
 
 /** The whole game: pure, synchronous, integer-tick simulation of combat AND
@@ -72,6 +106,8 @@ export class GameSim {
   private tickCount = 0
   private readonly content: ContentPack
   private readonly rng: Rng
+  private identity: HeroIdentity
+  private kit: ClassKit
 
   // ── progression ──
   private level = 1
@@ -129,11 +165,54 @@ export class GameSim {
   constructor(opts: SimOptions) {
     this.content = opts.content ?? DEFAULT_CONTENT
     this.rng = opts.rng
+    this.identity = { ...DEFAULT_IDENTITY, ...opts.identity }
+    this.kit = CLASS_KITS[this.identity.classId]
     const first = this.content.regions[0]
     if (!first) throw new Error('content pack has no regions')
     this.region = first
-    this.stats = deriveStats(this.level, this.talents, this.equipped)
+    this.stats = deriveStats(this.identity, this.level, this.talents, this.equipped)
     this.player = new PlayerUnit(this.stats)
+  }
+
+  // ─────────────────────── class mechanic dials ───────────────────────
+
+  private get ledgerCap(): number {
+    return LEDGER_CAP_BASE + (this.stats.mods.ledgerCap ?? 0)
+  }
+
+  private get handSize(): number {
+    return HAND_SIZE_BASE + (this.stats.mods.extraDraw ?? 0)
+  }
+
+  private get chargeCap(): number {
+    return RIFT_CHARGE_CAP_BASE + (this.stats.mods.chargeCap ?? 0)
+  }
+
+  private drawHand(): CardId[] {
+    const cards: CardId[] = []
+    for (let i = 0; i < this.handSize; i++) {
+      cards.push(
+        pickWeighted(
+          this.rng,
+          CARD_IDS.map((id) => ({ value: id, weight: CARDS[id].weight })),
+        ),
+      )
+    }
+    return cards
+  }
+
+  /** Per-fight class state: the deadline resets, the hand is dealt fresh,
+   *  the charges drain, the Tower's grace returns. Pages persist — they are
+   *  the ledger's whole point. */
+  private resetFightState(): void {
+    const p = this.player
+    p.cheatedDeath = false
+    p.lastHitTaken = 0
+    p.debt = 0
+    p.reckoningIn = RECKONING_INTERVAL_TICKS
+    p.charges = 0
+    p.doorwayTarget = null
+    if (this.kit.resource === 'hand') p.hand = this.drawHand()
   }
 
   /** Start the next fight: mostly a normal encounter, occasionally an elite.
@@ -150,6 +229,7 @@ export class GameSim {
       (s) => new EnemyUnit(this.enemyDef(s.enemyId), this.nextIid++, s.row ?? 'front'),
     )
     this.phase = 'combat'
+    this.resetFightState()
     this.autoTarget()
     for (const e of this.enemies) {
       this.push({
@@ -221,6 +301,15 @@ export class GameSim {
       p.combustion--
       if (p.combustion === 0) this.push({ kind: 'buffExpired', id: 'combustion' })
     }
+    for (const [id, remaining] of p.buffs) {
+      if (remaining <= 0) continue
+      p.buffs.set(id, remaining - 1)
+      if (remaining - 1 === 0) {
+        p.buffs.delete(id)
+        if (id === 'doorway') p.doorwayTarget = null
+        this.push({ kind: 'buffExpired', id })
+      }
+    }
     if (p.shield) {
       p.shield.remaining--
       if (p.shield.remaining <= 0) {
@@ -271,6 +360,26 @@ export class GameSim {
       }
     }
 
+    // The Hourwarden's deadline. It only collects mid-fight — the debt is a
+    // combat debt, and surviving to the bell means the borrowing was free.
+    if (this.kit.resource === 'debt' && (this.phase === 'combat' || this.phase === 'assault')) {
+      p.reckoningIn--
+      if (p.reckoningIn <= 0) {
+        p.reckoningIn = RECKONING_INTERVAL_TICKS
+        if (p.debt > 0) {
+          const relief = this.stats.mods.reckoningReliefPct ?? 0
+          const due = Math.max(
+            1,
+            Math.round((p.debt * RECKONING_RATE_PCT * Math.max(0, 100 - relief)) / 10_000),
+          )
+          p.debt = 0
+          this.push({ kind: 'reckoning', amount: due })
+          this.damagePlayer(due, 'reckoning', 'The Reckoning')
+          if (!p.alive) return this.drain()
+        }
+      }
+    }
+
     // Venom on the hero.
     if (p.venom) {
       const venomName = p.venom.name
@@ -282,26 +391,47 @@ export class GameSim {
       }
     }
 
+    // The raised ally swings on its own clock.
+    this.echoSwing()
+
     // Enemy phase: every living mob in the pack acts. Iterate over a copy —
     // a death can clear the whole array mid-loop when the pack goes down.
     for (const e of [...this.enemies]) {
       if (!e.combatant.alive) continue
 
-      // The hero's burn.
-      if (e.ignite) {
-        const due = e.ignite.tick()
-        if (!e.ignite.active) e.ignite = null
-        if (due > 0) {
-          const dealt = e.combatant.damage(due)
-          if (dealt > 0) {
-            this.push({ kind: 'damage', target: 'enemy', iid: e.iid, amount: dealt, absorbed: 0, crit: false, source: 'ignite' })
+      // The hero's affliction burns whether or not the mob can act — and under
+      // Wildswell the whole garden ticks double-time.
+      if (e.bane) {
+        const banePasses = p.hasBuff('wildswell') ? 2 : 1
+        let died = false
+        for (let pass = 0; pass < banePasses && e.bane; pass++) {
+          const source = (e.baneSource ?? 'ignite') as DamageSource
+          const due = e.bane.tick()
+          if (!e.bane.active) {
+            e.bane = null
+            e.baneSource = null
+            e.chillPct = 0
           }
-          if (!e.combatant.alive) {
-            this.onEnemyKilled(e)
-            continue
+          if (due > 0) {
+            const dealt = e.combatant.damage(due)
+            if (dealt > 0) {
+              this.push({ kind: 'damage', target: 'enemy', iid: e.iid, amount: dealt, absorbed: 0, crit: false, source })
+            }
+            if (!e.combatant.alive) {
+              this.onEnemyKilled(e)
+              died = true
+              break
+            }
+            if (e.checkEnrage()) this.push({ kind: 'enemyEnraged', iid: e.iid, name: e.def.name })
           }
-          if (e.checkEnrage()) this.push({ kind: 'enemyEnraged', iid: e.iid, name: e.def.name })
         }
+        if (died) continue
+      }
+
+      // Outside time: no swings, no spells, a cast in flight simply holds.
+      if (e.frozen > 0) {
+        e.frozen--
+        continue
       }
 
       if (e.cast) {
@@ -350,6 +480,28 @@ export class GameSim {
     return this.autoThenDrain()
   }
 
+  /** The exhumed echo / afterimage: swings at your target, takes no damage,
+   *  and fades on its timer. */
+  private echoSwing(): void {
+    const p = this.player
+    const echo = p.echo
+    if (!echo) return
+    echo.remaining--
+    if (echo.remaining <= 0) {
+      p.echo = null
+      return
+    }
+    if (this.living.length === 0 || this.target === null || !p.alive) {
+      echo.swingElapsed = 0
+      return
+    }
+    echo.swingElapsed++
+    if (echo.swingElapsed < echo.swingTicks) return
+    echo.swingElapsed = 0
+    const amount = Math.max(1, this.rollRange(echo.dmgMin, echo.dmgMax))
+    this.damageEnemy(amount, false, 'echo')
+  }
+
   /** The hireling swings on its own clock at your current target, in any combat
    *  (battle/elite/boss/assault). It never crits and takes no damage. Idle — and
    *  timer reset — the moment there is nothing to hit. */
@@ -380,13 +532,31 @@ export class GameSim {
   canUse(id: AbilityId): boolean {
     const def = ABILITIES[id]
     const p = this.player
+    if (def.classId !== this.kit.id) return false
     if (!p.alive || this.level < def.unlockLevel) return false
     if (p.cooldowns[id] > 0) return false
     if (p.mana < def.manaCost) return false
     // Counterspell reads your *target's* lips — switching to the caster is the play.
     if (id === 'counterspell') return this.target?.cast != null
     if (def.offensive && this.target === null) return false
-    return true
+    // Class-resource gates: no page, no rite; no charge, no edge.
+    switch (id) {
+      case 'lastRites':
+      case 'finalChapter':
+        return p.pages >= 1
+      case 'exhume':
+        return p.pages >= 1 && p.buried !== null
+      case 'rewindWound':
+        return p.lastHitTaken > 0
+      case 'phaseEdge':
+        return p.charges >= PHASE_EDGE_MIN_CHARGES
+      case 'foldTheWorld':
+        return p.hand.length >= 1
+      case 'verdantCataract':
+        return this.target?.bane?.active === true && this.target.baneSource === 'sowBriar'
+      default:
+        return true
+    }
   }
 
   /** Start, queue, or resolve an ability. Returns false when refused outright. */
@@ -395,7 +565,7 @@ export class GameSim {
     const def = ABILITIES[id]
     const p = this.player
     if (def.offGcd) {
-      // Counterspell: fires immediately, even mid-cast.
+      // Counterspell / Stasis: fires immediately, even mid-cast.
       p.mana = Math.max(0, p.mana - def.manaCost)
       p.cooldowns[id] = def.cooldownTicks
       this.applyEffect(id)
@@ -423,17 +593,11 @@ export class GameSim {
     return true
   }
 
-  private castTicksOf(id: AbilityId): number {
-    if (id === 'fireball') return this.stats.fireballCastTicks
-    if (id === 'renew') return this.stats.renewCastTicks
-    return ABILITIES[id].castTicks
-  }
-
   private startAbility(id: AbilityId): void {
     const def = ABILITIES[id]
     const p = this.player
-    p.gcd = GCD_TICKS
-    const castTicks = this.castTicksOf(id)
+    p.gcd = this.stats.gcdTicks
+    const castTicks = castTicksFor(this.stats, id)
     if (castTicks > 0) {
       p.cast = { id, elapsed: 0, total: castTicks }
       this.push({ kind: 'castStarted', abilityId: id })
@@ -461,49 +625,102 @@ export class GameSim {
     this.applyEffect(id)
   }
 
+  /** rollInt, unless House Rules is in effect — then every roll is its max. */
+  private rollRange(min: number, max: number): number {
+    if (this.player.hasBuff('houseRules')) return max
+    return rollInt(this.rng, min, max)
+  }
+
+  private critChance(school: School): number {
+    let chance = this.stats.critPct
+    if (school === 'fire' && this.player.combustion > 0) chance += COMBUSTION_CRIT_BONUS
+    if (this.player.hasBuff('houseRules')) chance += HOUSE_RULES_CRIT_BONUS
+    return chance
+  }
+
   private rollSpell(min: number, max: number, school: School): { amount: number; crit: boolean } {
-    let amount = Math.round((rollInt(this.rng, min, max) * (100 + this.stats.power)) / 100)
-    let critChance = this.stats.critPct
-    if (school === 'fire') {
-      let pct = this.stats.fireMultPct
-      if (this.player.combustion > 0) {
-        pct += COMBUSTION_FIRE_BONUS_PCT
-        critChance += COMBUSTION_CRIT_BONUS
-      }
-      amount = Math.round((amount * pct) / 100)
-    }
-    const crit = rollPct(this.rng, critChance)
+    let amount = Math.round((this.rollRange(min, max) * (100 + this.stats.power)) / 100)
+    let pct = 100 + (this.stats.schoolBonusPct[school] ?? 0)
+    if (school === 'fire' && this.player.combustion > 0) pct += COMBUSTION_FIRE_BONUS_PCT
+    amount = Math.round((amount * pct) / 100)
+    const crit = rollPct(this.rng, this.critChance(school))
     if (crit) amount = Math.round((amount * 7) / 4)
     return { amount, crit }
+  }
+
+  private rollHeal(min: number, max: number, bonusPct = 0): { amount: number; crit: boolean } {
+    let amount = Math.round(
+      (this.rollRange(min, max) * this.stats.healMultPct * (100 + bonusPct)) / 10_000,
+    )
+    let chance = this.stats.critPct
+    if (this.player.hasBuff('houseRules')) chance += HOUSE_RULES_CRIT_BONUS
+    const crit = rollPct(this.rng, chance)
+    if (crit) amount = Math.round((amount * 7) / 4)
+    return { amount, crit }
+  }
+
+  private healPlayer(amount: number, crit: boolean, source: AbilityId): void {
+    const healed = this.player.combatant.heal(amount)
+    if (healed > 0) this.push({ kind: 'heal', target: 'player', amount: healed, crit, source })
+  }
+
+  private applyBuff(id: TimedBuffId, durationTicks: number): void {
+    this.player.buffs.set(id, durationTicks)
+    this.push({ kind: 'buffApplied', id })
+  }
+
+  private applyDotToTarget(
+    effect: Extract<AbilityEffect, { kind: 'dot' }>,
+    source: AbilityId,
+    name: string,
+    school: School,
+  ): void {
+    const e = this.target
+    if (!e) return
+    // The affliction snapshots power (and fire's combustion) at apply time;
+    // its ticks never crit.
+    let tickDmg = Math.round((effect.tickDamage * (100 + this.stats.power)) / 100)
+    let pct = 100 + (this.stats.schoolBonusPct[school] ?? 0)
+    if (school === 'fire' && this.player.combustion > 0) pct += COMBUSTION_FIRE_BONUS_PCT
+    tickDmg = Math.max(1, Math.round((tickDmg * pct) / 100))
+    let ticks = effect.tickCount
+    if (source === 'sowBriar') ticks += this.stats.mods.briarTicks ?? 0
+    e.bane = new Dot(name, tickDmg, effect.intervalTicks, ticks, effect.growth ?? 0)
+    e.baneSource = source
+    e.chillPct = effect.chillPct ?? 0
+    this.push({ kind: 'dotApplied', target: 'enemy', iid: e.iid, name, abilityId: source })
   }
 
   private applyEffect(id: AbilityId): void {
     const def = ABILITIES[id]
     const effect = ABILITY_EFFECTS[id]
     const p = this.player
+    // The borrowing happens as the ability fires — before its damage can end
+    // the fight and settle the books (a killing blow still forgives its debt,
+    // because onEncounterCleared wipes the slate *after* this).
+    if (def.debt) p.debt = Math.min(100, p.debt + def.debt)
+    if (def.chargeGain) p.charges = Math.min(this.chargeCap, p.charges + def.chargeGain)
     switch (effect.kind) {
       case 'damage': {
-        const { amount, crit } = this.rollSpell(effect.min, effect.max, def.school)
-        this.damageEnemy(amount, crit, id)
+        // Split Second: the Hourwarden's strike lands in both halves of the moment.
+        const strikes = id === 'secondhandStrike' && p.hasBuff('splitSecond') ? 2 : 1
+        for (let i = 0; i < strikes && this.target; i++) {
+          const { amount, crit } = this.rollSpell(effect.min, effect.max, def.school)
+          this.damageEnemy(amount, crit, id)
+        }
+        break
+      }
+      case 'aoe': {
+        this.damageAllEnemies(effect.min, effect.max, def.school, id)
         break
       }
       case 'dot': {
-        const e = this.target
-        if (!e) break
-        // The burn snapshots power/combustion at apply time; its ticks never crit.
-        let tickDmg = Math.round((effect.tickDamage * (100 + this.stats.power)) / 100)
-        const pct = this.stats.fireMultPct + (p.combustion > 0 ? COMBUSTION_FIRE_BONUS_PCT : 0)
-        tickDmg = Math.max(1, Math.round((tickDmg * pct) / 100))
-        e.ignite = new Dot(def.name, tickDmg, effect.intervalTicks, effect.tickCount)
-        this.push({ kind: 'dotApplied', target: 'enemy', iid: e.iid, name: def.name, abilityId: id })
+        this.applyDotToTarget(effect, id, def.name, def.school)
         break
       }
       case 'heal': {
-        let amount = Math.round((rollInt(this.rng, effect.min, effect.max) * this.stats.healMultPct) / 100)
-        const crit = rollPct(this.rng, this.stats.critPct)
-        if (crit) amount = Math.round((amount * 7) / 4)
-        const healed = p.combatant.heal(amount)
-        if (healed > 0) this.push({ kind: 'heal', target: 'player', amount: healed, crit, source: id })
+        const { amount, crit } = this.rollHeal(effect.min, effect.max)
+        this.healPlayer(amount, crit, id)
         break
       }
       case 'interrupt': {
@@ -520,15 +737,277 @@ export class GameSim {
       }
       case 'shield': {
         const amount = effect.base + effect.perLevel * this.level
-        p.shield = { amount, remaining: effect.durationTicks }
+        const thorns =
+          effect.thornsBase !== undefined
+            ? effect.thornsBase + (effect.thornsPerLevel ?? 0) * this.level
+            : 0
+        p.shield = { amount, remaining: effect.durationTicks, thorns }
         this.push({ kind: 'buffApplied', id: 'barrier', amount })
         break
       }
       case 'buff': {
-        p.combustion = effect.durationTicks
-        this.push({ kind: 'buffApplied', id: 'combustion' })
+        if (effect.buff === 'combustion') {
+          p.combustion = effect.durationTicks
+          this.push({ kind: 'buffApplied', id: 'combustion' })
+        } else {
+          let duration = effect.durationTicks
+          if (id === 'houseRules') duration += this.stats.mods.houseRulesTicks ?? 0
+          // 'barrier' never ships as a buff effect — shields use kind 'shield'.
+          this.applyBuff(effect.buff as TimedBuffId, duration)
+        }
         break
       }
+      case 'special': {
+        this.applySpecial(id)
+        break
+      }
+    }
+  }
+
+  /** Hit every living enemy (Requiem, the Comet, Fold the World). Rolls per
+   *  mob, so a pack takes a spread, not a stamp. */
+  private damageAllEnemies(min: number, max: number, school: School, source: DamageSource): void {
+    for (const e of [...this.living]) {
+      const { amount, crit } = this.rollSpell(min, max, school)
+      this.damageEnemyUnit(e, amount, crit, source)
+    }
+  }
+
+  // ─────────────────────── class specials ───────────────────────
+
+  private applySpecial(id: AbilityId): void {
+    const p = this.player
+    switch (id) {
+      // ── gravewright ──
+      case 'lastRites': {
+        p.pages--
+        const { amount, crit } = this.rollHeal(24, 32, this.stats.mods.lastRitesHealPct ?? 0)
+        this.healPlayer(amount, crit, id)
+        break
+      }
+      case 'exhume': {
+        if (!p.buried) break
+        p.pages--
+        p.echo = {
+          name: p.buried.name,
+          dmgMin: p.buried.dmgMin,
+          dmgMax: p.buried.dmgMax,
+          swingTicks: ECHO_SWING_TICKS,
+          swingElapsed: 0,
+          remaining: ECHO_DURATION_TICKS,
+        }
+        this.push({ kind: 'echoRaised', name: p.buried.name })
+        break
+      }
+      case 'finalChapter': {
+        const pages = p.pages
+        p.pages = 0
+        const { amount, crit } = this.rollSpell(
+          FINAL_CHAPTER_MIN_PER_PAGE * pages,
+          FINAL_CHAPTER_MAX_PER_PAGE * pages,
+          'shadow',
+        )
+        this.damageEnemy(amount, crit, id)
+        break
+      }
+
+      // ── hourwarden ──
+      case 'rewindWound': {
+        const base = Math.max(1, Math.round((p.lastHitTaken * REWIND_HEAL_PCT) / 100))
+        const amount = Math.round((base * this.stats.healMultPct) / 100)
+        this.healPlayer(amount, false, id)
+        break
+      }
+      case 'stasis': {
+        const e = this.target
+        if (!e) break
+        e.frozen = Math.max(e.frozen, STASIS_FREEZE_TICKS)
+        if (e.cast) {
+          const name = e.cast.mech.name
+          e.castCooldown = e.cast.mech.cooldownTicks
+          e.cast = null
+          this.lifetime.interrupts++
+          this.push({ kind: 'interrupted', iid: e.iid, name })
+          this.checkAchievement('interrupts-10', this.lifetime.interrupts >= 10)
+        }
+        this.push({ kind: 'enemyFrozen', iid: e.iid, name: e.def.name })
+        break
+      }
+      case 'hourglassShatter': {
+        const bonus = 100 + (this.stats.mods.shatterBonusPct ?? 0)
+        const debtDamage = Math.round((p.debt * bonus) / 100)
+        p.debt = 0
+        const { amount, crit } = this.rollSpell(18, 26, 'temporal')
+        this.damageEnemy(amount + debtDamage, crit, id)
+        break
+      }
+
+      // ── cartomancer ──
+      case 'dealFate': {
+        if (p.hand.length === 0) {
+          p.hand = this.drawHand()
+          break
+        }
+        const card = p.hand.shift()!
+        this.playCard(card)
+        break
+      }
+      case 'cutTheDeck': {
+        p.hand = this.drawHand()
+        break
+      }
+      case 'foldTheWorld': {
+        const n = p.hand.length
+        p.hand = []
+        this.damageAllEnemies(FOLD_MIN_PER_CARD * n, FOLD_MAX_PER_CARD * n, 'fortune', id)
+        break
+      }
+      case 'fiftyThirdCard': {
+        this.playFiftyThird()
+        break
+      }
+
+      // ── thornspeaker ──
+      case 'sapdraw': {
+        const e = this.target
+        if (!e) break
+        const { amount, crit } = this.rollSpell(14, 20, 'nature')
+        const dealt = this.damageEnemyUnit(e, amount, crit, id)
+        if (dealt > 0) {
+          const heal = Math.max(1, Math.round((dealt * (100 + (this.stats.mods.sapHealPct ?? 0))) / 100))
+          this.healPlayer(heal, false, id)
+        }
+        break
+      }
+      case 'verdantCataract': {
+        const e = this.target
+        if (!e?.bane?.active) break
+        const owed = e.bane.consume()
+        e.bane = null
+        e.baneSource = null
+        e.chillPct = 0
+        const pct = CATARACT_PCT + (this.stats.mods.cataractPct ?? 0)
+        const amount = Math.max(1, Math.round((owed * pct) / 100))
+        this.damageEnemy(amount, false, id)
+        break
+      }
+
+      // ── riftblade ──
+      case 'phaseEdge': {
+        const charges = p.charges
+        p.charges = 0
+        const { amount, crit } = this.rollSpell(
+          PHASE_EDGE_MIN_PER_CHARGE * charges,
+          PHASE_EDGE_MAX_PER_CHARGE * charges,
+          'rift',
+        )
+        this.damageEnemy(amount, crit, id)
+        break
+      }
+      case 'afterimage': {
+        const base = 6 + 2 * this.level
+        const pct = 100 + (this.stats.mods.afterimageDmgPct ?? 0)
+        p.echo = {
+          name: 'Afterimage',
+          dmgMin: Math.max(1, Math.round(((base - 2) * pct) / 100)),
+          dmgMax: Math.max(2, Math.round(((base + 2) * pct) / 100)),
+          swingTicks: AFTERIMAGE_SWING_TICKS,
+          swingElapsed: 0,
+          remaining: AFTERIMAGE_DURATION_TICKS,
+        }
+        this.push({ kind: 'echoRaised', name: 'Afterimage' })
+        break
+      }
+      case 'riftTear': {
+        const e = this.target
+        if (!e) break
+        const { amount, crit } = this.rollSpell(26, 36, 'rift')
+        this.damageEnemyUnit(e, amount, crit, id)
+        const splash = Math.max(1, Math.round((amount * RIFT_TEAR_SPLASH_PCT) / 100))
+        for (const other of [...this.living]) {
+          if (other.iid === e.iid) continue
+          this.damageEnemyUnit(other, splash, false, id)
+        }
+        break
+      }
+      case 'doorwayDuel': {
+        const e = this.target
+        if (!e) break
+        p.doorwayTarget = e.iid
+        this.applyBuff('doorway', DOORWAY_FREEZE_TICKS)
+        for (const other of this.living) {
+          if (other.iid === e.iid) continue
+          other.frozen = Math.max(other.frozen, DOORWAY_FREEZE_TICKS)
+          this.push({ kind: 'enemyFrozen', iid: other.iid, name: other.def.name })
+        }
+        break
+      }
+
+      default:
+        break
+    }
+  }
+
+  /** Deal Fate's flip: one card, one swing of fortune. */
+  private playCard(card: CardId): void {
+    const def = CARDS[card]
+    this.push({ kind: 'cardPlayed', card, label: def.name })
+    const fx = def.effect
+    switch (fx.kind) {
+      case 'damage': {
+        const { amount, crit } = this.rollSpell(fx.min, fx.max, 'fortune')
+        this.damageEnemy(amount, crit, 'dealFate')
+        break
+      }
+      case 'aoe':
+        this.damageAllEnemies(fx.min, fx.max, 'fortune', 'dealFate')
+        break
+      case 'dot':
+        this.applyDotToTarget(
+          { kind: 'dot', tickDamage: fx.tickDamage, intervalTicks: fx.intervalTicks, tickCount: fx.tickCount },
+          'dealFate',
+          def.name,
+          'fortune',
+        )
+        break
+      case 'heal': {
+        const { amount, crit } = this.rollHeal(fx.min, fx.max)
+        this.healPlayer(amount, crit, 'dealFate')
+        break
+      }
+      case 'shield': {
+        const amount = fx.base + fx.perLevel * this.level
+        this.player.shield = { amount, remaining: fx.durationTicks, thorns: 0 }
+        this.push({ kind: 'buffApplied', id: 'barrier', amount })
+        break
+      }
+      case 'gold':
+        this.addGold(this.rollRange(fx.min, fx.max), 'kill')
+        break
+    }
+  }
+
+  /** The card that edits the world. Weighted so the modal outcome is violence. */
+  private playFiftyThird(): void {
+    const p = this.player
+    const roll = this.rng() * 100
+    if (roll < 45) {
+      this.push({ kind: 'cardPlayed', card: 'fiftyThird', label: 'The Unmaking' })
+      const { amount, crit } = this.rollSpell(60, 80, 'fortune')
+      this.damageEnemy(amount, crit, 'fiftyThirdCard')
+    } else if (roll < 65) {
+      this.push({ kind: 'cardPlayed', card: 'fiftyThird', label: 'The World, Redrawn' })
+      p.venom = null
+      this.healPlayer(p.combatant.maxHp, false, 'fiftyThirdCard')
+    } else if (roll < 80) {
+      this.push({ kind: 'cardPlayed', card: 'fiftyThird', label: 'The Mint' })
+      this.addGold(this.rollRange(40, 80), 'kill')
+    } else {
+      this.push({ kind: 'cardPlayed', card: 'fiftyThird', label: 'The Mirror' })
+      const amount = 30 + 6 * this.level
+      p.shield = { amount, remaining: 400, thorns: 0 }
+      this.push({ kind: 'buffApplied', id: 'barrier', amount })
+      p.hand = this.drawHand()
     }
   }
 
@@ -537,16 +1016,40 @@ export class GameSim {
   private damagePlayer(raw: number, source: DamageSource, label?: string, iid?: number): void {
     const p = this.player
     if (!p.alive || raw <= 0) return
+    // Seamstep: the blow lands in the space you were standing in. One blow —
+    // the step is spent whether it was a scratch or a decapitation.
+    if (
+      (source === 'enemySwing' || source === 'enemyCast') &&
+      p.hasBuff('seamstep')
+    ) {
+      p.buffs.delete('seamstep')
+      this.push({ kind: 'buffExpired', id: 'seamstep' })
+      this.push({ kind: 'damage', target: 'player', iid, amount: 0, absorbed: raw, crit: false, source, label })
+      return
+    }
     let absorbed = 0
     if (p.shield) {
       absorbed = Math.min(p.shield.amount, raw)
       p.shield.amount -= absorbed
-      if (p.shield.amount <= 0) {
+      // The Bramble Ward bites whatever it just caught.
+      if (absorbed > 0 && p.shield.thorns > 0 && iid !== undefined && (source === 'enemySwing' || source === 'enemyCast')) {
+        const attacker = this.enemies.find((e) => e.iid === iid && e.combatant.alive)
+        if (attacker) this.damageEnemyUnit(attacker, p.shield.thorns, false, 'thorns')
+      }
+      if (p.shield && p.shield.amount <= 0) {
         p.shield = null
         this.push({ kind: 'shieldBroken' })
       }
     }
-    const dealt = p.combatant.damage(raw - absorbed)
+    let toHp = raw - absorbed
+    // The Tower overhead: once per fight, a killing blow leaves you at 1 HP.
+    if (this.stats.cheatDeath && !p.cheatedDeath && toHp >= p.combatant.hp) {
+      toHp = p.combatant.hp - 1
+      p.cheatedDeath = true
+      this.push({ kind: 'signIntervened' })
+    }
+    const dealt = p.combatant.damage(toHp)
+    if (dealt > 0) p.lastHitTaken = dealt
     if (dealt > 0 || absorbed > 0) {
       this.push({ kind: 'damage', target: 'player', iid, amount: dealt, absorbed, crit: false, source, label })
     }
@@ -556,10 +1059,24 @@ export class GameSim {
   private damageEnemy(amount: number, crit: boolean, source: DamageSource): void {
     const e = this.target
     if (!e) return
+    this.damageEnemyUnit(e, amount, crit, source)
+  }
+
+  /** Land damage on a specific mob. Returns the damage actually dealt. */
+  private damageEnemyUnit(e: EnemyUnit, amount: number, crit: boolean, source: DamageSource): number {
+    // Doorway Duel: the one dragged inside takes more from everything you do.
+    if (
+      this.player.doorwayTarget === e.iid &&
+      this.player.hasBuff('doorway') &&
+      source !== 'thorns'
+    ) {
+      amount = Math.round((amount * (100 + DOORWAY_DAMAGE_BONUS_PCT)) / 100)
+    }
     const dealt = e.combatant.damage(amount)
     if (dealt > 0) this.push({ kind: 'damage', target: 'enemy', iid: e.iid, amount: dealt, absorbed: 0, crit, source })
     if (!e.combatant.alive) this.onEnemyKilled(e)
     else if (e.checkEnrage()) this.push({ kind: 'enemyEnraged', iid: e.iid, name: e.def.name })
+    return dealt
   }
 
   /** One mob down: XP pays on the spot (mid-fight level-ups stay), everything
@@ -569,12 +1086,33 @@ export class GameSim {
     this.lifetime.kills++
     this.push({ kind: 'enemyDied', iid: e.iid, defId: def.id, name: def.name, rank: def.rank })
 
+    // The Gravewright writes every kill into the ledger.
+    if (this.kit.resource === 'ledger') {
+      const p = this.player
+      p.pages = Math.min(this.ledgerCap, p.pages + 1)
+      p.buried = {
+        name: def.name,
+        dmgMin: Math.max(2, Math.round(def.dmgMin * 0.8)),
+        dmgMax: Math.max(4, Math.round(def.dmgMax * 0.8)),
+      }
+    }
+
+    // The duel ends when the opponent does — the door opens for the pack.
+    if (this.player.doorwayTarget === e.iid) {
+      this.player.doorwayTarget = null
+      if (this.player.hasBuff('doorway')) {
+        this.player.buffs.delete('doorway')
+        this.push({ kind: 'buffExpired', id: 'doorway' })
+      }
+      for (const other of this.living) other.frozen = 0
+    }
+
     // The world boss lives in its own pool; its death pays instantly — there
     // is no loot screen for the Colossus — and runs a different path.
     if (this.phase === 'assault') {
       this.addGold(rollInt(this.rng, def.goldMin, def.goldMax), 'kill')
       this.addXp(def.xp)
-      if (rollPct(this.rng, def.dropPct)) this.dropLoot(def)
+      if (rollPct(this.rng, def.dropPct + this.stats.dropBonusPct)) this.dropLoot(def)
       this.rollMaterial()
       this.onWorldBossFelled()
       return
@@ -601,12 +1139,12 @@ export class GameSim {
   private rollBundle(def: EnemyDef): LootBundle {
     const gold = rollInt(this.rng, def.goldMin, def.goldMax)
     const items: Item[] = []
-    if (rollPct(this.rng, def.dropPct)) {
+    if (rollPct(this.rng, def.dropPct + this.stats.dropBonusPct)) {
       const minRarity: Rarity = def.rank === 'boss' ? 'rare' : 'common'
       items.push(generateItem(this.rng, this.nextUid++, def.level, { minRarity }))
     }
     const materials: LootBundle['materials'] = []
-    if (rollPct(this.rng, 35) && this.region.materials.length > 0) {
+    if (rollPct(this.rng, 35 + this.stats.materialBonusPct) && this.region.materials.length > 0) {
       const id = pickOne(this.rng, this.region.materials)
       const count = rollInt(this.rng, 1, 3)
       materials.push({ id, name: this.content.materials[id]?.name ?? id, count })
@@ -620,8 +1158,12 @@ export class GameSim {
     this.push({ kind: 'encounterCleared' })
     const p = this.player
     if (p.queued && ABILITIES[p.queued].offensive) p.queued = null
-    // You won — nothing keeps gnawing at you on the loot screen.
+    // You won — nothing keeps gnawing at you on the loot screen, and the
+    // deadline never chases you out of a fight you finished. The borrowing
+    // was free: that is the whole game the Hourwarden is playing.
     p.venom = null
+    p.debt = 0
+    p.doorwayTarget = null
     this.targetIid = null
     this.phase = 'looting'
     // Clearing a pack mends a quarter of your health — the reward for a clean win.
@@ -632,7 +1174,7 @@ export class GameSim {
    *  Instant-pay variant — only assault kills use it; region kills bank
    *  materials in the corpse bundle instead. */
   private rollMaterial(): void {
-    if (!rollPct(this.rng, 35)) return
+    if (!rollPct(this.rng, 35 + this.stats.materialBonusPct)) return
     const ids = this.region.materials
     if (ids.length === 0) return
     const id = pickOne(this.rng, ids)
@@ -691,6 +1233,10 @@ export class GameSim {
   private enterIdle(): void {
     this.phase = 'idle'
     this.restIn = AUTO_REST_TICKS
+    const p = this.player
+    p.debt = 0
+    p.reckoningIn = 0
+    p.doorwayTarget = null
   }
 
   // ─────────────────────── quests ───────────────────────
@@ -790,7 +1336,10 @@ export class GameSim {
     const p = this.player
     this.lifetime.deaths++
     p.clearCombatState()
-    p.respawnIn = PLAYER_RESPAWN_TICKS
+    p.respawnIn = Math.max(
+      20,
+      Math.round((PLAYER_RESPAWN_TICKS * (100 - this.stats.respawnCutPct)) / 100),
+    )
     this.push({ kind: 'playerDied' })
     this.checkAchievement('deaths-10', this.lifetime.deaths >= 10)
     // An assault banks its damage before the field is torn down, so endAssault
@@ -818,6 +1367,7 @@ export class GameSim {
   // ─────────────────────── progression ───────────────────────
 
   private addXp(amount: number): void {
+    amount = Math.round((amount * this.stats.xpMultPct) / 100)
     if (amount <= 0) return
     this.push({ kind: 'xpGained', amount })
     if (this.level >= LEVEL_CAP) return
@@ -827,7 +1377,11 @@ export class GameSim {
       this.xp -= xpToNext(this.level)
       this.level++
       leveled = true
-      this.push({ kind: 'levelUp', level: this.level, unlocked: abilitiesUnlockedAt(this.level) })
+      this.push({
+        kind: 'levelUp',
+        level: this.level,
+        unlocked: abilitiesUnlockedAt(this.identity.classId, this.level),
+      })
     }
     if (this.level >= LEVEL_CAP) this.xp = 0
     if (leveled) {
@@ -839,6 +1393,9 @@ export class GameSim {
   }
 
   private addGold(amount: number, source: 'kill' | 'sale' | 'quest'): void {
+    // The courier's lean (and the Cartomancer's pennies): spoils pay better;
+    // fencing your own gear does not.
+    if (source !== 'sale') amount = Math.round((amount * this.stats.goldMultPct) / 100)
     if (amount <= 0) return
     this.gold += amount
     this.lifetime.goldEarned += amount
@@ -878,8 +1435,9 @@ export class GameSim {
   }
 
   private refreshStats(fullRestore: boolean): void {
-    this.stats = deriveStats(this.level, this.talents, this.equipped)
+    this.stats = deriveStats(this.identity, this.level, this.talents, this.equipped)
     this.player.applyStats(this.stats, fullRestore)
+    this.player.pages = Math.min(this.player.pages, this.ledgerCap)
   }
 
   private checkAchievement(id: string, condition: boolean): void {
@@ -924,6 +1482,8 @@ export class GameSim {
   }
 
   spendTalent(id: TalentId): boolean {
+    // Only your own calling's talents — the atlas keeps six pages per hero.
+    if (!this.kit.talents.includes(id)) return false
     const rank = this.talents[id] ?? 0
     if (rank >= TALENTS[id].maxRanks) return false
     if (talentPointsEarned(this.level) - talentPointsSpent(this.talents) <= 0) return false
@@ -970,6 +1530,7 @@ export class GameSim {
     this.settleLoot()
     this.despawnForTransition()
     this.phase = 'assault'
+    this.resetFightState()
     const def: EnemyDef = { ...WORLD_BOSS, hp: this.worldBossHp }
     const unit = new EnemyUnit(def, this.nextIid++)
     this.enemies = [unit]
@@ -1044,6 +1605,34 @@ export class GameSim {
 
   // ─────────────────────── snapshots ───────────────────────
 
+  private resourceSnapshot(): ClassResourceSnapshot | null {
+    const p = this.player
+    switch (this.kit.resource) {
+      case 'ledger':
+        return { kind: 'ledger', pages: p.pages, cap: this.ledgerCap, buried: p.buried?.name ?? null }
+      case 'debt':
+        return {
+          kind: 'debt',
+          debt: p.debt,
+          reckoningIn: this.phase === 'combat' || this.phase === 'assault' ? p.reckoningIn : 0,
+        }
+      case 'hand':
+        return { kind: 'hand', cards: [...p.hand] }
+      case 'growth': {
+        const bane = this.target?.baneSource === 'sowBriar' ? this.target.bane : null
+        return {
+          kind: 'growth',
+          perTick: bane?.active ? bane.tickDamage : 0,
+          remainingTicks: bane?.active ? bane.remainingTicks : 0,
+        }
+      }
+      case 'charge':
+        return { kind: 'charge', charge: p.charges, cap: this.chargeCap }
+      default:
+        return null
+    }
+  }
+
   combatSnapshot(): Readonly<CombatSnapshot> {
     const p = this.player
     return {
@@ -1064,6 +1653,14 @@ export class GameSim {
       cooldowns: { ...p.cooldowns },
       gcdRemaining: p.gcd,
       autoBattle: this.autoBattle,
+      resource: this.resourceSnapshot(),
+      echo: p.echo
+        ? {
+            name: p.echo.name,
+            swingProgress: Math.min(1, p.echo.swingElapsed / p.echo.swingTicks),
+            remainingTicks: p.echo.remaining,
+          }
+        : null,
       companion: this.companionSnapshot(),
     }
   }
@@ -1111,8 +1708,11 @@ export class GameSim {
       xp: this.xp,
       xpToNext: xpToNext(this.level),
       gold: this.gold,
+      classId: this.identity.classId,
+      originId: this.identity.originId,
+      signId: this.identity.signId,
       stats: { ...this.stats },
-      unlockedAbilities: unlockedAbilities(this.level),
+      unlockedAbilities: unlockedAbilities(this.identity.classId, this.level),
       talentPoints: talentPointsEarned(this.level) - talentPointsSpent(this.talents),
       talentRanks: ranks,
       inventory: [...this.inventory],
@@ -1141,10 +1741,13 @@ export class GameSim {
 
   serialize(): SaveData {
     return {
-      version: 4,
+      version: 5,
       level: this.level,
       xp: this.xp,
       gold: this.gold,
+      classId: this.identity.classId,
+      originId: this.identity.originId,
+      signId: this.identity.signId,
       talents: { ...this.talents },
       equipped: { ...this.equipped },
       inventory: [...this.inventory],
@@ -1158,6 +1761,7 @@ export class GameSim {
       records: { ...this.records },
       worldBossHp: this.worldBossHp,
       companionId: this.companionId,
+      ledgerPages: this.player.pages,
       autoBattle: this.autoBattle,
     }
   }
@@ -1174,14 +1778,27 @@ export class GameSim {
    *  is not persisted: you come back at full strength, idle in the region you
    *  last chose, ready to start the next fight. */
   static deserialize(data: SaveData, opts: SimOptions): GameSim {
-    // v1–v3 saves are accepted; their dead fields (savedAt, muted, zoneKills,
+    // v1–v4 saves are accepted; their dead fields (savedAt, muted, zoneKills,
     // bossesDefeated, expedition records) are simply ignored on the way in.
     const raw = data as unknown as Record<string, unknown>
     const version = data.version as number
-    if (version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) {
       throw new Error(`unknown save version: ${String(data.version)}`)
     }
+    // Identity: v5 saves carry their own; older saves take it from the caller
+    // (the profile), so a pre-callings Arcanist stays an Arcanist.
     const sim = new GameSim(opts)
+    if (version === 5) {
+      const classId = data.classId
+      if (classId && CLASS_KITS[classId]) {
+        sim.identity = {
+          classId,
+          originId: typeof data.originId === 'string' ? data.originId : '',
+          signId: typeof data.signId === 'string' ? data.signId : '',
+        }
+        sim.kit = CLASS_KITS[classId]
+      }
+    }
     sim.level = Math.min(Math.max(1, data.level), LEVEL_CAP)
     sim.xp = Math.max(0, data.xp)
     sim.gold = Math.max(0, data.gold)
@@ -1197,7 +1814,7 @@ export class GameSim {
       bestAssaultDamage: rec?.bestAssaultDamage ?? 0,
     }
     sim.materials = { ...((raw.materials as Record<string, number> | undefined) ?? {}) }
-    // Quests (v4): ids the content pack no longer knows are silently dropped.
+    // Quests (v4+): ids the content pack no longer knows are silently dropped.
     const knownQuest = (id: string) => sim.content.quests.some((q) => q.id === id)
     const active = (raw.activeQuests as Record<string, number> | undefined) ?? {}
     for (const [id, prog] of Object.entries(active)) {
@@ -1216,8 +1833,13 @@ export class GameSim {
     const region = sim.content.regions.find((r) => r.id === regionId)
     if (region) sim.region = region
     sim.refreshStats(true)
+    // The ledger survives the reload — clamp waits until stats exist.
+    const pages = (raw.ledgerPages as number | undefined) ?? 0
+    sim.player.pages = Math.max(0, Math.min(pages, sim.ledgerCap))
     return sim
   }
+
+  // ─────────────────────── auto-battle ───────────────────────
 
   private autoAct(): void {
     const p = this.player
@@ -1231,48 +1853,175 @@ export class GameSim {
     if (this.phase === 'idle') {
       if (p.cast === null && p.gcd === 0 && p.queued === null) {
         const hpPct = (p.combatant.hp * 100) / p.combatant.maxHp
-        if (hpPct <= 60 && this.canUse('renew')) return void this.useAbility('renew')
+        if (hpPct <= 60) this.autoIdleHeal()
       }
       if (this.restIn === 0 && p.cast === null) this.startFight()
       return
     }
 
-    const living = this.living
-
-    // A mob is winding up a bolt and counterspell is off cooldown: swing the
-    // target over to the caster and shatter it.
-    const caster = living.find((u) => u.cast !== null)
-    if (
-      caster &&
-      p.cooldowns['counterspell'] === 0 &&
-      this.level >= ABILITIES.counterspell.unlockLevel &&
-      p.mana >= ABILITIES.counterspell.manaCost
-    ) {
-      this.setTarget(caster.iid)
-      if (this.canUse('counterspell')) this.useAbility('counterspell')
+    if (p.cast !== null || p.gcd > 0 || p.queued !== null) {
+      // Off-GCD reactions still fire mid-cast.
+      this.autoOffGcd()
+      return
     }
+    this.autoOffGcd()
 
-    if (p.cast !== null || p.gcd > 0 || p.queued !== null) return
-    const hpPct = (p.combatant.hp * 100) / p.combatant.maxHp
-    if (hpPct <= 60 && this.canUse('renew')) return void this.useAbility('renew')
-    if (hpPct <= 75 && this.canUse('barrier')) return void this.useAbility('barrier')
+    const living = this.living
     if (living.length === 0) return
 
-    // Focus fire: finishing the weakest packmate shrinks incoming damage.
-    const e = this.target
-    if (e && living.length > 1) {
+    // Focus fire: finishing the weakest packmate shrinks incoming damage —
+    // unless a duel has the rest of the pack locked outside the door.
+    const e0 = this.target
+    if (e0 && living.length > 1 && !p.hasBuff('doorway')) {
       const weakest = living.reduce((a, b) => (b.combatant.hp < a.combatant.hp ? b : a))
-      if (weakest.combatant.hp < e.combatant.hp) this.setTarget(weakest.iid)
+      if (weakest.combatant.hp < e0.combatant.hp) this.setTarget(weakest.iid)
     }
+
+    switch (this.kit.id) {
+      case 'arcanist':
+        this.autoArcanist()
+        break
+      case 'gravewright':
+        this.autoGravewright()
+        break
+      case 'hourwarden':
+        this.autoHourwarden()
+        break
+      case 'cartomancer':
+        this.autoCartomancer()
+        break
+      case 'thornspeaker':
+        this.autoThornspeaker()
+        break
+      case 'riftblade':
+        this.autoRiftblade()
+        break
+    }
+  }
+
+  /** Idle self-care between fights, per calling. */
+  private autoIdleHeal(): void {
+    if (this.canUse('renew')) return void this.useAbility('renew')
+    if (this.canUse('lastRites')) return void this.useAbility('lastRites')
+    if (this.canUse('rewindWound')) return void this.useAbility('rewindWound')
+  }
+
+  /** Reactions that ignore the GCD: Counterspell and Stasis on a caster. */
+  private autoOffGcd(): void {
+    const caster = this.living.find((u) => u.cast !== null)
+    if (!caster) return
+    for (const id of ['counterspell', 'stasis'] as const) {
+      if (!this.kit.abilities.includes(id)) continue
+      const def = ABILITIES[id]
+      if (
+        this.player.cooldowns[id] === 0 &&
+        this.level >= def.unlockLevel &&
+        this.player.mana >= def.manaCost
+      ) {
+        this.setTarget(caster.iid)
+        if (this.canUse(id)) this.useAbility(id)
+      }
+    }
+  }
+
+  private hpPct(): number {
+    const p = this.player
+    return (p.combatant.hp * 100) / p.combatant.maxHp
+  }
+
+  private targetInfo(): { unit: EnemyUnit; hpPct: number; tough: boolean } | null {
     const t = this.target
+    if (!t) return null
+    const hpPct = (t.combatant.hp * 100) / t.combatant.maxHp
+    return { unit: t, hpPct, tough: t.def.rank !== 'normal' }
+  }
+
+  private autoArcanist(): void {
+    const hp = this.hpPct()
+    if (hp <= 60 && this.canUse('renew')) return void this.useAbility('renew')
+    if (hp <= 75 && this.canUse('barrier')) return void this.useAbility('barrier')
+    const t = this.targetInfo()
     if (!t) return
-    const enemyHpPct = (t.combatant.hp * 100) / t.combatant.maxHp
-    if ((t.def.rank !== 'normal' || enemyHpPct >= 60) && this.canUse('combustion')) {
-      return void this.useAbility('combustion')
-    }
-    if (!t.ignite?.active && this.canUse('ignite')) return void this.useAbility('ignite')
+    if ((t.tough || t.hpPct >= 60) && this.canUse('combustion')) return void this.useAbility('combustion')
+    if (!t.unit.bane?.active && this.canUse('ignite')) return void this.useAbility('ignite')
     if (this.canUse('pyroblast')) return void this.useAbility('pyroblast')
     if (this.canUse('fireball')) return void this.useAbility('fireball')
+  }
+
+  private autoGravewright(): void {
+    const p = this.player
+    const hp = this.hpPct()
+    if (hp <= 60 && this.canUse('lastRites')) return void this.useAbility('lastRites')
+    if (hp <= 75 && this.canUse('boneward')) return void this.useAbility('boneward')
+    const t = this.targetInfo()
+    if (!t) return
+    // A full ledger slammed shut on something worth the pages.
+    if (p.pages >= this.ledgerCap && (t.tough || t.hpPct >= 60) && this.canUse('finalChapter')) {
+      return void this.useAbility('finalChapter')
+    }
+    if (p.pages >= 2 && p.echo === null && this.canUse('exhume')) return void this.useAbility('exhume')
+    if (!t.unit.bane?.active && this.canUse('gravechill')) return void this.useAbility('gravechill')
+    if (this.living.length >= 2 && this.canUse('requiem')) return void this.useAbility('requiem')
+    if (this.canUse('gravebolt')) return void this.useAbility('gravebolt')
+  }
+
+  private autoHourwarden(): void {
+    const p = this.player
+    const hp = this.hpPct()
+    if (hp <= 65 && this.canUse('rewindWound')) return void this.useAbility('rewindWound')
+    if (!this.targetInfo()) return
+    // Cash the debt out as damage before the bell collects it.
+    if (p.debt >= 50 && this.canUse('hourglassShatter')) return void this.useAbility('hourglassShatter')
+    if (p.debt <= 40 && this.canUse('splitSecond')) return void this.useAbility('splitSecond')
+    if (p.debt <= 60 && this.canUse('borrowedBlade')) return void this.useAbility('borrowedBlade')
+    // Never borrow into a guaranteed lethal bell.
+    if (p.debt < 95 && this.canUse('secondhandStrike')) return void this.useAbility('secondhandStrike')
+  }
+
+  private autoCartomancer(): void {
+    const p = this.player
+    const t = this.targetInfo()
+    if (!t) return
+    if ((t.tough || t.hpPct >= 60) && this.canUse('houseRules')) return void this.useAbility('houseRules')
+    if (t.tough && this.canUse('fiftyThirdCard')) return void this.useAbility('fiftyThirdCard')
+    if (this.living.length >= 2 && p.hand.length >= 2 && this.canUse('foldTheWorld')) {
+      return void this.useAbility('foldTheWorld')
+    }
+    if (this.canUse('dealFate')) return void this.useAbility('dealFate')
+    if (this.canUse('cardflick')) return void this.useAbility('cardflick')
+  }
+
+  private autoThornspeaker(): void {
+    const hp = this.hpPct()
+    if (hp <= 75 && this.canUse('brambleWard')) return void this.useAbility('brambleWard')
+    const t = this.targetInfo()
+    if (!t) return
+    const bane = t.unit.baneSource === 'sowBriar' ? t.unit.bane : null
+    // Harvest a grown briar before it runs out on its own.
+    if (bane?.active && bane.remainingTicks <= 40 && this.canUse('verdantCataract')) {
+      return void this.useAbility('verdantCataract')
+    }
+    if (!bane?.active && this.canUse('sowBriar')) return void this.useAbility('sowBriar')
+    if (bane?.active && t.tough && this.canUse('wildswell')) return void this.useAbility('wildswell')
+    if (hp <= 75 && this.canUse('sapdraw')) return void this.useAbility('sapdraw')
+    if (this.canUse('thornlash')) return void this.useAbility('thornlash')
+  }
+
+  private autoRiftblade(): void {
+    const p = this.player
+    const hp = this.hpPct()
+    if (hp <= 75 && this.canUse('seamstep')) return void this.useAbility('seamstep')
+    const t = this.targetInfo()
+    if (!t) return
+    if (this.living.length >= 2 && t.tough && this.canUse('doorwayDuel')) {
+      return void this.useAbility('doorwayDuel')
+    }
+    if (p.echo === null && this.canUse('afterimage')) return void this.useAbility('afterimage')
+    if (p.charges >= Math.min(4, this.chargeCap) && this.canUse('phaseEdge')) {
+      return void this.useAbility('phaseEdge')
+    }
+    if (this.living.length >= 2 && this.canUse('riftTear')) return void this.useAbility('riftTear')
+    if (this.canUse('throughCut')) return void this.useAbility('throughCut')
   }
 
   private push(event: CombatEvent): void {

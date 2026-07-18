@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ABILITIES, ABILITY_EFFECTS, ABILITY_IDS } from '../src/engine/abilities'
+import { CLASS_KITS } from '../src/engine/content/classes'
 import { GCD_TICKS } from '../src/engine/types'
 import { advance, advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
 
@@ -153,7 +154,7 @@ describe('ability registration', () => {
     expect(new Set(ABILITY_IDS).size).toBe(ABILITY_IDS.length)
   })
 
-  it('every ability has an effect, a unique hotkey, and a sane unlock level', () => {
+  it('every ability has an effect, a per-class unique hotkey, and a sane unlock level', () => {
     for (const id of ABILITY_IDS) {
       expect(ABILITY_EFFECTS[id], `${id} has no effect`).toBeDefined()
       expect(ABILITIES[id].id, `${id} key mismatch`).toBe(id)
@@ -161,7 +162,20 @@ describe('ability registration', () => {
       expect(ABILITIES[id].castTicks).toBeGreaterThanOrEqual(0)
       expect(ABILITIES[id].cooldownTicks).toBeGreaterThanOrEqual(0)
     }
-    const keys = ABILITY_IDS.map((id) => ABILITIES[id].key)
-    expect(new Set(keys).size, 'two abilities share a hotkey').toBe(keys.length)
+    // Hotkeys are per class: each calling's bar is 1..n with no repeats.
+    for (const kit of Object.values(CLASS_KITS)) {
+      const keys = kit.abilities.map((id) => ABILITIES[id].key)
+      expect(new Set(keys).size, `${kit.id}: two abilities share a hotkey`).toBe(keys.length)
+      for (const id of kit.abilities) {
+        expect(ABILITIES[id].classId, `${id} listed in ${kit.id}'s kit but owned elsewhere`).toBe(kit.id)
+      }
+    }
+    // Every calling starts with something to press at level 1.
+    for (const kit of Object.values(CLASS_KITS)) {
+      expect(
+        kit.abilities.some((id) => ABILITIES[id].unlockLevel === 1),
+        `${kit.id} has no level-1 ability`,
+      ).toBe(true)
+    }
   })
 })

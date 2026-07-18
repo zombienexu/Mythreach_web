@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { deriveStats, talentPointsEarned, xpToNext } from '../src/engine/progression'
+import { castTicksFor, deriveStats, talentPointsEarned, xpToNext } from '../src/engine/progression'
 import type { Item } from '../src/engine/types'
-import { LEVEL_CAP, RESPEC_COST } from '../src/engine/types'
+import { DEFAULT_IDENTITY, LEVEL_CAP, RESPEC_COST } from '../src/engine/types'
 import { advance, advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
 
 describe('xp curve', () => {
@@ -60,6 +60,7 @@ describe('deriveStats', () => {
       },
     }
     const stats = deriveStats(
+      DEFAULT_IDENTITY,
       10,
       { fortitude: 2, meditation: 1, impFireball: 3, swiftRenewal: 5, searingFlames: 4, criticalMass: 5 },
       gear,
@@ -71,19 +72,61 @@ describe('deriveStats', () => {
     expect(stats.maxHp).toBe(336) // (80+200+20) × 1.12
     expect(stats.maxMana).toBe(280)
     expect(stats.regenPerInterval).toBe(13) // floor(floor(24/2) × 1.12)
-    expect(stats.fireballCastTicks).toBe(38) // 44 − 6
-    expect(stats.renewCastTicks).toBe(16) // 36 − 20
-    expect(stats.fireMultPct).toBe(132)
+    expect(castTicksFor(stats, 'fireball')).toBe(38) // 44 − 6
+    expect(castTicksFor(stats, 'renew')).toBe(16) // 36 − 20
+    expect(stats.schoolBonusPct.fire).toBe(32)
     expect(stats.healMultPct).toBe(152) // 100 + 12 + 40
   })
 
   it('level 1 with nothing equipped matches the starting hero', () => {
-    const stats = deriveStats(1, {}, {})
+    const stats = deriveStats(DEFAULT_IDENTITY, 1, {}, {})
     expect(stats.maxHp).toBe(100)
     expect(stats.maxMana).toBe(100)
     expect(stats.power).toBe(0)
     expect(stats.critPct).toBe(5)
-    expect(stats.fireballCastTicks).toBe(44)
+    expect(castTicksFor(stats, 'fireball')).toBe(44)
+    expect(stats.gcdTicks).toBe(24)
+    expect(stats.xpMultPct).toBe(100)
+    expect(stats.cheatDeath).toBe(false)
+  })
+
+  it('origins and signs lean on the stat block', () => {
+    const scholar = deriveStats(
+      { classId: 'arcanist', originId: 'lamplit-scholar', signId: 'moth' },
+      1,
+      {},
+      {},
+    )
+    expect(scholar.xpMultPct).toBe(110)
+    expect(scholar.critPct).toBe(8) // 5 + the Moth's 3
+
+    const survivor = deriveStats(
+      { classId: 'arcanist', originId: 'ashmarch-survivor', signId: 'tower' },
+      1,
+      {},
+      {},
+    )
+    expect(survivor.maxHp).toBe(108) // 100 × 1.08
+    expect(survivor.cheatDeath).toBe(true)
+
+    const courier = deriveStats(
+      { classId: 'arcanist', originId: 'guild-courier', signId: 'serpent' },
+      1,
+      {},
+      {},
+    )
+    expect(courier.goldMultPct).toBe(112)
+    expect(courier.respawnCutPct).toBe(40)
+
+    const ward = deriveStats(
+      { classId: 'arcanist', originId: 'hedgewitch-ward', signId: 'lantern' },
+      5,
+      {},
+      {},
+    )
+    expect(ward.regenPerInterval).toBe(Math.floor((6 * 115) / 100))
+    expect(ward.dropBonusPct).toBe(6)
+    expect(ward.materialBonusPct).toBe(10)
   })
 })
 
