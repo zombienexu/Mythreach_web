@@ -18,8 +18,10 @@
 
 <style>
   .fx {
+    /* Bottom overhang stays inside the main column's padding: the arena now
+       reaches the foot of the page, and a longer skirt grows a scrollbar. */
     position: absolute;
-    inset: -40px;
+    inset: -40px -40px -28px;
     pointer-events: none;
     z-index: 4;
     overflow: visible;

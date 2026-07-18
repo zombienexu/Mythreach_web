@@ -73,9 +73,14 @@
   })
 
   // Enemy cards come and go with the pack; re-aim when the roster changes.
+  // The snapshot is rebuilt every tick, so the effect refires every tick —
+  // the key guard is what keeps measure() (a getBoundingClientRect sweep of
+  // every card) off the per-tick path. Size changes are the observer's job.
+  let measuredKey = ''
   $effect(() => {
-    void game.combat.enemies.map((e) => e.iid).join(',')
-    void game.combat.phase
+    const key = `${game.combat.phase}|${game.combat.enemies.map((e) => e.iid).join(',')}`
+    if (key === measuredKey) return
+    measuredKey = key
     void tick().then(measure)
   })
 </script>
@@ -86,8 +91,10 @@
   /* Sits over both cards: a detonation should wash across the card art, not
      be clipped by it. Never eats a click. */
   .fx-host {
+    /* -40px of breathing room on top/sides; below, only as much as the main
+       column's bottom padding allows, so the page never grows a scrollbar. */
     position: absolute;
-    inset: -40px;
+    inset: -40px -40px -28px;
     pointer-events: none;
     z-index: 3;
     overflow: hidden;

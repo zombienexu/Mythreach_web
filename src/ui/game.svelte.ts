@@ -153,8 +153,11 @@ export class Game implements FxHost {
       ? { classId: this.profile.classId, originId: this.profile.originId, signId: this.profile.signId }
       : undefined
     this.sim = boot(this.store, identity)
-    this.combat = $state(this.sim.combatSnapshot())
-    this.progress = $state(this.sim.progressSnapshot())
+    // Snapshots are immutable and replaced wholesale every publish — raw state
+    // keeps the reassignment reactive without deep-proxying the whole tree
+    // twenty times a second.
+    this.combat = $state.raw(this.sim.combatSnapshot())
+    this.progress = $state.raw(this.sim.progressSnapshot())
     this.kitIds = abilityIdsFor(this.progress.classId)
     this.keyToAbility = new Map(this.kitIds.map((id) => [ABILITIES[id].key, id]))
     this.muted = $state(loadSettings(localStorage).muted)
@@ -260,6 +263,17 @@ export class Game implements FxHost {
   /** Begin the next fight. */
   startFight(): void {
     if (this.sim.startFight()) this.publish()
+  }
+
+  /** Space / the heart of the wheel: whatever the moment calls for — the
+   *  summons in a lull, the sweep on a loot screen. Mid-fight it does nothing
+   *  yet; that seat is reserved for a melee strike when the sim grows one. */
+  hubAction(): void {
+    if (this.combat.phase === 'looting') {
+      this.lootAll()
+      return
+    }
+    if (this.combat.enemies.length === 0 && this.combat.player.alive) this.startFight()
   }
 
   /** Collect one corpse's spoils. */
@@ -428,7 +442,9 @@ export class Game implements FxHost {
         if (!this.combat.enemies.some((e) => e.iid === Number(key))) delete this.enemyImpacts[Number(key)]
       }
     }
-    for (const id of ABILITY_IDS) this.usable[id] = this.sim.canUse(id)
+    // Only the kit's abilities can ever be usable — the rest of the record
+    // stays at its seeded false, which is exactly what canUse would say.
+    for (const id of this.kitIds) this.usable[id] = this.sim.canUse(id)
     if (this.progressDirty) {
       this.progressDirty = false
       this.progress = this.sim.progressSnapshot()
@@ -566,6 +582,12 @@ export class Game implements FxHost {
     // R sweeps the loot screen, the way every loot-window hand learned it.
     if (e.key === 'r') {
       this.lootAll()
+      return
+    }
+    // Space presses the heart of the wheel: summon, sweep, or (one day) strike.
+    if (e.key === ' ') {
+      e.preventDefault()
+      this.hubAction()
       return
     }
     const id = this.keyToAbility.get(e.key)

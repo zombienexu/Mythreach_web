@@ -725,14 +725,7 @@ export class GameSim {
       }
       case 'interrupt': {
         const e = this.target
-        if (e?.cast) {
-          const name = e.cast.mech.name
-          e.castCooldown = e.cast.mech.cooldownTicks
-          e.cast = null
-          this.lifetime.interrupts++
-          this.push({ kind: 'interrupted', iid: e.iid, name })
-          this.checkAchievement('interrupts-10', this.lifetime.interrupts >= 10)
-        }
+        if (e) this.interruptCast(e)
         break
       }
       case 'shield': {
@@ -762,6 +755,18 @@ export class GameSim {
         break
       }
     }
+  }
+
+  /** Cut a hardcast short: the cooldown restarts as if the cast had resolved.
+   *  Shared by Counterspell and Stasis, so the bookkeeping can't drift. */
+  private interruptCast(e: EnemyUnit): void {
+    if (!e.cast) return
+    const name = e.cast.mech.name
+    e.castCooldown = e.cast.mech.cooldownTicks
+    e.cast = null
+    this.lifetime.interrupts++
+    this.push({ kind: 'interrupted', iid: e.iid, name })
+    this.checkAchievement('interrupts-10', this.lifetime.interrupts >= 10)
   }
 
   /** Hit every living enemy (Requiem, the Comet, Fold the World). Rolls per
@@ -822,14 +827,7 @@ export class GameSim {
         const e = this.target
         if (!e) break
         e.frozen = Math.max(e.frozen, STASIS_FREEZE_TICKS)
-        if (e.cast) {
-          const name = e.cast.mech.name
-          e.castCooldown = e.cast.mech.cooldownTicks
-          e.cast = null
-          this.lifetime.interrupts++
-          this.push({ kind: 'interrupted', iid: e.iid, name })
-          this.checkAchievement('interrupts-10', this.lifetime.interrupts >= 10)
-        }
+        this.interruptCast(e)
         this.push({ kind: 'enemyFrozen', iid: e.iid, name: e.def.name })
         break
       }
@@ -1851,9 +1849,8 @@ export class GameSim {
       return
     }
     if (this.phase === 'idle') {
-      if (p.cast === null && p.gcd === 0 && p.queued === null) {
-        const hpPct = (p.combatant.hp * 100) / p.combatant.maxHp
-        if (hpPct <= 60) this.autoIdleHeal()
+      if (p.cast === null && p.gcd === 0 && p.queued === null && this.hpPct() <= 60) {
+        this.autoIdleHeal()
       }
       if (this.restIn === 0 && p.cast === null) this.startFight()
       return
