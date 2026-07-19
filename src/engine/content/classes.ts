@@ -2,7 +2,8 @@
  *  and which resource its mechanic runs on. Each kit is built for a kind of
  *  player:
  *
- *  - **arcanist** — the classicist: a clean rotation that rewards good hands.
+ *  - **arcanist** — the pressure-builder: read the foe for Openings, stack
+ *    Smolder and let it age, ride Heat as Fireball evolves, then detonate.
  *  - **gravewright** — the collector: kills become pages, pages become power.
  *  - **hourwarden** — the deadline gambler: all instants, all borrowed, and
  *    every 16 seconds the debt comes due.
@@ -33,11 +34,11 @@ export const CLASS_KITS: Record<ClassId, ClassKit> = {
   arcanist: {
     id: 'arcanist',
     name: 'Arcanist',
-    role: 'Spellweaver',
-    abilities: ['fireball', 'ignite', 'renew', 'pyroblast', 'counterspell', 'barrier', 'combustion'],
+    role: 'Pyromancer',
+    abilities: ['fireball', 'detonate', 'kindle', 'wildfire', 'flashpoint', 'inferno'],
     talents: ['impFireball', 'searingFlames', 'criticalMass', 'fortitude', 'meditation', 'swiftRenewal'],
     resource: 'none',
-    mechanic: 'The Weave',
+    mechanic: 'Smolder & Heat',
   },
   gravewright: {
     id: 'gravewright',

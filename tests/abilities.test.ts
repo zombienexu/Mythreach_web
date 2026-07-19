@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { ABILITIES, ABILITY_EFFECTS, ABILITY_IDS } from '../src/engine/abilities'
 import { CLASS_KITS } from '../src/engine/content/classes'
-import { GCD_TICKS } from '../src/engine/types'
+import { GCD_TICKS, type HeroIdentity } from '../src/engine/types'
 import { advance, advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
+
+/** The generic casting/GCD/queue/cooldown contracts are class-agnostic — the
+ *  Gravewright gives a clean cast (gravebolt), an instant DoT (gravechill), and
+ *  a cast-with-cooldown (requiem) to exercise them independently of any one kit. */
+const gw: HeroIdentity = { classId: 'gravewright', originId: '', signId: '' }
 
 describe('casting and the GCD', () => {
   it('fireball resolves after exactly 44 ticks (damage at 44, none at 43)', () => {
@@ -30,13 +35,13 @@ describe('casting and the GCD', () => {
   })
 
   it('an instant triggers the GCD; a second press queues and fires when it clears', () => {
-    const sim = makeSim()
+    const sim = makeSim({ identity: gw })
     advanceToSpawn(sim)
-    expect(sim.useAbility('ignite')).toBe(true)
+    expect(sim.useAbility('gravechill')).toBe(true) // instant DoT
     expect(sim.combatSnapshot().gcdRemaining).toBe(GCD_TICKS)
-    // Fireball is accepted but queued, not cast.
-    expect(sim.useAbility('fireball')).toBe(true)
-    expect(sim.combatSnapshot().queued).toBe('fireball')
+    // Gravebolt is accepted but queued, not cast.
+    expect(sim.useAbility('gravebolt')).toBe(true)
+    expect(sim.combatSnapshot().queued).toBe('gravebolt')
     expect(sim.combatSnapshot().cast).toBeNull()
     const during = advance(sim, GCD_TICKS - 1)
     expect(eventsOf(during, 'abilityQueued')).toHaveLength(1)
@@ -47,47 +52,47 @@ describe('casting and the GCD', () => {
   })
 
   it('an ability pressed mid-cast queues and starts the same tick the cast resolves', () => {
-    const sim = makeSim({ level: 2 })
+    const sim = makeSim({ level: 6, identity: gw })
     advanceToSpawn(sim)
-    sim.useAbility('fireball')
+    sim.useAbility('gravebolt') // 40-tick cast
     advance(sim, 10)
-    expect(sim.useAbility('renew')).toBe(true)
-    expect(sim.combatSnapshot().queued).toBe('renew')
-    const rest = advance(sim, 34) // fireball resolves on the 44th cast tick
+    expect(sim.useAbility('requiem')).toBe(true) // another cast, queued
+    expect(sim.combatSnapshot().queued).toBe('requiem')
+    const rest = advance(sim, 30) // gravebolt resolves on the 40th cast tick
     expect(eventsOf(rest, 'castFinished')).toHaveLength(1)
     const started = eventsOf(rest, 'castStarted')
     expect(started).toHaveLength(1)
-    expect(started[0]!.abilityId).toBe('renew')
+    expect(started[0]!.abilityId).toBe('requiem')
   })
 
   it('a press during a cast replaces the queue; never double-casts', () => {
-    const sim = makeSim({ level: 4 })
+    const sim = makeSim({ level: 6, identity: gw })
     advanceToSpawn(sim)
-    sim.useAbility('fireball')
-    sim.useAbility('pyroblast')
-    sim.useAbility('ignite') // replaces pyroblast in the queue
-    expect(sim.combatSnapshot().queued).toBe('ignite')
-    expect(sim.combatSnapshot().cast?.abilityId).toBe('fireball')
+    sim.useAbility('gravebolt')
+    sim.useAbility('requiem')
+    sim.useAbility('gravechill') // replaces requiem in the queue
+    expect(sim.combatSnapshot().queued).toBe('gravechill')
+    expect(sim.combatSnapshot().cast?.abilityId).toBe('gravebolt')
   })
 
   it('cooldown starts when the ability resolves, not when the cast starts', () => {
-    const sim = makeSim({ level: 2 })
+    const sim = makeSim({ level: 6, identity: gw })
     advanceToSpawn(sim)
-    sim.useAbility('renew')
+    sim.useAbility('requiem') // 30-tick cast, 200-tick cooldown
     advance(sim, 10)
-    expect(sim.combatSnapshot().cooldowns.renew).toBe(0)
-    advance(sim, 26) // renew cast is 36 ticks
-    expect(sim.combatSnapshot().cooldowns.renew).toBe(100)
+    expect(sim.combatSnapshot().cooldowns.requiem).toBe(0)
+    advance(sim, 20) // requiem resolves on the 30th cast tick
+    expect(sim.combatSnapshot().cooldowns.requiem).toBe(200)
   })
 
   it('a cast fizzles (and refunds mana) when the target dies mid-cast', () => {
-    // Enemy with 25 HP: ignite (5 dmg × 6) kills it on the 5th burn tick (+100).
-    const sim = makeSim({ seed: 5, content: testContent({ hp: 25 }) })
+    // L10 Gravechill ticks 5 × 7; a 25-HP foe dies on its 5th burn (+100).
+    const sim = makeSim({ level: 10, seed: 5, identity: gw, content: testContent({ hp: 25 }) })
     advanceToSpawn(sim)
-    sim.useAbility('ignite')
-    advance(sim, 60) // burns at +20/+40/+60 → 10 HP left
+    sim.useAbility('gravechill')
+    advance(sim, 75) // burns at +20/+40/+60 → 10 HP, still alive
     const manaBefore = sim.combatSnapshot().player.mana
-    sim.useAbility('fireball') // 44-tick cast resolves at +104, after the kill at +100
+    sim.useAbility('gravebolt') // 40-tick cast resolves at +115, after the kill at +100
     const events = advance(sim, 60)
     expect(eventsOf(events, 'enemyDied')).toHaveLength(1)
     expect(eventsOf(events, 'castFizzled')).toHaveLength(1)
@@ -97,12 +102,12 @@ describe('casting and the GCD', () => {
   })
 
   it('an offensive queued ability is dropped when the enemy dies', () => {
-    // 5 HP enemy: ignite's first burn (+20) kills it before the GCD (24) frees the queue.
-    const sim = makeSim({ content: testContent({ hp: 5 }) })
+    // 5-HP foe: Gravechill's first burn (+20) kills it before the GCD (24) frees the queue.
+    const sim = makeSim({ level: 10, identity: gw, content: testContent({ hp: 5 }) })
     advanceToSpawn(sim)
-    sim.useAbility('ignite')
-    sim.useAbility('fireball')
-    expect(sim.combatSnapshot().queued).toBe('fireball')
+    sim.useAbility('gravechill')
+    sim.useAbility('gravebolt')
+    expect(sim.combatSnapshot().queued).toBe('gravebolt')
     const events = advance(sim, 30)
     expect(eventsOf(events, 'enemyDied')).toHaveLength(1)
     expect(eventsOf(events, 'castStarted')).toHaveLength(0)
@@ -113,18 +118,18 @@ describe('casting and the GCD', () => {
     const sim = makeSim()
     expect(sim.combatSnapshot().enemies).toHaveLength(0)
     expect(sim.useAbility('fireball')).toBe(false)
-    expect(sim.useAbility('ignite')).toBe(false)
+    expect(sim.canUse('fireball')).toBe(false)
   })
 
   it('locked abilities are refused below their unlock level', () => {
     const sim = makeSim({ level: 1 })
     advanceToSpawn(sim)
-    expect(sim.canUse('renew')).toBe(false)
-    expect(sim.canUse('pyroblast')).toBe(false)
-    expect(sim.useAbility('pyroblast')).toBe(false)
-    const sim4 = makeSim({ level: 4 })
-    advanceToSpawn(sim4)
-    expect(sim4.canUse('pyroblast')).toBe(true)
+    expect(sim.canUse('detonate')).toBe(false) // unlocks at 3
+    expect(sim.canUse('wildfire')).toBe(false) // unlocks at 7
+    expect(sim.useAbility('wildfire')).toBe(false)
+    const sim7 = makeSim({ level: 7 })
+    advanceToSpawn(sim7)
+    expect(sim7.canUse('wildfire')).toBe(true)
   })
 
   it('runs dry eventually and refuses casts until regen catches up', () => {

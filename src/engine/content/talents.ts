@@ -67,14 +67,11 @@ export const TALENTS: Record<TalentId, TalentDef> = {
   },
   swiftRenewal: {
     id: 'swiftRenewal',
-    name: 'Swift Renewal',
+    name: 'Quickened Flame',
     maxRanks: 5,
-    perRank: '−0.2 s cast, +8% healing',
-    description: 'Renew casts 0.2 s faster and heals 8% more per rank.',
-    effects: [
-      { kind: 'castTicks', ability: 'renew', ticksPerRank: 4, floorTicks: 12 },
-      { kind: 'healing', pctPerRank: 8 },
-    ],
+    perRank: '−0.1 s Fireball cast',
+    description: 'The bolt leaves your hand sooner. Fireball casts 0.1 s faster per rank.',
+    effects: [{ kind: 'castTicks', ability: 'fireball', ticksPerRank: 2, floorTicks: 20 }],
   },
 
   // ───────────── gravewright ─────────────

@@ -1,6 +1,7 @@
 import { mount } from 'svelte'
 import './ui/styles/tokens.css'
 import './ui/styles/base.css'
+import './ui/slice/uplink.css'
 import App from './App.svelte'
 
 const app = mount(App, {

@@ -478,7 +478,7 @@ describe('birth signs in combat', () => {
       content: testContent({ hp: 1, xp: 60 }),
     })
     advanceToSpawn(sim)
-    const events = cast(sim, 'ignite', 30)
+    const events = cast(sim, 'fireball', 50)
     const xp = eventsOf(events, 'xpGained')
     expect(xp).toHaveLength(1)
     expect(xp[0]!.amount).toBe(66) // 60 × 1.10

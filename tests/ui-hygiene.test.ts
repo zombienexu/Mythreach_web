@@ -1,49 +1,56 @@
 import { describe, expect, it } from 'vitest'
 // Vite's `?raw` loads the file as a string — no node:fs, no node types needed.
-import combat from '../src/ui/views/CombatView.svelte?raw'
+import arena from '../src/ui/slice/views/ArenaView.svelte?raw'
+import codex from '../src/ui/slice/views/CodexView.svelte?raw'
+import dossier from '../src/ui/slice/views/DossierView.svelte?raw'
 import game from '../src/ui/game.svelte.ts?raw'
-import regions from '../src/ui/views/AtlasView.svelte?raw'
-import character from '../src/ui/views/CharacterView.svelte?raw'
 
 /** Collapse whitespace so token matches survive reformatting. */
 function squish(s: string): string {
   return s.replace(/\s+/g, '')
 }
 
-describe('combat screen — log removed, formation added', () => {
-  it('the combat log is gone', () => {
-    expect(combat).not.toContain('CombatLog')
-    expect(combat).not.toContain('chronicle')
-    expect(game).not.toContain('private append')
-    expect(game).not.toMatch(/^\s*log:/m)
+describe('arena — combat staged, wheel fed by teaching', () => {
+  it('the action wheel shows only what the world has taught', () => {
+    // Grace-gated teaching: the wheel's `unlocked` prop is the taught set, not
+    // the level-unlocked set. This is the whole point of the slice.
+    expect(squish(arena)).toContain('unlocked={game.taught}')
   })
 
-  it('the combat view lays out formation ranks', () => {
-    const s = squish(combat)
+  it('still lays out formation ranks', () => {
+    const s = squish(arena)
     expect(s).toContain("row==='back'")
     expect(s).toContain("row!=='back'")
   })
 
-  it('expedition UI is removed from combat', () => {
-    for (const token of ['TrailRibbon', 'embark', 'shrine', 'Blessing']) {
-      expect(combat).not.toContain(token)
+  it('the world-boss / assault surfaces are stripped from the slice', () => {
+    for (const token of ['assault', 'retreat', 'worldBoss', 'Colossus']) {
+      expect(arena).not.toContain(token)
     }
   })
 })
 
-describe('regions screen', () => {
-  it('is wired to enterRegion over progress.regions', () => {
-    expect(regions).toContain('enterRegion')
-    expect(regions).toContain('progress.regions')
-    for (const token of ['unlocked', 'locked', '>Travel<']) {
-      expect(regions).not.toContain(token)
-    }
+describe('the meta loop is wired into the event drain', () => {
+  it('game folds every event through the expedition', () => {
+    expect(game).toContain('this.expedition.observe(event)')
+    // teaching re-arms the sim's gate on a Grace tier-up
+    expect(game).toContain('this.expedition.applyTo(this.sim)')
+  })
+
+  it('the slice has exactly three destinations', () => {
+    expect(game).toContain("export type View = 'arena' | 'dossier' | 'codex'")
   })
 })
 
-describe('character screen', () => {
-  it('shows and sells materials', () => {
-    expect(character).toContain('progress.materials')
-    expect(character).toContain('sellMaterial')
+describe('dossier + codex speak the new systems', () => {
+  it('dossier drives Standing, teaching, loadout, and Charges', () => {
+    expect(dossier).toContain('GRACE_TIERS')
+    expect(dossier).toContain('acceptQuest')
+    expect(dossier).toContain('game.equip')
+  })
+
+  it('codex transmits findings home', () => {
+    expect(codex).toContain('game.transmit')
+    expect(codex).toContain('recovery')
   })
 })

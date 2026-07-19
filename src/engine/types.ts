@@ -22,14 +22,13 @@ export const DEFAULT_IDENTITY: HeroIdentity = {
 }
 
 export type AbilityId =
-  // ── arcanist ──
+  // ── arcanist (the fire: build it, feed it, choose the moment) ──
   | 'fireball'
-  | 'ignite'
-  | 'renew'
-  | 'pyroblast'
-  | 'counterspell'
-  | 'barrier'
-  | 'combustion'
+  | 'detonate'
+  | 'kindle'
+  | 'wildfire'
+  | 'flashpoint'
+  | 'inferno'
   // ── gravewright ──
   | 'gravebolt'
   | 'gravechill'
@@ -445,9 +444,31 @@ export interface PlayerSnapshot {
   shield: number
   alive: boolean
   respawnIn: number
+  /** The Arcanist's Heat: accumulated fire, 0–10. Empowers Fireball in bands. */
+  heat: number
+  /** Focus (the universal read-the-foe action): remaining cooldown ticks. */
+  focusCd: number
+  /** True when Focus is off cooldown and ready to answer a tell. */
+  focusReady: boolean
   buffs: BuffSnapshot[]
   dot: DotSnapshot | null
 }
+
+/** Smolder age bands: Fresh (just laid), Heated (settling in), Volatile (ripe
+ *  to detonate). Older bands hit far harder. */
+export type SmolderBand = 'fresh' | 'heated' | 'volatile'
+
+/** The lingering fire on a foe: how many stacks, and the age band of the
+ *  fiercest (what a detonation would cash in). */
+export interface SmolderSnapshot {
+  stacks: number
+  band: SmolderBand
+}
+
+/** The read-the-foe state the UI paints on each enemy. `telegraph` = a tell is
+ *  open (answer with Focus); `exposed` = an Opening is live; `recovering` = it
+ *  just committed and is briefly safe; `guarded` = neutral. */
+export type EnemyCombatState = 'guarded' | 'telegraph' | 'exposed' | 'recovering'
 
 /** The class resource, as the UI sees it. Null for callings that run on
  *  rotation alone (the Arcanist's Weave). */
@@ -491,6 +512,12 @@ export interface EnemySnapshot {
   /** Ticks left outside time (Stasis, Doorway Duel). 0 = acting normally. */
   frozenTicks: number
   dot: DotSnapshot | null
+  /** Lingering Arcanist fire on this foe, or null. */
+  smolder: SmolderSnapshot | null
+  /** The read-the-foe state (drives the tell / Exposed visuals). */
+  combatState: EnemyCombatState
+  /** Ticks left Exposed after a Focus, 0 when not. */
+  openingTicks: number
   /** Unlooted spoils on a corpse; null while alive or once collected. */
   loot: LootBundle | null
 }

@@ -45,6 +45,11 @@ export class PlayerUnit {
   respawnIn = 0
 
   // ── class mechanic state ──
+  /** Arcanist Heat: accumulated fire, 0–10. Doesn't add flat damage — it
+   *  changes what Fireball does as it climbs. Combat-transient (never persisted). */
+  heat = 0
+  /** Focus (universal read-the-foe action): remaining cooldown ticks. */
+  focusCd = 0
   /** Gravewright: banked ledger pages (the one resource that persists). */
   pages = 0
   /** Gravewright: the last foe written in, ready to be exhumed. */
@@ -97,6 +102,8 @@ export class PlayerUnit {
     this.cast = null
     this.queued = null
     this.gcd = 0
+    this.heat = 0
+    this.focusCd = 0
     this.shield = null
     this.combustion = 0
     this.buffs.clear()
@@ -124,6 +131,9 @@ export class PlayerUnit {
       shield: this.shield?.amount ?? 0,
       alive: this.alive,
       respawnIn: this.alive ? 0 : this.respawnIn,
+      heat: this.heat,
+      focusCd: this.focusCd,
+      focusReady: this.focusCd === 0 && this.alive,
       buffs,
       dot:
         this.venom && this.venom.active

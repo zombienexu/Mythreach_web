@@ -10,8 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "shots": "node tools/shots.mjs",
-    "verify:classes": "node tools/verify-classes.mjs"
+    "smoke": "node tools/slice-smoke.mjs"
   },
   "devDependencies": {
     "@fontsource-variable/fraunces": "^5.2.9",

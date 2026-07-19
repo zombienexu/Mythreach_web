@@ -40,12 +40,12 @@
      speaks for a spell (icon, cast bar, float, particles) uses its tone. */
   /* arcanist */
   --tone-fireball: oklch(0.7 0.19 40);
-  --tone-ignite: oklch(0.72 0.15 300);
-  --tone-renew: oklch(0.78 0.15 160);
-  --tone-pyroblast: oklch(0.75 0.18 55);
-  --tone-counterspell: oklch(0.8 0.11 195);
+  --tone-detonate: oklch(0.68 0.2 35);
+  --tone-kindle: oklch(0.78 0.15 68);
+  --tone-wildfire: oklch(0.74 0.18 55);
+  --tone-flashpoint: oklch(0.85 0.13 78);
+  --tone-inferno: oklch(0.64 0.22 30);
   --tone-barrier: oklch(0.85 0.06 240);
-  --tone-combustion: oklch(0.8 0.13 80);
   /* gravewright — grave-lantern greens and bone */
   --tone-gravebolt: oklch(0.75 0.12 145);
   --tone-gravechill: oklch(0.78 0.1 200);

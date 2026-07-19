@@ -19,7 +19,6 @@
  *     forever. */
 import type { AbilityId, CombatEvent, CombatSnapshot, Side } from '../../engine'
 import type { SfxName } from '../sfx'
-import { TONE, TONE_DEEP } from './palette'
 import { coneBehind, playRecipe, type Recipe, type RecipeCtx } from './recipe'
 import { Shaker } from './shake'
 import { FxStage, type Region, type Spot } from './stage'
@@ -224,7 +223,7 @@ export class FxDirector {
   /** The FX spec an affliction should wear, from its `source`. */
   private dotSpec(source: string | undefined): SpellFx {
     const spec = source ? (SPELL_FX[source as FxSource] as SpellFx | undefined) : undefined
-    return spec ?? SPELL_FX.ignite
+    return spec ?? SPELL_FX.smolder
   }
 
   /** Start an emitter when a condition turns on, stop it when it turns off. */
@@ -291,7 +290,7 @@ export class FxDirector {
       return
     }
     if (event.kind === 'heal') {
-      const spec = (SPELL_FX[event.source as FxSource] as SpellFx | undefined) ?? SPELL_FX.renew
+      const spec = (SPELL_FX[event.source as FxSource] as SpellFx | undefined) ?? SPELL_FX.lastRites
       const w = this.weigh(event.amount, event.crit)
       this.host?.float({
         side: 'player',
@@ -395,7 +394,7 @@ export class FxDirector {
         this.play(BARRIER_SHATTER, SPELL_FX.barrier, 'player', 'player')
         break
       case 'interrupted':
-        this.play(SPELL_FX.counterspell.release, SPELL_FX.counterspell, 'player', 'enemy', 1, event.iid)
+        this.play(SPELL_FX.focus.release, SPELL_FX.focus, 'player', 'enemy', 1, event.iid)
         break
       case 'enemyEnraged':
         this.play(ENRAGE, ENRAGE_AURA, 'player', 'enemy', 1, event.iid)
@@ -410,12 +409,12 @@ export class FxDirector {
         this.play(PLAYER_DEATH, { tone: 0x6a4a8a, deep: 0x3a2a5a }, 'enemy', 'player')
         break
       case 'levelUp':
-        this.play(LEVEL_UP, { tone: TONE.combustion, deep: TONE_DEEP.combustion }, 'player', 'player')
+        this.play(LEVEL_UP, { tone: 0xffc44d, deep: 0xe0691a }, 'player', 'player')
         break
       case 'lootDropped':
         if (!event.autoSold) {
           const epic = event.item.rarity === 'epic'
-          this.play(epic ? LOOT_EPIC : LOOT, { tone: TONE.combustion, deep: TONE_DEEP.combustion }, 'player', 'enemy')
+          this.play(epic ? LOOT_EPIC : LOOT, { tone: 0xffc44d, deep: 0xe0691a }, 'player', 'enemy')
         }
         break
       default:

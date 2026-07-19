@@ -198,7 +198,7 @@ describe('targeting', () => {
     // whoever steps up after its original target dies, not fizzle.
     sim.useAbility('fireball')
     advance(sim, 10)
-    sim.useAbility('ignite')
+    sim.useAbility('kindle')
     const events = advance(sim, 80)
     expect(eventsOf(events, 'castFizzled')).toHaveLength(0)
     const deaths = eventsOf(events, 'enemyDied')
@@ -216,7 +216,7 @@ describe('multiple attackers', () => {
     expect(attackers.size).toBe(3)
   })
 
-  it('counterspell reads the target: another mob casting does not enable it', () => {
+  it('Focus reads a committed chant and cuts it short', () => {
     const sim = makeSim({
       level: 10,
       content: testContent(
@@ -243,15 +243,12 @@ describe('multiple attackers', () => {
     advance(sim, 55) // chanter's first cast starts at cooldown/2 = 50
     const chanter = sim.combatSnapshot().enemies.find((e) => e.defId === 'chanter')!
     expect(chanter.cast).not.toBeNull()
-    // Target is the silent front mob: counterspell must refuse.
-    expect(targetOf(sim)?.defId).toBe('silent')
-    expect(sim.canUse('counterspell')).toBe(false)
-    // Switch to the caster: now it fires and interrupts.
-    sim.setTarget(chanter.iid)
-    expect(sim.canUse('counterspell')).toBe(true)
-    expect(sim.useAbility('counterspell')).toBe(true)
+    // A hardcast is a fully-committed tell — Focus reads it even from the back
+    // row, interrupts the chant, and leaves the caster Exposed.
+    expect(sim.focus()).toBe(true)
     const events = advance(sim, 1)
     expect(eventsOf(events, 'interrupted').map((e) => e.iid)).toEqual([chanter.iid])
+    expect(sim.combatSnapshot().enemies.find((e) => e.iid === chanter.iid)?.combatState).toBe('exposed')
   })
 })
 

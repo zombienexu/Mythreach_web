@@ -3,14 +3,13 @@ import type { AbilityId } from '../../engine'
 /** Spell tones as Pixi hex — the runtime mirror of the --tone-* CSS tokens.
  *  A spell looks the same everywhere it appears: icon, cast bar, particles. */
 export const TONE: Record<AbilityId, number> = {
-  // arcanist
+  // arcanist — the fire, warm to white-hot
   fireball: 0xff7a2f,
-  ignite: 0xb374ff,
-  renew: 0x4fe0a8,
-  pyroblast: 0xff9440,
-  counterspell: 0x5fe3f0,
-  barrier: 0xa9c8ff,
-  combustion: 0xffc44d,
+  detonate: 0xff5a2a,
+  kindle: 0xffb347,
+  wildfire: 0xffa040,
+  flashpoint: 0xffd27a,
+  inferno: 0xff4520,
   // gravewright
   gravebolt: 0x77d99a,
   gravechill: 0x7fd4e0,
@@ -51,14 +50,13 @@ export const TONE: Record<AbilityId, number> = {
 
 /** Secondary tone — the cooler/darker partner each spell fades toward. */
 export const TONE_DEEP: Record<AbilityId, number> = {
-  // arcanist
+  // arcanist — the fire, warm to white-hot
   fireball: 0xd93a1a,
-  ignite: 0x7a3fd9,
-  renew: 0x2f9c78,
-  pyroblast: 0xc93a10,
-  counterspell: 0x2f8fd9,
-  barrier: 0x5f8fd9,
-  combustion: 0xe0691a,
+  detonate: 0xc42a10,
+  kindle: 0xe0691a,
+  wildfire: 0xd9531a,
+  flashpoint: 0xff8a2a,
+  inferno: 0xb01808,
   // gravewright
   gravebolt: 0x2f8f5a,
   gravechill: 0x3a8fa8,

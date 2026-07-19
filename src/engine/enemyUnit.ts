@@ -1,6 +1,13 @@
+import {
+  SMOLDER_HEATED_AT,
+  SMOLDER_MAX,
+  SMOLDER_VOLATILE_AT,
+  TELL_FROM_PROGRESS,
+} from './abilities'
 import { Combatant } from './combatant'
 import { Dot } from './dot'
 import type {
+  EnemyCombatState,
   EncounterRow,
   EnemyDef,
   EnemyMechanicEnrage,
@@ -8,7 +15,15 @@ import type {
   EnemyMechanicVenom,
   EnemySnapshot,
   LootBundle,
+  SmolderBand,
 } from './types'
+
+/** The age (in ticks) at which a Smolder stack graduates to each band. */
+export function smolderBandOf(age: number): SmolderBand {
+  if (age >= SMOLDER_VOLATILE_AT) return 'volatile'
+  if (age >= SMOLDER_HEATED_AT) return 'heated'
+  return 'fresh'
+}
 
 /** One spawned enemy: HP, swing timer, and its mechanic state.
  *  Pure state + timers; the sim decides what the numbers do. */
@@ -30,6 +45,15 @@ export class EnemyUnit {
   chillPct = 0
   /** Ticks left outside time (Stasis, Doorway Duel). Frozen mobs do nothing. */
   frozen = 0
+  /** The Arcanist's Smolder: one age (in ticks) per stack, oldest first. Each
+   *  ages on its own, hits harder as it matures, and falls off untended. */
+  smolder: number[] = []
+  /** Ticks left Exposed after a read Focus (or Flashpoint). 0 = not Exposed. */
+  opening = 0
+  /** Counts toward the next lingering-Smolder burn tick. */
+  smolderBurnTimer = 0
+  /** Was a tell open last tick? — so the sim can fire `tellOpened` on the edge. */
+  telling = false
   /** Spoils banked at death, cleared when the player loots the corpse. */
   loot: LootBundle | null = null
 
@@ -77,6 +101,44 @@ export class EnemyUnit {
     return [this.def.dmgMin, this.def.dmgMax]
   }
 
+  /** Add up to `n` fresh Smolder stacks (respecting the cap). Returns how many
+   *  actually caught. */
+  addSmolder(n: number): number {
+    const room = Math.max(0, SMOLDER_MAX - this.smolder.length)
+    const caught = Math.min(room, n)
+    for (let i = 0; i < caught; i++) this.smolder.push(0)
+    return caught
+  }
+
+  /** The fiercest band present, or null when nothing smolders. */
+  get hottestBand(): SmolderBand | null {
+    if (this.smolder.length === 0) return null
+    return smolderBandOf(Math.max(...this.smolder))
+  }
+
+  /** How far into a wind-up this foe is (0 idle → 1 about to land); a hardcast
+   *  reads as fully committed. */
+  get swingFraction(): number {
+    if (this.cast) return 1
+    return this.swingElapsed / this.swingTicks
+  }
+
+  /** True when a tell is open: a foe deep in a wind-up (or hardcasting) that
+   *  isn't already Exposed or frozen. This is the moment Focus answers. */
+  get tellOpen(): boolean {
+    if (this.frozen > 0 || this.opening > 0 || !this.combatant.alive) return false
+    return this.swingFraction >= TELL_FROM_PROGRESS
+  }
+
+  /** The read-the-foe state, for the UI and the FX. */
+  get combatState(): EnemyCombatState {
+    if (this.opening > 0) return 'exposed'
+    if (this.frozen > 0) return 'guarded'
+    if (this.tellOpen) return 'telegraph'
+    if (this.cast === null && this.swingFraction < 0.15) return 'recovering'
+    return 'guarded'
+  }
+
   /** True when this HP change crossed the enrage threshold for the first time. */
   checkEnrage(): boolean {
     const mech = this.enrageMech
@@ -110,6 +172,12 @@ export class EnemyUnit {
         : null,
       enraged: this.enraged,
       frozenTicks: this.frozen,
+      smolder:
+        this.smolder.length > 0
+          ? { stacks: this.smolder.length, band: this.hottestBand ?? 'fresh' }
+          : null,
+      combatState: this.combatState,
+      openingTicks: this.opening,
       loot: this.loot,
       dot:
         this.bane && this.bane.active

@@ -1,4 +1,4 @@
-import type { AbilityId, BuffId, CardId, EnemyRank, Item, Side } from './types'
+import type { AbilityId, BuffId, CardId, EnemyRank, Item, Side, SmolderBand } from './types'
 
 export type DamageSource =
   | AbilityId
@@ -6,6 +6,8 @@ export type DamageSource =
   | 'enemyCast'
   | 'venom'
   | 'companion'
+  /** The Arcanist's lingering Smolder ticking (not any one ability). */
+  | 'smolder'
   /** A raised ally's blade (Exhume, Afterimage). */
   | 'echo'
   /** The Hourwarden's debt coming due. */
@@ -75,3 +77,18 @@ export type CombatEvent =
   | { kind: 'enemyFrozen'; iid: number; name: string }
   /** The birth sign stepped in: a killing blow left you at 1 HP. */
   | { kind: 'signIntervened' }
+  // ── the Arcanist's fire: Openings, Smolder, Heat ──
+  /** Heat changed. `band` is the current tier; `crossedUp` marks the moment it
+   *  climbs into Empowered (5) or Overheat (10) — worth a flash and a sound. */
+  | { kind: 'heatChanged'; heat: number; band: 'cold' | 'empowered' | 'overheat'; crossedUp: boolean }
+  /** Smolder laid on a foe (Fireball, Kindle, Wildfire, a spread). `stacks` is
+   *  the new total; `spread` marks a Wildfire jump rather than a direct apply. */
+  | { kind: 'smolderApplied'; iid: number; stacks: number; spread: boolean }
+  /** Smolder cashed in: `stacks` consumed, at the fiercest `band`. */
+  | { kind: 'smolderDetonated'; iid: number; stacks: number; band: SmolderBand }
+  /** A foe came Exposed — from a read Focus (`viaFocus`) or from Flashpoint. */
+  | { kind: 'openingCreated'; iid: number; viaFocus: boolean }
+  /** Focus resolved: `success` = it read a real tell and made an Opening. */
+  | { kind: 'focusUsed'; success: boolean; iid: number | null }
+  /** A tell just opened on a foe — the moment to consider Focus. */
+  | { kind: 'tellOpened'; iid: number }

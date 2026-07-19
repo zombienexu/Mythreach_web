@@ -30,6 +30,12 @@ export type FxSource =
   | 'echo'
   | 'reckoning'
   | 'thorns'
+  /** The Arcanist's lingering Smolder burn (FX-only, not an ability). */
+  | 'smolder'
+  /** Focus — the read-the-foe deflection (FX-only). */
+  | 'focus'
+  /** Absorb shields wear this look, keyed by the shared 'barrier' buff. */
+  | 'barrier'
 
 export interface ChargeSpec {
   /** seconds between mote spawns — lower is denser */
@@ -151,131 +157,131 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
     sfx: { release: 'cast', impact: 'hit', crit: 'crit' },
   },
 
-  pyroblast: {
-    tone: TONE.pyroblast,
-    deep: TONE_DEEP.pyroblast,
-    css: 'var(--tone-pyroblast)',
-    charge: { rate: 0.014, radius: 88, tighten: 0.7 },
+  // Detonate: an instant bloom right on the foe as the field goes off.
+  detonate: {
+    tone: TONE.detonate,
+    deep: TONE_DEEP.detonate,
+    css: 'var(--tone-detonate)',
     release: [
-      { fx: 'flash', at: 'source', tint: 'hot', size: 130, life: 0.22, alpha: 1, grow: 1.6 },
-      { fx: 'ring', at: 'source', tint: 'tone', from: 24, to: 150, life: 0.34, alpha: 0.7 },
-      { fx: 'rays', at: 'source', tint: 'tone', count: 8, reach: 130, width: 12, life: 0.24 },
-      { fx: 'burst', at: 'source', count: 18, speed: [200, 520], size: [7, 18], life: [0.2, 0.45], spread: 'away', drag: 2, stretch: 1.8 },
-      { fx: 'shake', amp: 4, dur: 0.24 },
-    ],
-    projectile: {
-      flight: 0.3,
-      size: 36,
-      haloSize: 140,
-      arc: -58,
-      trailRate: 0.009,
-      smoke: 0.55,
-      trail: { fx: 'burst', count: 3, speed: [30, 170], size: [9, 22], life: [0.3, 0.7], tint: 'mix', gravity: 240, drag: 1.5 },
-    },
-    // A comet is not a bigger fireball; it lands like masonry.
-    impact: [
-      ...DETONATE(96, 380),
-      { fx: 'ring', tint: 'deep', from: 30, to: 500, life: 0.7, alpha: 0.45 },
-      { fx: 'rays', tint: 'hot', count: 11, reach: 260, width: 16, life: 0.3 },
-      DEBRIS(56, 1050, 26),
-      { fx: 'burst', count: 14, speed: [60, 260], size: [16, 40], life: [0.6, 1.3], tint: 'deep', gravity: -40, drag: 1.4, alpha: 0.7 },
-      { fx: 'smoke', count: 10 },
-      { fx: 'shake', amp: 13, dur: 0.55 },
+      ...DETONATE(96, 360),
+      { fx: 'ring', tint: 'deep', from: 30, to: 460, life: 0.6, alpha: 0.45 },
+      { fx: 'rays', tint: 'hot', count: 12, reach: 240, width: 15, life: 0.3 },
+      DEBRIS(48, 980, 24),
+      { fx: 'burst', count: 16, speed: [60, 260], size: [14, 34], life: [0.5, 1.2], tint: 'deep', gravity: -50, drag: 1.4, alpha: 0.65 },
+      { fx: 'smoke', count: 8 },
+      { fx: 'shake', amp: 11, dur: 0.5 },
       { fx: 'hitStop', hold: 0.05 },
     ],
     crit: CRIT_FLOURISH,
-    sfx: { release: 'pyro-cast', impact: 'pyro-hit', crit: 'crit-heavy' },
+    sfx: { release: 'pyro-hit', impact: 'pyro-hit', crit: 'crit-heavy' },
   },
 
-  ignite: {
-    tone: TONE.ignite,
-    deep: TONE_DEEP.ignite,
-    css: 'var(--tone-ignite)',
-    // instant: no charge, no projectile — the fire simply catches
+  // Kindle: a quick ember catching on the foe.
+  kindle: {
+    tone: TONE.kindle,
+    deep: TONE_DEEP.kindle,
+    css: 'var(--tone-kindle)',
     release: [
-      { fx: 'flash', tint: 'tone', size: 90, life: 0.3, alpha: 0.85, grow: 1.6 },
-      { fx: 'ring', tint: 'tone', from: 20, to: 150, life: 0.36, alpha: 0.7 },
-      { fx: 'burst', count: 20, speed: [90, 300], size: [7, 18], life: [0.4, 0.85], spread: 'up', gravity: -140, drag: 1.5 },
-      { fx: 'shake', amp: 3, dur: 0.25 },
+      { fx: 'flash', tint: 'tone', size: 60, life: 0.2, alpha: 0.7, grow: 1.5 },
+      { fx: 'ring', tint: 'tone', from: 14, to: 96, life: 0.3, alpha: 0.6 },
+      { fx: 'burst', count: 12, speed: [80, 260], size: [5, 13], life: [0.3, 0.7], spread: 'up', gravity: -130, drag: 1.4 },
     ],
-    // each burning tick
-    impact: [
-      { fx: 'flash', tint: 'tone', size: 44, life: 0.22, alpha: 0.45 },
-      { fx: 'burst', count: 8, speed: [40, 150], size: [6, 15], life: [0.3, 0.6], spread: 'up', gravity: -110, drag: 1.3 },
-    ],
-    crit: [
-      { fx: 'flash', tint: 'white', size: 70, life: 0.1, alpha: 0.8, grow: 2.2 },
-      { fx: 'rays', tint: 'tone', count: 6, reach: 130, width: 9, life: 0.22 },
-      { fx: 'shake', amp: 3 },
-    ],
-    aura: { rate: 0.028, alpha: 0.8 },
-    sfx: { release: 'ignite', impact: 'burn', crit: 'burn' },
+    sfx: { release: 'ignite' },
   },
 
-  renew: {
-    tone: TONE.renew,
-    deep: TONE_DEEP.renew,
-    css: 'var(--tone-renew)',
-    charge: { rate: 0.03, radius: 70, tighten: 0.4 },
-    impact: [
-      { fx: 'flash', tint: 'tone', size: 100, life: 0.42, alpha: 0.75, grow: 1.7 },
-      { fx: 'ring', tint: 'tone', from: 24, to: 170, life: 0.44, alpha: 0.6 },
-      // motes rising up out of the card and settling into you
-      { fx: 'burst', count: 26, speed: [70, 190], size: [5, 12], life: [0.55, 1], spread: 'up', gravity: -60, drag: 0.9 },
-      { fx: 'implode', count: 16, radius: 90, size: [4, 10], life: [0.35, 0.6] },
-    ],
-    crit: [
-      { fx: 'flash', tint: 'white', size: 90, life: 0.14, alpha: 0.8, grow: 2 },
-      { fx: 'rays', tint: 'tone', count: 8, reach: 170, width: 10, life: 0.26 },
-    ],
-    sfx: { impact: 'heal', crit: 'heal' },
-  },
-
-  counterspell: {
-    tone: TONE.counterspell,
-    deep: TONE_DEEP.counterspell,
-    css: 'var(--tone-counterspell)',
-    // a bolt, not a projectile: it is *already there*
+  // Wildfire: a wave of living fire washing outward across the pack.
+  wildfire: {
+    tone: TONE.wildfire,
+    deep: TONE_DEEP.wildfire,
+    css: 'var(--tone-wildfire)',
     release: [
-      { fx: 'bolt', tint: 'tone', life: 0.19, width: 3.5, jitter: 22, forks: 3 },
-      { fx: 'flash', tint: 'white', size: 80, life: 0.11, alpha: 1, grow: 2.2 },
-      { fx: 'ring', tint: 'tone', from: 30, to: 190, life: 0.3, alpha: 0.9 },
-      { fx: 'rays', tint: 'tone', count: 8, reach: 160, width: 8, life: 0.18 },
-      // the enemy's gathered spell breaking into pieces
-      { fx: 'burst', count: 22, speed: [200, 560], size: [6, 16], life: [0.3, 0.65], tint: 'mix', gravity: 380, drag: 1.4, endScale: 0.35, tex: 'shard' },
-      { fx: 'shake', amp: 6, dur: 0.3 },
+      { fx: 'flash', tint: 'tone', size: 120, life: 0.34, alpha: 0.8, grow: 1.7 },
+      { fx: 'ring', tint: 'tone', from: 24, to: 320, life: 0.5, alpha: 0.8 },
+      { fx: 'ring', tint: 'hot', from: 40, to: 220, life: 0.36, alpha: 0.7 },
+      { fx: 'burst', count: 34, speed: [160, 520], size: [7, 18], life: [0.4, 0.95], spread: 'up', gravity: -90, drag: 1.3, stretch: 1.5 },
+      { fx: 'smoke', count: 6 },
+      { fx: 'shake', amp: 6 },
+    ],
+    aura: { rate: 0.03, alpha: 0.7 },
+    sfx: { release: 'ignite' },
+  },
+
+  // Flashpoint: a white-hot flare that tears the foe open.
+  flashpoint: {
+    tone: TONE.flashpoint,
+    deep: TONE_DEEP.flashpoint,
+    css: 'var(--tone-flashpoint)',
+    release: [
+      { fx: 'flash', tint: 'white', size: 110, life: 0.1, alpha: 1, grow: 2.2 },
+      { fx: 'flash', tint: 'tone', size: 150, life: 0.3, alpha: 0.7, grow: 1.6 },
+      { fx: 'ring', tint: 'hot', from: 30, to: 300, life: 0.4, alpha: 0.9 },
+      { fx: 'rays', tint: 'hot', count: 14, reach: 240, width: 12, life: 0.26 },
+      { fx: 'shake', amp: 7, dur: 0.3 },
       { fx: 'hitStop', hold: 0.05 },
     ],
-    sfx: { release: 'interrupt', impact: 'hit-arcane' },
+    sfx: { release: 'crit' },
   },
 
+  // Inferno: everything at once — the field goes white.
+  inferno: {
+    tone: TONE.inferno,
+    deep: TONE_DEEP.inferno,
+    css: 'var(--tone-inferno)',
+    release: [
+      { fx: 'flash', tint: 'white', size: 140, life: 0.12, alpha: 1, grow: 2.4 },
+      ...DETONATE(150, 520),
+      { fx: 'ring', tint: 'deep', from: 40, to: 640, life: 0.8, alpha: 0.45 },
+      { fx: 'rays', tint: 'hot', count: 16, reach: 320, width: 18, life: 0.34 },
+      DEBRIS(72, 1200, 30),
+      { fx: 'burst', count: 20, speed: [80, 300], size: [18, 46], life: [0.6, 1.4], tint: 'deep', gravity: -50, drag: 1.4, alpha: 0.7 },
+      { fx: 'smoke', count: 12 },
+      { fx: 'shake', amp: 15, dur: 0.6 },
+      { fx: 'hitStop', hold: 0.07 },
+    ],
+    crit: CRIT_FLOURISH,
+    sfx: { release: 'epic', impact: 'pyro-hit', crit: 'crit-heavy' },
+  },
+
+  // Smolder: the lingering burn on a foe — a soft aura and a lick per tick.
+  smolder: {
+    tone: TONE.fireball,
+    deep: TONE_DEEP.fireball,
+    css: 'var(--tone-fireball)',
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 34, life: 0.2, alpha: 0.4 },
+      { fx: 'burst', count: 6, speed: [30, 130], size: [5, 12], life: [0.3, 0.6], spread: 'up', gravity: -110, drag: 1.3 },
+    ],
+    aura: { rate: 0.03, alpha: 0.75 },
+    sfx: { impact: 'burn' },
+  },
+
+  // Focus: a sharp read — the incoming blow turned aside, the foe cracked open.
+  focus: {
+    tone: TONE.flashpoint,
+    deep: TONE_DEEP.fireball,
+    css: 'var(--tone-flashpoint)',
+    release: [
+      { fx: 'flash', tint: 'white', size: 70, life: 0.1, alpha: 0.95, grow: 2.1 },
+      { fx: 'ring', tint: 'hot', from: 24, to: 180, life: 0.3, alpha: 0.9 },
+      { fx: 'rays', tint: 'hot', count: 7, reach: 150, width: 8, life: 0.2 },
+      { fx: 'burst', count: 14, speed: [180, 520], size: [5, 14], life: [0.25, 0.55], tint: 'mix', gravity: 340, drag: 1.4, endScale: 0.35, tex: 'shard' },
+      { fx: 'shake', amp: 5, dur: 0.26 },
+      { fx: 'hitStop', hold: 0.04 },
+    ],
+    sfx: { release: 'interrupt' },
+  },
+
+  // Barrier: absorb-shield look, shared by every calling's shield (FX-only).
   barrier: {
-    tone: TONE.barrier,
-    deep: TONE_DEEP.barrier,
+    tone: 0xa9c8ff,
+    deep: 0x5f8fd9,
     css: 'var(--tone-barrier)',
     release: [
       { fx: 'flash', tint: 'tone', size: 120, life: 0.34, alpha: 0.8, grow: 1.3 },
-      // the shell knitting itself together, out of the air
       { fx: 'implode', count: 30, radius: 130, size: [4, 12], life: [0.3, 0.55] },
       { fx: 'ring', tint: 'tone', from: 130, to: 78, life: 0.42, alpha: 0.95 },
     ],
     sfx: { release: 'barrier' },
-  },
-
-  combustion: {
-    tone: TONE.combustion,
-    deep: TONE_DEEP.fireball,
-    css: 'var(--tone-combustion)',
-    release: [
-      { fx: 'flash', tint: 'tone', size: 150, life: 0.5, alpha: 0.9, grow: 1.9 },
-      { fx: 'ring', tint: 'tone', from: 26, to: 260, life: 0.55, alpha: 0.85 },
-      { fx: 'ring', tint: 'deep', from: 20, to: 340, life: 0.75, alpha: 0.5 },
-      { fx: 'rays', tint: 'hot', count: 12, reach: 220, width: 14, life: 0.32 },
-      { fx: 'burst', count: 40, speed: [140, 480], size: [7, 20], life: [0.5, 1.1], tint: 'mix', gravity: -90, drag: 1.3, stretch: 1.5 },
-      { fx: 'shake', amp: 7 },
-    ],
-    aura: { rate: 0.018, alpha: 1 },
-    sfx: { release: 'epic' },
   },
 
   // ── gravewright: grave-lantern light and old paper ──────────────────

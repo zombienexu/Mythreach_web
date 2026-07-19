@@ -2,7 +2,6 @@
   import type { EnemySnapshot } from '../../engine'
   import { ticksToSeconds } from '../format'
   import type { Impact } from '../game.svelte'
-  import AbilityIcon from './icons/AbilityIcon.svelte'
   import EnemyPortrait from './portraits/EnemyPortrait.svelte'
 
   let {
@@ -68,6 +67,8 @@
   class:elite={enemy.rank === 'elite'}
   class:boss={enemy.rank === 'boss'}
   class:casting
+  class:telegraph={!dead && enemy.combatState === 'telegraph'}
+  class:exposed={!dead && enemy.combatState === 'exposed'}
   data-fx-card="enemy"
   data-iid={enemy.iid}
   bind:this={el}
@@ -144,9 +145,19 @@
     </div>
 
     {#if !dead && enemy.dot}
-      <span class="dot-mote" title="Burning">
-        <span class="dot-icon"><AbilityIcon id="ignite" /></span>
+      <span class="dot-mote" title="Afflicted">
+        <span class="dot-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3 C9.6 6.6 8 8.4 8 11.4 a4 4 0 0 0 8 0 C16 8.4 14.4 6.6 12 3 Z" fill-opacity="0.85" /></svg>
+        </span>
         <span class="num">{ticksToSeconds(enemy.dot.remainingTicks)}s</span>
+      </span>
+    {/if}
+
+    {#if !dead && enemy.smolder}
+      <span class="smolder {enemy.smolder.band}" title="Smolder ×{enemy.smolder.stacks} ({enemy.smolder.band})" aria-label="Smolder {enemy.smolder.stacks} of 5, {enemy.smolder.band}">
+        {#each Array(5) as _, i (i)}
+          <span class="ember" class:lit={i < enemy.smolder.stacks}></span>
+        {/each}
       </span>
     {/if}
   </div>
@@ -163,7 +174,11 @@
     <!-- one whisper-line, space always reserved: the cast warning or the rage -->
     <div class="threat-line">
       {#if casting && enemy.cast}
-        <span class="cast-word">casting {enemy.cast.name} — interrupt! <span class="num">{ticksToSeconds(enemy.cast.remainingTicks)}s</span></span>
+        <span class="cast-word">casting {enemy.cast.name} — Focus! <span class="num">{ticksToSeconds(enemy.cast.remainingTicks)}s</span></span>
+      {:else if !dead && enemy.combatState === 'exposed'}
+        <span class="exposed-word">Exposed</span>
+      {:else if !dead && enemy.combatState === 'telegraph'}
+        <span class="tell-word">winding up — Focus</span>
       {:else if !dead && enemy.enraged}
         <span class="enrage-word">Enraged</span>
       {/if}
@@ -439,6 +454,89 @@
   .dot-icon {
     width: 13px;
     height: 13px;
+    color: var(--ember, oklch(0.72 0.19 45));
+  }
+
+  /* ---- Smolder: a row of embers, hotter as they age ------------------- */
+  .smolder {
+    position: absolute;
+    top: -4%;
+    left: 50%;
+    translate: -50% 0;
+    display: inline-flex;
+    gap: 4px;
+    padding: 3px 6px;
+    border-radius: 99px;
+    background: oklch(0.13 0.03 40 / 0.6);
+    pointer-events: none;
+  }
+  .smolder .ember {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1px solid oklch(0.6 0.12 40 / 0.4);
+    background: oklch(0.3 0.04 40 / 0.5);
+    transition:
+      background 200ms ease,
+      box-shadow 200ms ease;
+  }
+  .smolder .ember.lit {
+    background: radial-gradient(circle at 40% 35%, oklch(0.85 0.14 60), oklch(0.65 0.19 40) 70%);
+    border-color: oklch(0.8 0.16 55);
+    box-shadow: 0 0 7px oklch(0.72 0.19 45 / 0.7);
+  }
+  /* the fiercer the band, the hotter the lit embers read */
+  .smolder.heated .ember.lit {
+    box-shadow: 0 0 9px oklch(0.74 0.2 40 / 0.85);
+  }
+  .smolder.volatile .ember.lit {
+    background: radial-gradient(circle at 40% 35%, oklch(0.95 0.08 90), oklch(0.7 0.22 35) 70%);
+    box-shadow: 0 0 12px oklch(0.78 0.22 40 / 0.95);
+    animation: ember-flare 800ms ease-in-out infinite alternate;
+  }
+  @keyframes ember-flare {
+    to {
+      box-shadow: 0 0 16px oklch(0.8 0.22 45 / 1);
+    }
+  }
+
+  /* ---- reading the foe: the tell and the Opening --------------------- */
+  .figure.telegraph .totem {
+    animation: tell-warn 460ms ease-in-out infinite alternate;
+  }
+  @keyframes tell-warn {
+    from {
+      filter: drop-shadow(0 0 3px oklch(0.8 0.18 30 / 0.3));
+    }
+    to {
+      filter: drop-shadow(0 0 16px oklch(0.82 0.2 30 / 0.75));
+    }
+  }
+  .figure.exposed .art {
+    filter: drop-shadow(0 0 18px oklch(0.85 0.16 60 / 0.85)) brightness(1.15);
+  }
+  .figure.exposed .pool {
+    background: radial-gradient(
+      ellipse 50% 50% at 50% 50%,
+      oklch(0.82 0.18 55 / 0.28) 0%,
+      oklch(0.7 0.15 45 / 0.1) 55%,
+      transparent 75%
+    );
+  }
+  .tell-word {
+    color: oklch(0.82 0.18 32);
+    font-weight: 680;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 9.5px;
+    animation: enrage-throb 700ms ease-in-out infinite alternate;
+  }
+  .exposed-word {
+    color: oklch(0.85 0.17 60);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    text-shadow: 0 0 12px oklch(0.8 0.19 50 / 0.7);
   }
 
   /* ---- the plate: name written on the dark, no box ------------------- */
@@ -762,6 +860,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .enrage-word,
+    .tell-word,
+    .smolder.volatile .ember.lit,
+    .figure.telegraph .totem,
     .figure.casting .totem,
     .rank-ring,
     .boss-ring::after,

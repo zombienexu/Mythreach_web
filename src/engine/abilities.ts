@@ -1,5 +1,5 @@
 import { CLASS_KITS } from './content/classes'
-import type { AbilityId, BuffId, CardId, ClassId, School } from './types'
+import type { AbilityId, BuffId, CardId, ClassId, School, SmolderBand } from './types'
 
 export type AbilityEffect =
   | { kind: 'damage'; min: number; max: number }
@@ -55,6 +55,8 @@ export interface AbilityDef {
 
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
   // ───────────────────────── arcanist ─────────────────────────
+  // Build the fire (Smolder), feed the fire (Heat), read the foe (Openings),
+  // choose the perfect moment to unleash it.
   fireball: {
     id: 'fireball',
     name: 'Fireball',
@@ -67,91 +69,83 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     offensive: true,
     offGcd: false,
     school: 'fire',
-    description: 'Hurl a bolt of living flame. Your bread and butter.',
+    description:
+      'Hurl a bolt of living flame — Fire damage, a stack of Smolder, and one Heat. As Heat climbs it splashes, spreads, and finally pierces the whole line. Loosed into an Opening it runs hotter.',
   },
-  ignite: {
-    id: 'ignite',
-    name: 'Ignite',
+  detonate: {
+    id: 'detonate',
+    name: 'Detonate',
     key: '2',
     classId: 'arcanist',
-    unlockLevel: 1,
+    unlockLevel: 3,
     manaCost: 12,
     castTicks: 0,
-    cooldownTicks: 160, // 8 s
+    cooldownTicks: 60, // 3 s
     offensive: true,
     offGcd: false,
     school: 'fire',
-    description: 'Set the target alight, burning over 6 seconds. Reapplying refreshes the burn.',
+    description:
+      'Set off every Smolder on the target at once. Older embers hit far harder — a field of Volatile stacks is a bomb. Builds Heat.',
   },
-  renew: {
-    id: 'renew',
-    name: 'Renew',
+  kindle: {
+    id: 'kindle',
+    name: 'Kindle',
     key: '3',
     classId: 'arcanist',
-    unlockLevel: 2,
-    manaCost: 16,
-    castTicks: 36, // 1.8 s
+    unlockLevel: 5,
+    manaCost: 10,
+    castTicks: 0,
     cooldownTicks: 100, // 5 s
-    offensive: false,
-    offGcd: false,
-    school: 'holy',
-    description: 'Weave starlight back into your body, restoring health.',
-  },
-  pyroblast: {
-    id: 'pyroblast',
-    name: 'Pyroblast',
-    key: '4',
-    classId: 'arcanist',
-    unlockLevel: 4,
-    manaCost: 30,
-    castTicks: 70, // 3.5 s
-    cooldownTicks: 240, // 12 s
     offensive: true,
     offGcd: false,
     school: 'fire',
-    description: 'A slow, colossal comet of fire. Worth the wait.',
+    description:
+      'Instantly lay one Smolder — two if the target is Exposed. The fast way to build pressure without a cast.',
   },
-  counterspell: {
-    id: 'counterspell',
-    name: 'Counterspell',
-    key: '5',
+  wildfire: {
+    id: 'wildfire',
+    name: 'Wildfire',
+    key: '4',
     classId: 'arcanist',
-    unlockLevel: 6,
-    manaCost: 8,
+    unlockLevel: 7,
+    manaCost: 20,
     castTicks: 0,
     cooldownTicks: 300, // 15 s
     offensive: true,
-    offGcd: true,
-    school: 'arcane',
-    description: 'Shatter an enemy spell mid-cast. Only usable while your target is casting — switch to the caster; off the global cooldown.',
-  },
-  barrier: {
-    id: 'barrier',
-    name: 'Arcane Barrier',
-    key: '6',
-    classId: 'arcanist',
-    unlockLevel: 8,
-    manaCost: 24,
-    castTicks: 0,
-    cooldownTicks: 400, // 20 s
-    offensive: false,
-    offGcd: false,
-    school: 'arcane',
-    description: 'A shell of hardened starlight that absorbs damage before it reaches you.',
-  },
-  combustion: {
-    id: 'combustion',
-    name: 'Combustion',
-    key: '7',
-    classId: 'arcanist',
-    unlockLevel: 11,
-    manaCost: 10,
-    castTicks: 0,
-    cooldownTicks: 600, // 30 s
-    offensive: false,
     offGcd: false,
     school: 'fire',
-    description: 'For 12 seconds your fire spells burn 25% hotter and are 20% more likely to crit.',
+    description:
+      'Seed Smolder across the whole pack — and while learned, consuming Smolder spreads living fire to nearby foes.',
+  },
+  flashpoint: {
+    id: 'flashpoint',
+    name: 'Flashpoint',
+    key: '5',
+    classId: 'arcanist',
+    unlockLevel: 9,
+    manaCost: 14,
+    castTicks: 0,
+    cooldownTicks: 400, // 20 s
+    offensive: true,
+    offGcd: false,
+    school: 'fire',
+    description:
+      'Spend all your Heat to tear a guaranteed Opening — the more Heat, the longer they stay Exposed. Make your own moment.',
+  },
+  inferno: {
+    id: 'inferno',
+    name: 'Inferno',
+    key: '6',
+    classId: 'arcanist',
+    unlockLevel: 11,
+    manaCost: 26,
+    castTicks: 0,
+    cooldownTicks: 500, // 25 s
+    offensive: true,
+    offGcd: false,
+    school: 'fire',
+    description:
+      'Spend every Smolder and all your Heat in one apocalyptic bloom across the field. Damage scales with everything you built.',
   },
 
   // ───────────────────────── gravewright ─────────────────────────
@@ -607,14 +601,14 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
 }
 
 export const ABILITY_EFFECTS: Record<AbilityId, AbilityEffect> = {
-  // arcanist
+  // arcanist — Fireball's damage roll is the source of truth for its base hit;
+  // everything else it does (Smolder, Heat, evolution) is custom-resolved.
   fireball: { kind: 'damage', min: 16, max: 24 },
-  ignite: { kind: 'dot', tickDamage: 5, intervalTicks: 20, tickCount: 6 },
-  renew: { kind: 'heal', min: 20, max: 28 },
-  pyroblast: { kind: 'damage', min: 48, max: 64 },
-  counterspell: { kind: 'interrupt' },
-  barrier: { kind: 'shield', base: 25, perLevel: 5, durationTicks: 600 },
-  combustion: { kind: 'buff', buff: 'combustion', durationTicks: 240 },
+  detonate: { kind: 'special' },
+  kindle: { kind: 'special' },
+  wildfire: { kind: 'special' },
+  flashpoint: { kind: 'special' },
+  inferno: { kind: 'special' },
   // gravewright
   gravebolt: { kind: 'damage', min: 15, max: 22 },
   gravechill: { kind: 'dot', tickDamage: 4, intervalTicks: 20, tickCount: 7, chillPct: 15 },
@@ -656,6 +650,65 @@ export const ABILITY_EFFECTS: Record<AbilityId, AbilityEffect> = {
 /** Combustion's payload, shared by engine and UI copy. */
 export const COMBUSTION_FIRE_BONUS_PCT = 25
 export const COMBUSTION_CRIT_BONUS = 20
+
+// ═════════════════════ The Arcanist's fire (redesign) ═════════════════════
+// Three interlocking systems: Openings (read the foe), Smolder (build pressure
+// on the foe), Heat (build power in yourself). Numbers are shared by the sim,
+// the UI gauges and the FX so nothing drifts.
+
+// ── Heat: accumulated fire in the caster, 0–10. Doesn't add flat damage — it
+//    changes what Fireball *does* as it climbs. Resets between fights. ──
+export const HEAT_MAX = 10
+/** 5–9 Heat: Fireball splashes and spreads a little burn. */
+export const HEAT_EMPOWERED_AT = 5
+/** 10 Heat: Fireball pierces the whole pack and lays burning ground. */
+export const HEAT_OVERHEAT_AT = 10
+/** Heat a Fireball / Detonate / Kindle bank on use. */
+export const HEAT_PER_FIREBALL = 1
+export const HEAT_PER_DETONATE = 2
+export const HEAT_PER_KINDLE = 1
+/** A Fireball loosed into an Opening runs hotter. */
+export const HEAT_OPENING_BONUS = 1
+/** Empowered Fireball's splash onto other foes, as a share of the main hit. */
+export const FIREBALL_SPLASH_PCT = 40
+
+// ── Smolder: lingering fire on a foe, max 5 stacks, each aging on its own.
+//    Older = fiercer. Consumed by Detonate / Inferno. ──
+export const SMOLDER_MAX = 5
+/** A lone stack falls off after this long untended (11 s) — long enough to
+ *  actually build a field of five, with a wide berth to detonate it ripe. */
+export const SMOLDER_DURATION_TICKS = 220
+/** Age thresholds: < 2 s Fresh, 2–5 s Heated, ≥ 5 s Volatile. */
+export const SMOLDER_HEATED_AT = 40
+export const SMOLDER_VOLATILE_AT = 100
+/** The lingering burn ticks this often (1 s). */
+export const SMOLDER_TICK_TICKS = 20
+/** Per-stack lingering burn each tick, by band (before power scaling). */
+export const SMOLDER_BURN: Record<SmolderBand, number> = { fresh: 1, heated: 2, volatile: 3 }
+/** Per-stack Detonate payoff, by band (before power/crit scaling). */
+export const DETONATE_PER_STACK: Record<SmolderBand, number> = { fresh: 6, heated: 11, volatile: 18 }
+/** Wildfire: on a consume, other foes catch this many stacks + a splash of the
+ *  detonation, scaled by how much was consumed. */
+export const WILDFIRE_SPREAD_PCT = 45
+/** Wildfire (active): Smolder seeded on every living foe. */
+export const WILDFIRE_SEED_STACKS = 2
+
+// ── Openings: read the foe's tell, answer with Focus, and it comes Exposed. ──
+/** How long a foe stays Exposed after a successful Focus (3 s). */
+export const OPENING_TICKS = 60
+/** Bonus damage a foe takes from you while Exposed. */
+export const OPENING_DMG_PCT = 30
+/** Focus's own cooldown (2.5 s) and the shorter lockout on a whiff (1.5 s). */
+export const FOCUS_CD_TICKS = 50
+export const FOCUS_WHIFF_CD_TICKS = 30
+/** The tell: a foe is readable in the last stretch of a wind-up, or any time it
+ *  is hardcasting. Focus only bites inside this tell. */
+export const TELL_FROM_PROGRESS = 0.6
+/** Flashpoint: Exposed ticks granted per Heat spent (min OPENING_TICKS). */
+export const FLASHPOINT_TICKS_PER_HEAT = 8
+/** Inferno: AoE damage per Heat spent and per (age-weighted) Smolder consumed. */
+export const INFERNO_PER_HEAT = 4
+export const INFERNO_PER_SMOLDER = 9
 
 /** House Rules' crit rider (its max-roll half lives in the sim's roll path). */
 export const HOUSE_RULES_CRIT_BONUS = 10

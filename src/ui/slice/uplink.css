@@ -1,0 +1,160 @@
+/* ── The Uplink console: the slice's design system ────────────────────────
+ *
+ *  Diegetic split (GDD §18): the FRAME is the present — a cold, technical
+ *  future-tech console (signal cyan on slate). The WORLD seen through it is
+ *  the past — warm ember firelight. The frame never glows warm; the world
+ *  never glows cold. That contrast is the whole art direction.
+ *
+ *  Additive only: new tokens + a few global helper classes. The original
+ *  "Arcane Observatory" tokens (tokens.css) are untouched and still drive the
+ *  arena's spell tones and warm world hues. */
+
+:root {
+  /* the uplink — cold instrumentation */
+  --signal: oklch(0.84 0.12 205); /* live carrier cyan */
+  --signal-dim: oklch(0.62 0.06 210);
+  --signal-faint: oklch(0.84 0.12 205 / 0.12);
+  --console: oklch(0.12 0.02 235); /* frame slate */
+  --console-deep: oklch(0.09 0.02 240);
+  --console-glass: oklch(0.55 0.03 220 / 0.06);
+  --console-edge: oklch(0.7 0.05 210 / 0.22);
+  --console-line: oklch(0.7 0.05 210 / 0.14);
+
+  /* the recovered world — warm ember (the Ember Legion) */
+  --ember-war: oklch(0.72 0.19 45); /* war-fire */
+  --ember-glow: oklch(0.78 0.16 60);
+
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, monospace;
+}
+
+/* telemetry type — every readout number is monospace tabular */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* the label above a readout: small, spaced, cold */
+.readout {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--signal-dim);
+}
+
+/* a console panel — smoked cold glass with a hairline and clipped corners */
+.console-panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, oklch(0.5 0.03 220 / 0.05), oklch(0.5 0.03 240 / 0.02)),
+    var(--console-glass);
+  border: 1px solid var(--console-edge);
+  border-radius: var(--radius);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+/* corner registration ticks — instrumentation chrome */
+.ticked::before,
+.ticked::after {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--signal);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.ticked::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.ticked::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* the live scanline sheen that says "this is a feed, not a place" */
+@keyframes uplink-scan {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* primary console action — a lit key */
+.uplink-btn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: oklch(0.16 0.02 230);
+  background: linear-gradient(180deg, var(--signal), var(--signal-dim));
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 11px 20px;
+  cursor: pointer;
+  font-weight: 640;
+  box-shadow: 0 0 0 1px oklch(0.84 0.12 205 / 0.4), 0 6px 22px oklch(0.6 0.1 210 / 0.25);
+  transition:
+    filter var(--dur-fast) var(--ease-punch),
+    transform var(--dur-fast) var(--ease-punch);
+}
+.uplink-btn:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+.uplink-btn:active {
+  transform: translateY(0);
+}
+.uplink-btn:disabled {
+  filter: grayscale(0.7) brightness(0.6);
+  cursor: not-allowed;
+}
+
+/* secondary — a ghost key with a cyan hairline */
+.ghost-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--signal);
+  background: transparent;
+  border: 1px solid var(--console-edge);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast),
+    border-color var(--dur-fast);
+}
+.ghost-btn:hover {
+  background: var(--signal-faint);
+  border-color: var(--signal);
+}
+.ghost-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* a thin meter track (Standing / Grace / Recovery / objective) */
+.meter {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: oklch(0.5 0.02 230 / 0.18);
+  overflow: hidden;
+}
+.meter > .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  transition: width var(--dur-slow) var(--ease-out-expo);
+}

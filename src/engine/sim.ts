@@ -24,6 +24,29 @@ import {
   REWIND_HEAL_PCT,
   RIFT_TEAR_SPLASH_PCT,
   STASIS_FREEZE_TICKS,
+  // ── the Arcanist's fire ──
+  DETONATE_PER_STACK,
+  FIREBALL_SPLASH_PCT,
+  FLASHPOINT_TICKS_PER_HEAT,
+  FOCUS_CD_TICKS,
+  FOCUS_WHIFF_CD_TICKS,
+  HEAT_EMPOWERED_AT,
+  HEAT_MAX,
+  HEAT_OPENING_BONUS,
+  HEAT_OVERHEAT_AT,
+  HEAT_PER_DETONATE,
+  HEAT_PER_FIREBALL,
+  HEAT_PER_KINDLE,
+  INFERNO_PER_HEAT,
+  INFERNO_PER_SMOLDER,
+  OPENING_DMG_PCT,
+  OPENING_TICKS,
+  SMOLDER_BURN,
+  SMOLDER_MAX,
+  SMOLDER_DURATION_TICKS,
+  SMOLDER_TICK_TICKS,
+  WILDFIRE_SEED_STACKS,
+  WILDFIRE_SPREAD_PCT,
   type AbilityEffect,
 } from './abilities'
 import { ACHIEVEMENT_BY_ID } from './content/achievements'
@@ -34,7 +57,7 @@ import { DEFAULT_CONTENT } from './content/regions'
 import { TALENTS } from './content/talents'
 import { WORLD_BOSS, WORLD_BOSS_MAX_HP } from './content/worldboss'
 import { Dot } from './dot'
-import { EnemyUnit } from './enemyUnit'
+import { EnemyUnit, smolderBandOf } from './enemyUnit'
 import type { CombatEvent, DamageSource } from './events'
 import { PlayerUnit, type TimedBuffId } from './playerUnit'
 import {
@@ -71,6 +94,7 @@ import type {
   RegionProgress,
   SaveData,
   School,
+  SmolderBand,
   TalentId,
 } from './types'
 import {
@@ -138,6 +162,13 @@ export class GameSim {
   }
   autoBattle = false
 
+  /** Grace-gated teaching (the redesign): when non-null, an ability is usable
+   *  only if the world has *taught* it — access is decoupled from level, which
+   *  now governs only power. Null = legacy level-gated behavior, so every
+   *  existing save and test is unaffected. Owned/persisted by the meta layer;
+   *  re-applied on load via {@link setTaught}. */
+  private taught: Set<AbilityId> | null = null
+
   // ── phase ──
   /** idle: waiting for the player to start a fight. combat: a pack is live.
    *  looting: the pack is down, corpses hold their spoils. assault: world boss. */
@@ -161,6 +192,9 @@ export class GameSim {
   /** Idle breather countdown — only auto-battle waits on it before the next fight. */
   private restIn = 0
   private pending: CombatEvent[] = []
+  /** Set for exactly one damage roll when a Hot Streak makes Pyroblast a
+   *  guaranteed crit; the roll reads and clears it. */
+  private forceCritNext = false
 
   constructor(opts: SimOptions) {
     this.content = opts.content ?? DEFAULT_CONTENT
@@ -207,6 +241,8 @@ export class GameSim {
   private resetFightState(): void {
     const p = this.player
     p.cheatedDeath = false
+    p.heat = 0
+    p.focusCd = 0
     p.lastHitTaken = 0
     p.debt = 0
     p.reckoningIn = RECKONING_INTERVAL_TICKS
@@ -297,6 +333,7 @@ export class GameSim {
       if (p.cooldowns[id] > 0) p.cooldowns[id]--
     }
     if (p.gcd > 0) p.gcd--
+    if (p.focusCd > 0) p.focusCd--
     if (p.combustion > 0) {
       p.combustion--
       if (p.combustion === 0) this.push({ kind: 'buffExpired', id: 'combustion' })
@@ -405,7 +442,7 @@ export class GameSim {
         const banePasses = p.hasBuff('wildswell') ? 2 : 1
         let died = false
         for (let pass = 0; pass < banePasses && e.bane; pass++) {
-          const source = (e.baneSource ?? 'ignite') as DamageSource
+          const source = (e.baneSource ?? 'smolder') as DamageSource
           const due = e.bane.tick()
           if (!e.bane.active) {
             e.bane = null
@@ -428,11 +465,27 @@ export class GameSim {
         if (died) continue
       }
 
+      // The Arcanist's Smolder ages and licks at the foe whether or not it can
+      // act — and a mature enough field can burn a mob down on its own.
+      if (e.smolder.length > 0) {
+        if (this.tickSmolder(e)) continue
+      }
+      // An Opening is a fleeting thing.
+      if (e.opening > 0) {
+        e.opening--
+        if (e.opening === 0) e.telling = false
+      }
+
       // Outside time: no swings, no spells, a cast in flight simply holds.
       if (e.frozen > 0) {
         e.frozen--
         continue
       }
+
+      // Read the foe: the moment a tell opens is worth announcing (once).
+      const tell = e.tellOpen
+      if (tell && !e.telling) this.push({ kind: 'tellOpened', iid: e.iid })
+      e.telling = tell
 
       if (e.cast) {
         // Hardcast winds up; no swings while casting.
@@ -529,18 +582,44 @@ export class GameSim {
 
   /** "Would this ability be accepted right now?" — queueing counts as accepted,
    *  so an active cast or GCD does not make this false. */
+  /** Set the taught-ability gate (the redesign's Grace teaching). Pass the
+   *  full set the world has taught so far; passing an empty iterable teaches
+   *  nothing, `null` restores legacy level-gating. Only kit abilities matter. */
+  setTaught(ids: Iterable<AbilityId> | null): void {
+    this.taught = ids === null ? null : new Set(ids)
+  }
+
+  /** The abilities currently usable-by-teaching (for the meta layer / UI).
+   *  Falls back to the level-unlocked set when teaching isn't in force. */
+  get taughtAbilities(): AbilityId[] {
+    if (this.taught) return this.kit.abilities.filter((id) => this.taught!.has(id))
+    return unlockedAbilities(this.identity.classId, this.level)
+  }
+
   canUse(id: AbilityId): boolean {
     const def = ABILITIES[id]
     const p = this.player
     if (def.classId !== this.kit.id) return false
-    if (!p.alive || this.level < def.unlockLevel) return false
+    if (!p.alive) return false
+    // Grace-gated teaching decouples access from level; legacy saves keep the
+    // level gate. Either way, an untaught / not-yet-unlocked spell is refused.
+    if (this.taught) {
+      if (!this.taught.has(id)) return false
+    } else if (this.level < def.unlockLevel) {
+      return false
+    }
     if (p.cooldowns[id] > 0) return false
     if (p.mana < def.manaCost) return false
-    // Counterspell reads your *target's* lips — switching to the caster is the play.
-    if (id === 'counterspell') return this.target?.cast != null
     if (def.offensive && this.target === null) return false
     // Class-resource gates: no page, no rite; no charge, no edge.
     switch (id) {
+      // ── arcanist ──
+      case 'detonate':
+        return (this.target?.smolder.length ?? 0) >= 1
+      case 'flashpoint':
+        return p.heat >= 1
+      case 'inferno':
+        return p.heat >= 1 || (this.target?.smolder.length ?? 0) >= 1
       case 'lastRites':
       case 'finalChapter':
         return p.pages >= 1
@@ -643,9 +722,172 @@ export class GameSim {
     let pct = 100 + (this.stats.schoolBonusPct[school] ?? 0)
     if (school === 'fire' && this.player.combustion > 0) pct += COMBUSTION_FIRE_BONUS_PCT
     amount = Math.round((amount * pct) / 100)
-    const crit = rollPct(this.rng, this.critChance(school))
+    // A Hot Streak Pyroblast is a guaranteed crit — consumed here, once.
+    let crit = rollPct(this.rng, this.critChance(school))
+    if (this.forceCritNext) {
+      crit = true
+      this.forceCritNext = false
+    }
     if (crit) amount = Math.round((amount * 7) / 4)
     return { amount, crit }
+  }
+
+  /** Is an ability unlocked to the hero — by teaching (the slice) or by level
+   *  (legacy)? Used by Heat to know whether Pyroblast is the Hot Streak payoff. */
+  private available(id: AbilityId): boolean {
+    if (this.taught) return this.taught.has(id)
+    return this.level >= ABILITIES[id].unlockLevel
+  }
+
+  // ═══════════════════ The Arcanist's fire: Heat, Smolder, Focus ═══════════════════
+
+  /** The band Heat sits in — drives Fireball's evolution and the gauge. */
+  private heatBand(heat = this.player.heat): 'cold' | 'empowered' | 'overheat' {
+    if (heat >= HEAT_OVERHEAT_AT) return 'overheat'
+    if (heat >= HEAT_EMPOWERED_AT) return 'empowered'
+    return 'cold'
+  }
+
+  /** Bank Heat (capped at 10), announcing the moment it climbs a band. */
+  private heatGain(n: number): void {
+    const p = this.player
+    if (n <= 0 || this.kit.id !== 'arcanist') return
+    const before = p.heat
+    p.heat = Math.min(HEAT_MAX, p.heat + n)
+    if (p.heat === before) return
+    const now = this.heatBand(p.heat)
+    this.push({
+      kind: 'heatChanged',
+      heat: p.heat,
+      band: now,
+      crossedUp: now !== this.heatBand(before) && now !== 'cold',
+    })
+  }
+
+  /** Spend all Heat back to cold (Flashpoint, Inferno). */
+  private spendAllHeat(): number {
+    const p = this.player
+    const spent = p.heat
+    if (spent > 0) {
+      p.heat = 0
+      this.push({ kind: 'heatChanged', heat: 0, band: 'cold', crossedUp: false })
+    }
+    return spent
+  }
+
+  /** Lay `n` Smolder on a living foe, announcing the new total. */
+  private applySmolder(e: EnemyUnit, n: number, spread = false): void {
+    if (!e.combatant.alive) return
+    const added = e.addSmolder(n)
+    if (added > 0) this.push({ kind: 'smolderApplied', iid: e.iid, stacks: e.smolder.length, spread })
+  }
+
+  /** Age a foe's Smolder one tick: mature the stacks, drop the burned-out ones,
+   *  and deal the lingering burn on cadence. Returns true if the foe died. */
+  private tickSmolder(e: EnemyUnit): boolean {
+    for (let i = e.smolder.length - 1; i >= 0; i--) {
+      e.smolder[i]!++
+      if (e.smolder[i]! >= SMOLDER_DURATION_TICKS) e.smolder.splice(i, 1)
+    }
+    if (e.smolder.length === 0) {
+      e.smolderBurnTimer = 0
+      return false
+    }
+    e.smolderBurnTimer++
+    if (e.smolderBurnTimer < SMOLDER_TICK_TICKS) return false
+    e.smolderBurnTimer = 0
+    let base = 0
+    for (const age of e.smolder) base += SMOLDER_BURN[smolderBandOf(age)]
+    const amount = Math.max(1, Math.round((base * (100 + this.stats.power)) / 100))
+    this.damageEnemyUnit(e, amount, false, 'smolder')
+    return !e.combatant.alive
+  }
+
+  /** Cash in every Smolder on a foe: older embers hit far harder. Returns the
+   *  damage dealt. Wildfire (once learned) leaps the fire to the rest of the pack. */
+  private detonateSmolder(e: EnemyUnit, source: AbilityId): number {
+    if (e.smolder.length === 0) return 0
+    const stacks = e.smolder.length
+    const band = e.hottestBand ?? 'fresh'
+    let base = 0
+    for (const age of e.smolder) base += DETONATE_PER_STACK[smolderBandOf(age)]
+    e.smolder = []
+    e.smolderBurnTimer = 0
+    this.push({ kind: 'smolderDetonated', iid: e.iid, stacks, band })
+    const { amount, crit } = this.rollSpell(base, base, 'fire')
+    const dealt = this.damageEnemyUnit(e, amount, crit, source)
+    if (this.hasWildfire()) this.spreadWildfire(e, band, amount)
+    return dealt
+  }
+
+  /** Whether the Wildfire passive (spread-on-consume) is learned. */
+  private hasWildfire(): boolean {
+    return this.kit.id === 'arcanist' && this.available('wildfire')
+  }
+
+  /** Wildfire: a consumed field throws living fire onto every other foe. */
+  private spreadWildfire(from: EnemyUnit, band: SmolderBand, detonationAmount: number): void {
+    const others = this.living.filter((o) => o.iid !== from.iid && o.combatant.alive)
+    if (others.length === 0) return
+    const splash = Math.max(1, Math.round((detonationAmount * WILDFIRE_SPREAD_PCT) / 100))
+    const seed = band === 'volatile' ? 2 : 1
+    for (const o of [...others]) {
+      this.damageEnemyUnit(o, splash, false, 'wildfire')
+      this.applySmolder(o, seed, true)
+    }
+  }
+
+  /** Fireball resolves: the Heat you have already built decides what it becomes,
+   *  then it lays Smolder and banks Heat. An Opening makes it fiercer. */
+  private resolveFireball(): void {
+    const e = this.target
+    if (!e) return
+    const exposed = e.opening > 0
+    const band = this.heatBand()
+    const base = ABILITY_EFFECTS.fireball as Extract<AbilityEffect, { kind: 'damage' }>
+    const { amount, crit } = this.rollSpell(base.min, base.max, 'fire')
+    this.damageEnemyUnit(e, amount, crit, 'fireball')
+    this.applySmolder(e, 1 + (exposed ? 1 : 0))
+    // Empowered (5–9): splash + a lick of Smolder onto up to two others.
+    // Overheat (10): pierce the whole pack + burning ground (Smolder on all).
+    if (band !== 'cold' && this.living.length > 1) {
+      const others = this.living.filter((o) => o.iid !== e.iid && o.combatant.alive)
+      const targets = band === 'overheat' ? others : others.slice(0, 2)
+      for (const o of targets) {
+        const pct = band === 'overheat' ? 100 : FIREBALL_SPLASH_PCT
+        const splash = Math.max(1, Math.round((amount * pct) / 100))
+        this.damageEnemyUnit(o, splash, false, 'fireball')
+        this.applySmolder(o, 1)
+      }
+    }
+    this.heatGain(HEAT_PER_FIREBALL + (exposed ? HEAT_OPENING_BONUS : 0))
+  }
+
+  /** Focus — the universal read-the-foe action (heart of the wheel / Space).
+   *  Answer a tell and the foe comes Exposed; whiff and you eat a short lockout.
+   *  Returns false only when Focus itself can't act (dead, on cooldown). */
+  focus(): boolean {
+    const p = this.player
+    if (!p.alive || p.focusCd > 0) return false
+    if (this.phase !== 'combat' && this.phase !== 'assault') return false
+    let e = this.target && this.target.tellOpen ? this.target : null
+    if (!e) e = this.living.find((u) => u.tellOpen) ?? null
+    if (e) {
+      // A read: deflect the committed blow and crack the foe open.
+      if (e.cast) this.interruptCast(e)
+      else e.swingElapsed = 0
+      e.opening = OPENING_TICKS
+      e.telling = false
+      p.focusCd = FOCUS_CD_TICKS
+      this.setTarget(e.iid)
+      this.push({ kind: 'openingCreated', iid: e.iid, viaFocus: true })
+      this.push({ kind: 'focusUsed', success: true, iid: e.iid })
+      return true
+    }
+    // A whiff: nothing to read. Short lockout so it can't be mashed.
+    p.focusCd = FOCUS_WHIFF_CD_TICKS
+    this.push({ kind: 'focusUsed', success: false, iid: null })
+    return true
   }
 
   private rollHeal(min: number, max: number, bonusPct = 0): { amount: number; crit: boolean } {
@@ -700,6 +942,11 @@ export class GameSim {
     // because onEncounterCleared wipes the slate *after* this).
     if (def.debt) p.debt = Math.min(100, p.debt + def.debt)
     if (def.chargeGain) p.charges = Math.min(this.chargeCap, p.charges + def.chargeGain)
+    // Fireball is fully custom now — it reads Heat, evolves, lays Smolder.
+    if (id === 'fireball') {
+      this.resolveFireball()
+      return
+    }
     switch (effect.kind) {
       case 'damage': {
         // Split Second: the Hourwarden's strike lands in both halves of the moment.
@@ -783,6 +1030,53 @@ export class GameSim {
   private applySpecial(id: AbilityId): void {
     const p = this.player
     switch (id) {
+      // ── arcanist (the fire) ──
+      case 'detonate': {
+        const e = this.target
+        if (e) this.detonateSmolder(e, 'detonate')
+        this.heatGain(HEAT_PER_DETONATE)
+        break
+      }
+      case 'kindle': {
+        const e = this.target
+        if (e) this.applySmolder(e, e.opening > 0 ? 2 : 1)
+        this.heatGain(HEAT_PER_KINDLE)
+        break
+      }
+      case 'wildfire': {
+        for (const e of [...this.living]) this.applySmolder(e, WILDFIRE_SEED_STACKS)
+        break
+      }
+      case 'flashpoint': {
+        const e = this.target
+        const heat = this.spendAllHeat()
+        if (e) {
+          e.opening = Math.max(OPENING_TICKS, heat * FLASHPOINT_TICKS_PER_HEAT)
+          e.telling = false
+          this.push({ kind: 'openingCreated', iid: e.iid, viaFocus: false })
+        }
+        break
+      }
+      case 'inferno': {
+        const heat = this.spendAllHeat()
+        for (const e of [...this.living]) {
+          // Age-weight the field: Volatile pays double, Heated half again.
+          let weighted = 0
+          for (const age of e.smolder) {
+            const b = smolderBandOf(age)
+            weighted += b === 'volatile' ? 2 : b === 'heated' ? 1.5 : 1
+          }
+          const stacks = e.smolder.length
+          e.smolder = []
+          e.smolderBurnTimer = 0
+          if (stacks > 0) this.push({ kind: 'smolderDetonated', iid: e.iid, stacks, band: 'volatile' })
+          const base = heat * INFERNO_PER_HEAT + Math.round(weighted * INFERNO_PER_SMOLDER)
+          if (base <= 0) continue
+          const { amount, crit } = this.rollSpell(base, base, 'fire')
+          this.damageEnemyUnit(e, amount, crit, 'inferno')
+        }
+        break
+      }
       // ── gravewright ──
       case 'lastRites': {
         p.pages--
@@ -1069,6 +1363,11 @@ export class GameSim {
       source !== 'thorns'
     ) {
       amount = Math.round((amount * (100 + DOORWAY_DAMAGE_BONUS_PCT)) / 100)
+    }
+    // An Exposed foe takes more from everything you throw at it (not its own
+    // thorns bite-back).
+    if (e.opening > 0 && source !== 'thorns') {
+      amount = Math.round((amount * (100 + OPENING_DMG_PCT)) / 100)
     }
     const dealt = e.combatant.damage(amount)
     if (dealt > 0) this.push({ kind: 'damage', target: 'enemy', iid: e.iid, amount: dealt, absorbed: 0, crit, source })
@@ -1359,6 +1658,7 @@ export class GameSim {
     p.mana = this.stats.maxMana
     p.respawnIn = 0
     p.regenElapsed = 0
+    p.heat = 0
     this.push({ kind: 'playerRespawned' })
   }
 
@@ -1874,6 +2174,9 @@ export class GameSim {
       if (weakest.combatant.hp < e0.combatant.hp) this.setTarget(weakest.iid)
     }
 
+    // Read the foe: answer any open tell with Focus (off the GCD) before acting.
+    if (p.focusCd === 0 && living.some((u) => u.tellOpen)) this.focus()
+
     switch (this.kit.id) {
       case 'arcanist':
         this.autoArcanist()
@@ -1898,16 +2201,15 @@ export class GameSim {
 
   /** Idle self-care between fights, per calling. */
   private autoIdleHeal(): void {
-    if (this.canUse('renew')) return void this.useAbility('renew')
     if (this.canUse('lastRites')) return void this.useAbility('lastRites')
     if (this.canUse('rewindWound')) return void this.useAbility('rewindWound')
   }
 
-  /** Reactions that ignore the GCD: Counterspell and Stasis on a caster. */
+  /** Reactions that ignore the GCD: Stasis on a caster. */
   private autoOffGcd(): void {
     const caster = this.living.find((u) => u.cast !== null)
     if (!caster) return
-    for (const id of ['counterspell', 'stasis'] as const) {
+    for (const id of ['stasis'] as const) {
       if (!this.kit.abilities.includes(id)) continue
       const def = ABILITIES[id]
       if (
@@ -1934,15 +2236,37 @@ export class GameSim {
   }
 
   private autoArcanist(): void {
-    const hp = this.hpPct()
-    if (hp <= 60 && this.canUse('renew')) return void this.useAbility('renew')
-    if (hp <= 75 && this.canUse('barrier')) return void this.useAbility('barrier')
     const t = this.targetInfo()
     if (!t) return
-    if ((t.tough || t.hpPct >= 60) && this.canUse('combustion')) return void this.useAbility('combustion')
-    if (!t.unit.bane?.active && this.canUse('ignite')) return void this.useAbility('ignite')
-    if (this.canUse('pyroblast')) return void this.useAbility('pyroblast')
+    const e = t.unit
+    const p = this.player
+    // Apocalypse when the field is ripe: a mature pack, or a wall of Heat.
+    if (
+      this.canUse('inferno') &&
+      (e.smolder.length >= 3 || p.heat >= 8) &&
+      (t.tough || this.living.length >= 2 || e.smolder.length >= SMOLDER_MAX)
+    ) {
+      return void this.useAbility('inferno')
+    }
+    // Manufacture a moment when Heat has peaked and nothing is Exposed.
+    if (this.canUse('flashpoint') && p.heat >= HEAT_MAX && e.opening === 0) {
+      return void this.useAbility('flashpoint')
+    }
+    // Seed a fresh pack so Wildfire has something to leap between.
+    if (this.living.length >= 2 && this.canUse('wildfire')) return void this.useAbility('wildfire')
+    // Cash a matured field — Volatile, capped, or a target about to die.
+    if (
+      this.canUse('detonate') &&
+      (e.hottestBand === 'volatile' || e.smolder.length >= SMOLDER_MAX || t.hpPct <= 25)
+    ) {
+      return void this.useAbility('detonate')
+    }
+    // Kindle into an Opening banks two stacks for free; otherwise Fireball.
+    if (e.opening > 0 && e.smolder.length < SMOLDER_MAX && this.canUse('kindle')) {
+      return void this.useAbility('kindle')
+    }
     if (this.canUse('fireball')) return void this.useAbility('fireball')
+    if (this.canUse('kindle')) return void this.useAbility('kindle')
   }
 
   private autoGravewright(): void {

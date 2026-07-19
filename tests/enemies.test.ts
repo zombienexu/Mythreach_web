@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import type { HeroIdentity } from '../src/engine/types'
 import { advance, advanceTimeline, advanceToSpawn, eventsOf, makeSim, targetOf, testContent } from './helpers'
+
+/** A no-DoT damage vehicle for enemy-behaviour tests — the Gravewright's bolt
+ *  chips a foe down without a lingering burn that would finish it off. */
+const gw: HeroIdentity = { classId: 'gravewright', originId: '', signId: '' }
 
 describe('enemy swings', () => {
   it('lands the first swing one swing-interval after spawning, none a tick earlier', () => {
@@ -40,41 +45,35 @@ describe('enrage', () => {
     })
 
   it('fires once when HP crosses the threshold', () => {
-    const sim = makeSim({ level: 15, content: enrageContent() })
+    // Gravebolt (no lingering burn) so we can walk it across the line cleanly.
+    const sim = makeSim({ level: 15, identity: gw, content: enrageContent() })
     advanceToSpawn(sim)
-    sim.useAbility('fireball') // level 15 fireball ≈ 23–34, crits higher
-    let events = advance(sim, 44)
-    let enrages = eventsOf(events, 'enemyEnraged')
-    // Keep hitting until below 30.
-    for (let i = 0; i < 6 && targetOf(sim) && targetOf(sim)!.hp > 30; i++) {
-      sim.useAbility('fireball')
-      events = advance(sim, 44)
-      enrages = enrages.concat(eventsOf(events, 'enemyEnraged'))
+    let enrages = eventsOf([], 'enemyEnraged')
+    for (let i = 0; i < 8 && targetOf(sim) && !targetOf(sim)!.enraged; i++) {
+      sim.useAbility('gravebolt')
+      enrages = enrages.concat(eventsOf(advance(sim, 44), 'enemyEnraged'))
     }
     expect(enrages.length).toBe(1)
     expect(targetOf(sim)?.enraged).toBe(true)
   })
 
   it('speeds up and hardens swings', () => {
-    const sim = makeSim({ level: 15, content: enrageContent() })
+    const sim = makeSim({ level: 15, identity: gw, content: enrageContent() })
     advanceToSpawn(sim)
-    // Burn it below 30% with ignite (7/tick at L15 → 42 per application; 100 HP → 30% is 30).
-    sim.useAbility('ignite')
-    advance(sim, 165) // full burn + cooldown (160)
-    expect(sim.useAbility('ignite')).toBe(true) // second application crosses the line
-    advance(sim, 130)
-    const enemy = targetOf(sim)
-    if (enemy && enemy.enraged) {
-      const timeline = advanceTimeline(sim, 45)
-      const hits = timeline.flatMap(({ events }) =>
-        eventsOf(events, 'damage').filter((e) => e.source === 'enemySwing'),
-      )
-      // Enraged: doubles damage (20), halves the swing interval (2+ hits in 45 ticks).
-      expect(hits.length).toBeGreaterThanOrEqual(2)
-      for (const h of hits) expect(h.amount + h.absorbed).toBe(20)
-    } else {
-      throw new Error('enemy should be enraged by now')
+    // Chip it below 30% HP without a lingering burn that would finish it off.
+    for (let i = 0; i < 8 && targetOf(sim) && !targetOf(sim)!.enraged; i++) {
+      sim.useAbility('gravebolt')
+      advance(sim, 44)
     }
+    const enemy = targetOf(sim)
+    expect(enemy?.enraged).toBe(true)
+    const timeline = advanceTimeline(sim, 45)
+    const hits = timeline.flatMap(({ events }) =>
+      eventsOf(events, 'damage').filter((e) => e.source === 'enemySwing'),
+    )
+    // Enraged: doubles damage (20), halves the swing interval (2+ hits in 45 ticks).
+    expect(hits.length).toBeGreaterThanOrEqual(2)
+    for (const h of hits) expect(h.amount + h.absorbed).toBe(20)
   })
 })
 
@@ -166,7 +165,7 @@ describe('death and respawn', () => {
 
   it('death cancels the cast, clears the queue and venom', () => {
     const sim = makeSim({
-      level: 4,
+      level: 5,
       content: testContent({
         swingTicks: 12,
         dmgMin: 60,
@@ -175,8 +174,8 @@ describe('death and respawn', () => {
       }),
     })
     advanceToSpawn(sim)
-    sim.useAbility('pyroblast')
-    sim.useAbility('ignite')
+    sim.useAbility('fireball') // a cast in flight
+    sim.useAbility('kindle') // queued behind it
     const events = advance(sim, 40)
     expect(eventsOf(events, 'playerDied')).toHaveLength(1)
     const snap = sim.combatSnapshot()

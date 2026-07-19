@@ -28,12 +28,12 @@ describe('leveling', () => {
     const ups = eventsOf(events, 'levelUp')
     expect(ups.length).toBeGreaterThanOrEqual(1)
     expect(ups[0]!.level).toBe(2)
-    expect(ups[0]!.unlocked).toEqual(['renew'])
+    expect(ups[0]!.unlocked).toEqual([]) // the arcanist's next spell (Detonate) lands at 3
     const snap = sim.combatSnapshot()
     expect(snap.player.maxHp).toBe(120) // 80 + 20×2
     const progress = sim.progressSnapshot()
     expect(progress.level).toBeGreaterThanOrEqual(2)
-    expect(progress.unlockedAbilities).toContain('renew')
+    expect(progress.unlockedAbilities).toContain('fireball')
   })
 
   it('XP stops at the cap', () => {
@@ -72,10 +72,9 @@ describe('deriveStats', () => {
     expect(stats.maxHp).toBe(336) // (80+200+20) × 1.12
     expect(stats.maxMana).toBe(280)
     expect(stats.regenPerInterval).toBe(13) // floor(floor(24/2) × 1.12)
-    expect(castTicksFor(stats, 'fireball')).toBe(38) // 44 − 6
-    expect(castTicksFor(stats, 'renew')).toBe(16) // 36 − 20
+    expect(castTicksFor(stats, 'fireball')).toBe(28) // 44 − 6 (impFireball) − 10 (Quickened Flame)
     expect(stats.schoolBonusPct.fire).toBe(32)
-    expect(stats.healMultPct).toBe(152) // 100 + 12 + 40
+    expect(stats.healMultPct).toBe(112) // 100 + 12 (spirit); no healing talent anymore
   })
 
   it('level 1 with nothing equipped matches the starting hero', () => {

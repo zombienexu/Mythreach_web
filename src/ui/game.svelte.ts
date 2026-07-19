@@ -30,8 +30,11 @@ import {
   type SlotProfile,
 } from './profile'
 import { Sfx, type SfxName } from './sfx'
+import { FIRST_ORDER, SERGEANT, SLICE_IDENTITY } from './slice/content'
+import { Expedition } from './slice/expedition.svelte'
 
-export type View = 'combat' | 'character' | 'talents' | 'regions' | 'quests' | 'hearth' | 'chronicle' | 'settings'
+/** The slice's three destinations on the uplink console. */
+export type View = 'arena' | 'dossier' | 'codex'
 
 export interface FloatText {
   id: number
@@ -99,6 +102,8 @@ export class Game implements FxHost {
   /** Identity written at character creation; null for saves that predate it. */
   readonly profile: SlotProfile | null
   readonly sim: GameSim
+  /** The slice meta layer: Standing → Grace (teaching) → Codex → Recovery. */
+  readonly expedition: Expedition
 
   combat: CombatSnapshot
   progress: ProgressSnapshot
@@ -107,7 +112,7 @@ export class Game implements FxHost {
   usable: Record<AbilityId, boolean> = $state(byAbility(false))
   /** bump counters: a press the sim refused, per ability */
   denied: Record<AbilityId, number> = $state(byAbility(0))
-  view: View = $state('combat')
+  view: View = $state('arena')
   floats: FloatText[] = $state([])
   /** bump counters driving hit-recoil / heal-bloom choreography */
   impacts: Record<Side, Impact> = $state({
@@ -149,10 +154,16 @@ export class Game implements FxHost {
     this.profile = readProfile(localStorage, slot)
     // The profile carries the identity for saves that predate v5; a v5 save's
     // own sealed-in identity wins inside deserialize.
-    const identity: HeroIdentity | undefined = this.profile
+    // The slice is one system, one life: a War-Weaver of the Ember Legion.
+    // (A v5 save's own sealed identity still wins inside deserialize.)
+    const identity: HeroIdentity = this.profile
       ? { classId: this.profile.classId, originId: this.profile.originId, signId: this.profile.signId }
-      : undefined
+      : { ...SLICE_IDENTITY }
     this.sim = boot(this.store, identity)
+    // The world only lets you cast what it has taught you: Standing decides the
+    // gate, and we arm the sim with it before the first canUse is ever asked.
+    this.expedition = new Expedition(localStorage, slot)
+    this.expedition.applyTo(this.sim)
     // Snapshots are immutable and replaced wholesale every publish — raw state
     // keeps the reassignment reactive without deep-proxying the whole tree
     // twenty times a second.
@@ -168,6 +179,14 @@ export class Game implements FxHost {
     this.audio.muted = this.muted
     this.fx.bind(this)
     touchProfile(localStorage, this.slot)
+
+    // Arrival: the sergeant hands every conscript their first orders. Only the
+    // first time — a returning Persona already carries them.
+    if (!this.expedition.briefed) {
+      const granted = this.sim.acceptQuest(FIRST_ORDER)
+      this.expedition.markBriefed(granted)
+      if (granted) this.progressDirty = true
+    }
 
     this.loop = startLoop(
       () => this.step(),
@@ -266,14 +285,18 @@ export class Game implements FxHost {
   }
 
   /** Space / the heart of the wheel: whatever the moment calls for — the
-   *  summons in a lull, the sweep on a loot screen. Mid-fight it does nothing
-   *  yet; that seat is reserved for a melee strike when the sim grows one. */
+   *  summons in a lull, the sweep on a loot screen, and mid-fight the universal
+   *  Focus: read the foe's tell and crack it open. */
   hubAction(): void {
     if (this.combat.phase === 'looting') {
       this.lootAll()
       return
     }
-    if (this.combat.enemies.length === 0 && this.combat.player.alive) this.startFight()
+    if (this.combat.enemies.length === 0 && this.combat.player.alive) {
+      this.startFight()
+      return
+    }
+    if (this.combat.player.alive) this.focus()
   }
 
   /** Collect one corpse's spoils. */
@@ -312,6 +335,39 @@ export class Game implements FxHost {
     this.view = view
   }
 
+  /** The War-Weaving the Legion has taught so far — what the action wheel
+   *  shows. Reactive: reads the expedition's Standing. */
+  get taught(): AbilityId[] {
+    return this.expedition.taughtIds()
+  }
+
+  /** The wheel's "do it now" highlight: Detonate glows once the targeted foe's
+   *  Smolder has matured to Volatile — the moment the payoff is biggest. */
+  get heatEmpowered(): AbilityId | null {
+    if (this.progress.classId !== 'arcanist') return null
+    if (!this.taught.includes('detonate')) return null
+    const t = this.combat.enemies.find((e) => e.iid === this.combat.target)
+    return t?.smolder?.band === 'volatile' ? 'detonate' : null
+  }
+
+  /** Focus (the universal read-the-foe action, on the heart of the wheel /
+   *  Space). Deflect a tell into an Opening — or eat a short lockout on a miss. */
+  focus(): void {
+    if (this.sim.focus()) {
+      this.publish()
+    } else {
+      this.audio.play('denied')
+    }
+  }
+
+  /** Transmit a completed Codex chapter home. */
+  transmit(id: string): void {
+    if (this.expedition.transmit(id)) {
+      this.audio.play('epic')
+      this.progressDirty = true
+    }
+  }
+
   toggleAuto(): void {
     this.sim.autoBattle = !this.sim.autoBattle
     this.auto = this.sim.autoBattle
@@ -326,7 +382,7 @@ export class Game implements FxHost {
 
   enterRegion(regionId: string): void {
     if (this.sim.enterRegion(regionId)) {
-      this.view = 'combat'
+      this.view = 'arena'
       this.publishAll()
     }
   }
@@ -341,7 +397,7 @@ export class Game implements FxHost {
     if (this.sim.assaultWorldBoss()) {
       this.audio.play('boss')
       this.bossIntro = 'The Rift Colossus'
-      this.view = 'combat'
+      this.view = 'arena'
       this.publishAll()
     }
   }
@@ -405,6 +461,7 @@ export class Game implements FxHost {
     window.removeEventListener('beforeunload', this.saveNow)
     this.store.wipe()
     localStorage.removeItem(profileKeyFor(this.slot))
+    Expedition.wipe(localStorage, this.slot)
     location.reload()
   }
 
@@ -464,6 +521,15 @@ export class Game implements FxHost {
   }
 
   private onEvent(event: CombatEvent): void {
+    // The slice meta reacts to combat first: Standing and the Codex fold in
+    // every event, and when a kill/turn-in crosses a Grace tier the world
+    // teaches new War-Weaving — we re-arm the sim's gate on the spot.
+    const taught = this.expedition.observe(event)
+    if (taught) {
+      this.expedition.applyTo(this.sim)
+      this.progressDirty = true
+      this.audio.play('level')
+    }
     // The floats, recoils, shakes and spell sounds are all the FxDirector's job
     // (fx.handle, called alongside this). Here we only keep reactive UI state:
     // banners, toasts, the heal bloom, and marking progression dirty.
@@ -509,12 +575,12 @@ export class Game implements FxHost {
         break
       case 'questCompleted':
         this.progressDirty = true
-        this.showToast(event.name, 'Objective complete — see the Quests tab.')
+        this.showToast(event.name, 'Orders fulfilled — report to the Dossier to be paid.')
         this.audio.play('loot')
         break
       case 'questTurnedIn':
         this.progressDirty = true
-        this.showToast(event.name, 'Quest turned in. The traveler pays up.')
+        this.showToast(event.name, `${SERGEANT} logs it, and pays out standing and coin.`)
         break
       case 'achievementUnlocked': {
         this.progressDirty = true
@@ -535,6 +601,23 @@ export class Game implements FxHost {
       case 'signIntervened':
         this.showToast('The Tower holds', 'A killing blow leaves you at 1 HP. Once per fight.')
         this.audio.play('barrier')
+        break
+      case 'heatChanged':
+        // Climbing into Empowered or Overheat is a felt milestone.
+        if (event.crossedUp) {
+          this.audio.play('crit', 0.5)
+          this.bloom++
+        }
+        break
+      case 'openingCreated':
+        // A read landing (or a manufactured Opening) is a beat worth feeling.
+        if (event.viaFocus) this.bloom++
+        break
+      case 'focusUsed':
+        this.audio.play(event.success ? 'barrier' : 'denied', event.success ? 0.7 : 1)
+        break
+      case 'smolderDetonated':
+        this.audio.play(event.band === 'volatile' ? 'crit' : 'hit', 0.7)
         break
     }
   }

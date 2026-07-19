@@ -46,6 +46,12 @@ export function profileKeyFor(slot: SlotId): string {
   return `mythreach-profile-s${slot}-v1`
 }
 
+export function expeditionKeyFor(slot: SlotId): string {
+  // Slot 1 keeps the pre-roster key so the first expedition ever run — written
+  // before slots were per-account — stays exactly where it was.
+  return slot === 1 ? 'mythreach-expedition-v1' : `mythreach-expedition-s${slot}-v1`
+}
+
 function readSummary(storage: Storagelike, slot: SlotId): SlotSummary | null {
   try {
     const raw = storage.getItem(saveKeyFor(slot))

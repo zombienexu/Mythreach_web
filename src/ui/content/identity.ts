@@ -58,11 +58,11 @@ const FLAVOR: Record<ClassId, ClassFlavor> = {
     lore:
       'You studied in the Observatory until the Observatory started studying you. Fire obeys you, the arcane hums under your fingernails, and a small stubborn light in your chest refuses to be put out. The classic calling — and the reach has never once regretted it.',
     mechanicText:
-      'Chain fire, arcane, and mending in one breath. Combustion turns a careful rotation into a bonfire; Counterspell shuts a caster’s mouth mid-word.',
+      'Read the foe for Openings, stack Smolder and let it age, ride Heat until Fireball pierces a whole line — then Detonate the field into an Inferno.',
     signature: [
       { id: 'fireball', blurb: 'The old reliable. Arcs across the field and lands with an opinion.' },
-      { id: 'pyroblast', blurb: 'A long breath, then a very short argument.' },
-      { id: 'renew', blurb: 'The candle relights itself. Healing over time, warm as a hearth.' },
+      { id: 'detonate', blurb: 'Set off every ember at once. Older fire hits like a landslide.' },
+      { id: 'inferno', blurb: 'Everything you built, spent in one breath. The field goes white.' },
     ],
   },
   gravewright: {

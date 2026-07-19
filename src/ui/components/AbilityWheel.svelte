@@ -23,6 +23,7 @@
     hub,
     respawnIn = 0,
     hue = 260,
+    empowered = null,
     onactivate,
     onhub,
   }: {
@@ -40,6 +41,9 @@
     hub: HubMode
     respawnIn?: number
     hue?: number
+    /** An ability the moment has empowered (Hot Streak → instant): its socket
+     *  is lit and urged. */
+    empowered?: AbilityId | null
     onactivate?: (id: AbilityId) => void
     onhub?: () => void
   } = $props()
@@ -150,6 +154,7 @@
               class:oom={mana < def.manaCost}
               class:casting={cast?.abilityId === id}
               class:queued={queued === id}
+              class:empowered={id === empowered}
               class:pressed={pressedKeys.has(def.key)}
               style:--tone="var(--tone-{id})"
               use:choreo={{ pressed: pressedKeys.has(def.key), denied: denied[id], cooldown: cooldowns[id] }}
@@ -173,9 +178,14 @@
               {/if}
               <span class="wave" aria-hidden="true"></span>
             </button>
+          {:else if def && id}
+            <!-- a kit seat the world hasn't taught yet: sealed, not empty —
+                 so the wheel reads as a kit still being earned. -->
+            <span class="sealed" aria-hidden="true" title="{def.name} — sealed until the Legion teaches it">
+              <span class="sealed-key num">{def.key}</span>
+            </span>
           {:else}
-            <!-- an unwritten socket: the wheel keeps its shape, tells nothing.
-                 A not-yet-learned ability looks exactly like an empty seat. -->
+            <!-- a truly empty seat beyond the kit -->
             <span class="stud" aria-hidden="true"></span>
           {/if}
         </div>
@@ -497,6 +507,40 @@
     background: radial-gradient(circle, oklch(0.78 0.08 82 / 0.12) 0%, transparent 70%);
   }
 
+  /* a sealed kit seat — something waits here, not yet taught */
+  .sealed {
+    position: relative;
+    width: 58%;
+    height: 58%;
+    border-radius: 50%;
+    border: 1px dashed oklch(0.72 0.19 45 / 0.32);
+    background: radial-gradient(circle at 50% 35%, oklch(0.72 0.19 45 / 0.08), transparent 72%);
+    display: grid;
+    place-items: center;
+    opacity: 0.7;
+  }
+  .sealed-key {
+    font-size: 10px;
+    color: oklch(0.72 0.19 45 / 0.6);
+  }
+
+  /* Hot Streak: the empowered socket burns and beckons */
+  .socket.empowered {
+    border-color: var(--tone);
+    animation: empower-throb 900ms ease-in-out infinite alternate;
+  }
+  .socket.empowered .icon {
+    filter: drop-shadow(0 0 12px var(--tone)) brightness(1.35);
+  }
+  @keyframes empower-throb {
+    from {
+      box-shadow: 0 0 12px -2px var(--tone), inset 0 0 10px -6px var(--tone);
+    }
+    to {
+      box-shadow: 0 0 30px 2px color-mix(in oklch, var(--tone) 80%, transparent), inset 0 0 16px -6px var(--tone);
+    }
+  }
+
   /* ---- socket one-shots (classes armed from script) ----------------- */
 
   :global(.socket.struck) {
@@ -783,6 +827,7 @@
     .heart-ring,
     .idle-glyph,
     .socket.queued,
+    .socket.empowered,
     :global(.socket.struck),
     :global(.socket.struck) .wave,
     :global(.socket.struck) .icon,
