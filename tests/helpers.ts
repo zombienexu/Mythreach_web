@@ -167,13 +167,23 @@ export function makeSim(opts: MakeSimOptions = {}): GameSim {
 
 /** Put the next pack on the field: sweeps a pending loot screen, starts a
  *  fight from idle (waiting out a respawn if the hero is down), then ticks
- *  until the mobs are live. Returns every event seen along the way. */
-export function advanceToSpawn(sim: GameSim): CombatEvent[] {
+ *  until the mobs are live. Returns every event seen along the way.
+ *
+ *  A freshly-spawned pack now stands dormant (see the aggro mechanic) — the
+ *  player gets a free first strike before the field wakes. By default this
+ *  rouses the pack the instant it spawns, so downstream tests observe a live,
+ *  attacking fight exactly as they did before dormancy existed. Pass
+ *  `{ engage: false }` to leave the pack dormant and observe the grace itself. */
+export function advanceToSpawn(sim: GameSim, opts: { engage?: boolean } = {}): CombatEvent[] {
+  const engage = opts.engage ?? true
   const events: CombatEvent[] = []
   for (let i = 0; i < 400; i++) {
     const snap = sim.combatSnapshot()
     if (snap.phase === 'looting') sim.collectAllLoot()
     else if (snap.phase === 'idle' && snap.player.alive) sim.startFight()
+    // Rouse before the spawn tick's enemy phase runs, so swing/venom/cast
+    // cadences count from the spawn tick exactly as they did pre-dormancy.
+    if (engage) sim.provoke()
     events.push(...sim.tick())
     if (sim.combatSnapshot().enemies.length > 0) return events
   }

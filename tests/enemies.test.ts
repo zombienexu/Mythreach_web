@@ -34,6 +34,32 @@ describe('enemy swings', () => {
   })
 })
 
+describe('dormant pack — the free first strike', () => {
+  it('a freshly-spawned pack stands dormant: no swings until the player strikes', () => {
+    const sim = makeSim({ content: testContent({ swingTicks: 20, dmgMin: 5, dmgMax: 5 }) })
+    advanceToSpawn(sim, { engage: false })
+    expect(sim.combatSnapshot().engaged).toBe(false)
+    // Well past a swing interval, the dormant pack lands nothing on the hero.
+    const idle = advance(sim, 120)
+    expect(eventsOf(idle, 'damage').filter((e) => e.target === 'player')).toHaveLength(0)
+    expect(sim.combatSnapshot().engaged).toBe(false)
+    expect(sim.combatSnapshot().player.hp).toBe(sim.combatSnapshot().player.maxHp)
+  })
+
+  it("the player's first strike pulls aggro and the field wakes", () => {
+    const sim = makeSim({ level: 15, identity: gw, content: testContent({ hp: 10_000, swingTicks: 20, dmgMin: 5, dmgMax: 5 }) })
+    advanceToSpawn(sim, { engage: false })
+    // Land the opener: a gravebolt on the marked foe.
+    sim.useAbility('gravebolt')
+    const opener = advance(sim, 40)
+    expect(eventsOf(opener, 'damage').filter((e) => e.target === 'enemy').length).toBeGreaterThan(0)
+    expect(sim.combatSnapshot().engaged).toBe(true)
+    // Now roused, the pack swings back within a swing interval.
+    const retaliation = advance(sim, 40)
+    expect(eventsOf(retaliation, 'damage').filter((e) => e.source === 'enemySwing').length).toBeGreaterThan(0)
+  })
+})
+
 describe('enrage', () => {
   const enrageContent = () =>
     testContent({

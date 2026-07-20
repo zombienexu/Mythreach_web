@@ -174,6 +174,11 @@ export class GameSim {
    *  looting: the pack is down, corpses hold their spoils. assault: world boss. */
   private phase: 'idle' | 'combat' | 'looting' | 'assault' = 'idle'
 
+  /** Has the pack been provoked? A freshly-spawned pack stands dormant — the
+   *  player gets a free first strike, and only once damage lands ("pulling
+   *  aggro") does every mob on the field wake and begin attacking. */
+  private engaged = false
+
   // ── world boss (scaffold) ──
   private worldBossHp = WORLD_BOSS_MAX_HP
 
@@ -265,6 +270,7 @@ export class GameSim {
       (s) => new EnemyUnit(this.enemyDef(s.enemyId), this.nextIid++, s.row ?? 'front'),
     )
     this.phase = 'combat'
+    this.engaged = false
     this.resetFightState()
     this.autoTarget()
     for (const e of this.enemies) {
@@ -318,6 +324,17 @@ export class GameSim {
     if (living.length < 2) return false
     const i = living.findIndex((e) => e.iid === this.targetIid)
     this.targetIid = living[(i + 1) % living.length]!.iid
+    return true
+  }
+
+  /** Rouse a dormant pack as though aggro had been pulled — every mob wakes and
+   *  begins attacking. Real play trips this the instant the first strike lands
+   *  (see {@link damageEnemyUnit}); this is the explicit hook for anything that
+   *  provokes the field without dealing damage. No-op unless a live pack stands
+   *  dormant. Returns whether it changed anything. */
+  provoke(): boolean {
+    if ((this.phase !== 'combat' && this.phase !== 'assault') || this.engaged) return false
+    this.engaged = true
     return true
   }
 
@@ -481,6 +498,10 @@ export class GameSim {
         e.frozen--
         continue
       }
+
+      // A dormant pack (aggro not yet pulled) stands and watches — no swings,
+      // no hardcasts, no venom — while the player lines up the first strike.
+      if (!this.engaged) continue
 
       // Read the foe: the moment a tell opens is worth announcing (once).
       const tell = e.tellOpen
@@ -1356,6 +1377,8 @@ export class GameSim {
 
   /** Land damage on a specific mob. Returns the damage actually dealt. */
   private damageEnemyUnit(e: EnemyUnit, amount: number, crit: boolean, source: DamageSource): number {
+    // Any damage landing on the pack pulls aggro: the field wakes and fights.
+    this.engaged = true
     // Doorway Duel: the one dragged inside takes more from everything you do.
     if (
       this.player.doorwayTarget === e.iid &&
@@ -1828,6 +1851,8 @@ export class GameSim {
     this.settleLoot()
     this.despawnForTransition()
     this.phase = 'assault'
+    // A world boss you march up to is hostile on arrival — no dormant grace.
+    this.engaged = true
     this.resetFightState()
     const def: EnemyDef = { ...WORLD_BOSS, hp: this.worldBossHp }
     const unit = new EnemyUnit(def, this.nextIid++)
@@ -1938,6 +1963,7 @@ export class GameSim {
       phase: this.phase,
       player: p.snapshot(this.stats),
       enemies: this.enemies.map((e) => e.snapshot()),
+      engaged: this.engaged,
       target: this.targetIid,
       cast: p.cast
         ? {

@@ -530,6 +530,10 @@ export interface CombatSnapshot {
   player: PlayerSnapshot
   /** The current pack (corpses included while looting); empty in idle. */
   enemies: EnemySnapshot[]
+  /** False while a freshly-spawned pack stands dormant (greyed, not yet
+   *  attacking). Flips true the instant the player lands the first strike and
+   *  pulls aggro; every mob then wakes and fights. */
+  engaged: boolean
   /** iid of the targeted enemy, or null when nothing is targetable. */
   target: number | null
   cast: CastSnapshot | null

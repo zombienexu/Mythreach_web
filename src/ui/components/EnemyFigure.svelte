@@ -8,6 +8,7 @@
     enemy,
     lootable = false,
     targeted = false,
+    dormant = false,
     stance = 'front',
     impact,
     ontarget,
@@ -17,6 +18,9 @@
     /** true on the loot screen — a corpse with spoils offers them up */
     lootable?: boolean
     targeted?: boolean
+    /** the pack hasn't been provoked yet: stands greyed, watching, until the
+     *  player's first strike pulls aggro */
+    dormant?: boolean
     /** how big the figure stands: alone, in the line, or a step behind it */
     stance?: 'solo' | 'front' | 'back'
     impact: Impact
@@ -62,6 +66,7 @@
 <div
   class="figure {stance}"
   class:dead
+  class:dormant={dormant && !dead}
   class:targeted={targeted && !dead}
   class:enraged={!dead && enemy.enraged}
   class:elite={enemy.rank === 'elite'}
@@ -144,15 +149,6 @@
       <EnemyPortrait family={enemy.portrait.family} hue={enemy.portrait.hue} name={enemy.name} enraged={!dead && enemy.enraged} />
     </div>
 
-    {#if !dead && enemy.dot}
-      <span class="dot-mote" title="Afflicted">
-        <span class="dot-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 3 C9.6 6.6 8 8.4 8 11.4 a4 4 0 0 0 8 0 C16 8.4 14.4 6.6 12 3 Z" fill-opacity="0.85" /></svg>
-        </span>
-        <span class="num">{ticksToSeconds(enemy.dot.remainingTicks)}s</span>
-      </span>
-    {/if}
-
     {#if !dead && enemy.smolder}
       <span class="smolder {enemy.smolder.band}" title="Smolder ×{enemy.smolder.stacks} ({enemy.smolder.band})" aria-label="Smolder {enemy.smolder.stacks} of 5, {enemy.smolder.band}">
         {#each Array(5) as _, i (i)}
@@ -171,18 +167,42 @@
       <span class="sep">·</span>
       <span class="hp num">{dead ? 0 : enemy.hp}</span><span class="hp-max num">/{enemy.maxHp}</span>
     </div>
-    <!-- one whisper-line, space always reserved: the cast warning or the rage -->
-    <div class="threat-line">
+
+    <!-- the state banner: the one thing to know right now, in bold -->
+    <div class="state-line">
       {#if casting && enemy.cast}
-        <span class="cast-word">casting {enemy.cast.name} — Focus! <span class="num">{ticksToSeconds(enemy.cast.remainingTicks)}s</span></span>
+        <span class="state-tag cast">
+          <span class="pip"></span>casting {enemy.cast.name}<span class="num timer">{ticksToSeconds(enemy.cast.remainingTicks)}s</span>
+        </span>
       {:else if !dead && enemy.combatState === 'exposed'}
-        <span class="exposed-word">Exposed</span>
+        <span class="state-tag exposed"><span class="pip"></span>Exposed — strike now</span>
       {:else if !dead && enemy.combatState === 'telegraph'}
-        <span class="tell-word">winding up — Focus</span>
+        <span class="state-tag tell"><span class="pip"></span>Winding up — Focus</span>
       {:else if !dead && enemy.enraged}
-        <span class="enrage-word">Enraged</span>
+        <span class="state-tag enrage"><span class="pip"></span>Enraged</span>
       {/if}
     </div>
+
+    <!-- every affliction on this foe, read at a glance -->
+    {#if !dead}
+      <div class="debuffs">
+        {#if enemy.smolder}
+          <span class="deb smolder-chip {enemy.smolder.band}" title="Smolder ×{enemy.smolder.stacks} — {enemy.smolder.band}">
+            <span class="deb-glyph">✦</span>Smolder<span class="deb-x num">×{enemy.smolder.stacks}</span>
+          </span>
+        {/if}
+        {#if enemy.dot}
+          <span class="deb dot-chip" title="{enemy.dot.name}">
+            <span class="deb-glyph">☙</span>{enemy.dot.name}<span class="deb-x num">{ticksToSeconds(enemy.dot.remainingTicks)}s</span>
+          </span>
+        {/if}
+        {#if enemy.frozenTicks > 0}
+          <span class="deb frozen-chip" title="Held outside time">
+            <span class="deb-glyph">❄</span>Frozen<span class="deb-x num">{ticksToSeconds(enemy.frozenTicks)}s</span>
+          </span>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   {#if dead}
@@ -245,6 +265,18 @@
     --fig: 106px;
     opacity: 0.82;
     filter: saturate(0.85) brightness(0.9);
+  }
+
+  /* dormant: the pack hasn't roused. It stands leached of colour and light —
+     asleep to the threat — so the live, aggroed field reads by contrast. The
+     one figure the player has marked keeps more of its colour. */
+  .figure.dormant {
+    filter: saturate(0.16) brightness(0.6);
+    opacity: 0.62;
+  }
+  .figure.dormant.targeted {
+    filter: saturate(0.65) brightness(0.86);
+    opacity: 0.95;
   }
 
   .figure.dead {
@@ -434,29 +466,6 @@
     }
   }
 
-  .dot-mote {
-    position: absolute;
-    right: 2%;
-    bottom: 6%;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px 2px 5px;
-    border-radius: 99px;
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--arcana);
-    background: oklch(0.13 0.03 290 / 0.75);
-    border: 1px solid oklch(0.72 0.15 300 / 0.35);
-    box-shadow: 0 0 14px oklch(0.72 0.15 300 / 0.25);
-  }
-
-  .dot-icon {
-    width: 13px;
-    height: 13px;
-    color: var(--ember, oklch(0.72 0.19 45));
-  }
-
   /* ---- Smolder: a row of embers, hotter as they age ------------------- */
   .smolder {
     position: absolute;
@@ -523,22 +532,6 @@
       transparent 75%
     );
   }
-  .tell-word {
-    color: oklch(0.82 0.18 32);
-    font-weight: 680;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    font-size: 9.5px;
-    animation: enrage-throb 700ms ease-in-out infinite alternate;
-  }
-  .exposed-word {
-    color: oklch(0.85 0.17 60);
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    text-shadow: 0 0 12px oklch(0.8 0.19 50 / 0.7);
-  }
-
   /* ---- the plate: name written on the dark, no box ------------------- */
 
   .plate {
@@ -596,32 +589,121 @@
     opacity: 0.7;
   }
 
-  .threat-line {
-    min-height: 15px;
-    font-size: 10.5px;
+  /* ---- state banner: the one thing to know, as a bold pill ----------- */
+  .state-line {
+    min-height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1px;
   }
-
-  .cast-word {
-    color: oklch(0.78 0.14 65);
-    font-weight: 640;
-    letter-spacing: 0.03em;
-  }
-
-  .enrage-word {
+  .state-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 99px;
+    font-size: 10px;
     font-weight: 680;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.04em;
+    border: 1px solid currentColor;
+    background: oklch(0.12 0.03 40 / 0.55);
+    box-shadow: 0 0 16px -6px currentColor;
+    white-space: nowrap;
+  }
+  .state-tag .pip {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .state-tag .timer {
+    font-weight: 660;
+    opacity: 0.85;
+  }
+  .state-tag.cast {
+    color: oklch(0.82 0.16 60);
+  }
+  .state-tag.cast .pip {
+    animation: state-blink 620ms ease-in-out infinite;
+  }
+  .state-tag.exposed {
+    color: oklch(0.86 0.17 62);
     text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-shadow: 0 0 12px oklch(0.8 0.19 50 / 0.6);
+    background: oklch(0.2 0.08 55 / 0.4);
+  }
+  .state-tag.tell {
+    color: oklch(0.82 0.18 32);
+    text-transform: uppercase;
+  }
+  .state-tag.tell .pip {
+    animation: state-blink 460ms ease-in-out infinite;
+  }
+  .state-tag.enrage {
     color: var(--wound);
-    animation: enrage-throb 900ms ease-in-out infinite alternate;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  @keyframes state-blink {
+    50% {
+      opacity: 0.25;
+    }
   }
 
-  @keyframes enrage-throb {
-    from {
-      opacity: 0.65;
-    }
-    to {
-      opacity: 1;
-    }
+  /* ---- debuff strip: every affliction, labelled -------------------- */
+  .debuffs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 18px;
+    margin-top: 2px;
+    max-width: calc(var(--fig) * 1.6);
+  }
+  .deb {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 9.5px;
+    font-weight: 620;
+    letter-spacing: 0.02em;
+    border: 1px solid oklch(0.85 0.03 260 / 0.16);
+    background: oklch(0.1 0.025 300 / 0.6);
+    color: var(--text-dim);
+  }
+  .deb-glyph {
+    font-size: 10px;
+    line-height: 1;
+  }
+  .deb-x {
+    font-weight: 680;
+    color: var(--text);
+  }
+  .smolder-chip {
+    color: oklch(0.82 0.15 55);
+    border-color: oklch(0.72 0.19 45 / 0.4);
+    background: oklch(0.16 0.05 40 / 0.6);
+  }
+  .smolder-chip.volatile {
+    color: oklch(0.88 0.16 62);
+    border-color: oklch(0.8 0.2 48 / 0.7);
+    box-shadow: 0 0 12px -4px oklch(0.78 0.2 45 / 0.8);
+  }
+  .dot-chip {
+    color: oklch(0.8 0.13 135);
+    border-color: oklch(0.75 0.13 140 / 0.4);
+    background: oklch(0.14 0.04 140 / 0.5);
+  }
+  .frozen-chip {
+    color: oklch(0.83 0.09 210);
+    border-color: oklch(0.78 0.1 210 / 0.45);
+    background: oklch(0.14 0.03 220 / 0.55);
   }
 
   /* ---- death and spoils ---------------------------------------------- */
@@ -859,8 +941,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .enrage-word,
-    .tell-word,
+    .state-tag.cast .pip,
+    .state-tag.tell .pip,
     .smolder.volatile .ember.lit,
     .figure.telegraph .totem,
     .figure.casting .totem,

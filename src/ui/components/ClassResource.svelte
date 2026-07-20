@@ -89,11 +89,16 @@
 <style>
   .resource {
     display: flex;
+    width: 100%;
     align-items: center;
     justify-content: center;
     gap: 10px;
     min-height: 22px;
     flex-wrap: wrap;
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid oklch(0.75 0.1 var(--ch) / 0.16);
+    background: linear-gradient(180deg, oklch(0.16 0.03 300 / 0.4), oklch(0.1 0.035 305 / 0.5));
   }
 
   .label {

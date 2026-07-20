@@ -10,7 +10,13 @@
   const centre = (r: Region): Spot => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 })
 
   /** Spells fly between the portraits, so the stage has to know where every
-   *  portrait actually is — per enemy card, in canvas space, after every reflow. */
+   *  portrait actually is — per enemy card, in canvas space, after every reflow.
+   *
+   *  The host is now a full-viewport overlay: the pack musters upper-right and
+   *  the conscript's portrait lives in the global bottom-left corner (outside
+   *  the arena), so the diagonal a spell travels spans the whole screen. Enemy
+   *  anchors are still scoped to the arena; the player anchor is looked up
+   *  document-wide because the portrait HUD lives in the shell, not the view. */
   function measure(): void {
     const arena = host?.parentElement
     if (!host || !arena) return
@@ -21,13 +27,13 @@
       const r = el.getBoundingClientRect()
       return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height }
     }
-    const box = (sel: string): Region | null => {
-      const el = arena.querySelector(sel)
+    const boxIn = (root: ParentNode, sel: string): Region | null => {
+      const el = root.querySelector(sel)
       return el ? toRegion(el) : null
     }
 
-    const playerCard = box('[data-fx-card="player"]')
-    const foesRow = box('[data-fx-row="enemies"]')
+    const playerCard = boxIn(document, '[data-fx-card="player"]')
+    const foesRow = boxIn(arena, '[data-fx-row="enemies"]')
     if (!playerCard || !foesRow) return
 
     // Each enemy card gets its own anchor, keyed by iid, aimed at its portrait.
@@ -40,7 +46,7 @@
       enemies[iid] = { spot: portrait ? centre(toRegion(portrait)) : centre(card), card }
     }
 
-    const playerSpot = box('[data-fx-anchor="player"]')
+    const playerSpot = boxIn(document, '[data-fx-anchor="player"]')
     const anchors: Anchors = {
       player: playerSpot ? centre(playerSpot) : centre(playerCard),
       // The fallback: mid-row, where a card is about to be, or just was.
@@ -88,16 +94,15 @@
 <div class="fx-host" bind:this={host} aria-hidden="true"></div>
 
 <style>
-  /* Sits over both cards: a detonation should wash across the card art, not
-     be clipped by it. Never eats a click. */
+  /* A full-viewport overlay so a spell can travel the whole diagonal from the
+     corner portrait to the pack in the upper-right, and a detonation can wash
+     across the screen unclipped. Never eats a click. Sits above the battlefield
+     but below the portrait HUD (z 30) and the console chrome/ceremonies. */
   .fx-host {
-    /* -40px of breathing room on top/sides; below, only as much as the main
-       column's bottom padding allows, so the page never grows a scrollbar. */
-    position: absolute;
-    inset: -40px -40px -28px;
+    position: fixed;
+    inset: 0;
     pointer-events: none;
-    z-index: 3;
+    z-index: 4;
     overflow: hidden;
-    border-radius: var(--radius);
   }
 </style>

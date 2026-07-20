@@ -5,6 +5,7 @@
   import Background from '../components/Background.svelte'
   import CritFlash from '../components/CritFlash.svelte'
   import LevelUpBanner from '../components/LevelUpBanner.svelte'
+  import PlayerHud from '../components/PlayerHud.svelte'
   import Toast from '../components/Toast.svelte'
   import Vignette from '../components/Vignette.svelte'
   import type { Game, View } from '../game.svelte'
@@ -67,14 +68,9 @@
         {/if}
       </button>
     {/each}
-    <div class="rail-foot">
-      <span class="readout">recovery</span>
-      <div class="meter"><span class="fill rec" style:width="{Math.round(ex.recovery * 100)}%"></span></div>
-      <span class="mono rec-num">{Math.round(ex.recovery * 100)}%</span>
-    </div>
   </nav>
 
-  <main class="main">
+  <main class="main" class:combat={game.view === 'arena'}>
     <header class="telemetry ticked console-panel">
       <div class="tele world">
         <span class="readout">projected · {game.progress.level > 0 ? 'live' : ''}</span>
@@ -105,6 +101,14 @@
         <span class="mono big ember">{game.progress.gold}</span>
       </div>
 
+      <div class="tele recovery" title="World Recovery — the Codex coming home">
+        <span class="readout">recovery</span>
+        <div class="rec-line">
+          <div class="meter"><span class="fill rec" style:width="{Math.round(ex.recovery * 100)}%"></span></div>
+          <span class="mono rec-num">{Math.round(ex.recovery * 100)}%</span>
+        </div>
+      </div>
+
       <div class="tele ctrls">
         <button class="tog" class:on={game.auto} onclick={() => game.toggleAuto()} title="Field automation (A)">
           <span class="readout">auto</span>
@@ -131,6 +135,21 @@
     {/key}
   </main>
 </div>
+
+<!-- The player's HUD lives in the bottom-left corner on every tab — except the
+     Arena, where it fades out and the deck's own portrait takes the field. -->
+<PlayerHud
+  variant="corner"
+  faded={game.view === 'arena'}
+  player={game.combat.player}
+  level={game.progress.level}
+  xp={game.progress.xp}
+  xpToNext={game.progress.xpToNext}
+  impact={game.impacts.player}
+  bloom={game.bloom}
+  name={game.profile?.name ?? 'Conscript'}
+  classId={game.progress.classId}
+/>
 
 <Vignette combat={game.combat} />
 
@@ -319,13 +338,16 @@
     box-shadow: 0 0 10px oklch(0.72 0.19 45 / 0.6);
   }
 
-  .rail-foot {
-    margin-top: auto;
+  .recovery {
+    min-width: 128px;
+  }
+  .rec-line {
     display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding: 12px 8px 4px;
-    border-top: 1px solid var(--console-line);
+    align-items: center;
+    gap: 8px;
+  }
+  .recovery .meter {
+    width: 96px;
   }
   .fill.rec {
     background: linear-gradient(90deg, var(--signal-dim), var(--signal));
@@ -333,7 +355,6 @@
   .rec-num {
     font-size: 11px;
     color: var(--signal);
-    align-self: flex-end;
   }
 
   /* ── main + telemetry ─────────────────────────────────────── */
@@ -345,6 +366,14 @@
     flex-direction: column;
     gap: 16px;
     min-height: 100dvh;
+  }
+  /* The combat screen is full-bleed: the battlefield and its backdrop fill the
+     window and track it on resize, so the corner portrait, the diagonal pack,
+     and the full-viewport effects all stay coherent as the window changes. */
+  .main.combat {
+    width: 100%;
+    max-width: none;
+    padding-inline: clamp(16px, 3vw, 44px);
   }
 
   .telemetry {

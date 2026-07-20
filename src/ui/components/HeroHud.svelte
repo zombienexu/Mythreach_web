@@ -44,6 +44,7 @@
 
   const hpFrac = $derived(player.maxHp > 0 ? player.hp / player.maxHp : 1)
   const manaFrac = $derived(player.maxMana > 0 ? player.mana / player.maxMana : 1)
+  const shieldFrac = $derived(player.maxHp > 0 ? Math.min(1, player.shield / player.maxHp) : 0)
   const critical = $derived(player.alive && hpFrac < 0.35)
 
   let el: HTMLElement | undefined = $state()
@@ -75,13 +76,7 @@
 
 <div class="hud" class:dead={!player.alive} class:critical data-fx-card="player" bind:this={el} aria-label="Your vitals">
   <div class="orb-wrap" data-fx-anchor="player">
-    <svg class="vitals" viewBox="0 0 120 120" aria-hidden="true">
-      <circle class="track" cx="60" cy="60" r="55" pathLength="100" />
-      <circle class="arc hp" cx="60" cy="60" r="55" pathLength="100" style:stroke-dasharray="{hpFrac * 100} 100" />
-      <circle class="track thin" cx="60" cy="60" r="48.5" pathLength="100" />
-      <circle class="arc mana" cx="60" cy="60" r="48.5" pathLength="100" style:stroke-dasharray="{manaFrac * 100} 100" />
-    </svg>
-
+    <span class="orb-ring" aria-hidden="true"></span>
     <div class="orb">
       <HeroPortrait {classId} />
     </div>
@@ -98,33 +93,48 @@
     {/if}
   </div>
 
-  <div class="scroll">
+  <div class="readout">
     <div class="name-row">
       <h3 class="name">{name}</h3>
-      <span class="level num" title="Level">Lv {level}</span>
+      <span class="level num" title="Standing">Lv {level}</span>
     </div>
-    <div class="vital-row">
-      <span class="hp-num num">{player.hp}</span>
-      <span class="dim num">/ {player.maxHp}</span>
-      {#if player.shield > 0}
-        <span class="shield-chip num" title="Barrier absorb remaining">◈ {player.shield}</span>
-      {/if}
+
+    <!-- HP -->
+    <div class="bar-row">
+      <span class="glyph hp" aria-hidden="true">♥</span>
+      <div class="bar hp-bar" class:crit={critical}>
+        <span class="fill hp-fill" style:width="{hpFrac * 100}%"></span>
+        {#if player.shield > 0}
+          <span class="fill shield-fill" style:left="{hpFrac * 100}%" style:width="{shieldFrac * 100}%"></span>
+        {/if}
+        <span class="bar-text num">
+          {player.hp}<span class="slash">/{player.maxHp}</span>
+          {#if player.shield > 0}<span class="shield-inline">◈{player.shield}</span>{/if}
+        </span>
+      </div>
     </div>
-    <div class="vital-row">
-      <span class="mana-num num">{player.mana}</span>
-      <span class="dim num">/ {player.maxMana}</span>
+
+    <!-- Mana -->
+    <div class="bar-row">
+      <span class="glyph mana" aria-hidden="true">✦</span>
+      <div class="bar mana-bar">
+        <span class="fill mana-fill" style:width="{manaFrac * 100}%"></span>
+        <span class="bar-text num">{player.mana}<span class="slash">/{player.maxMana}</span></span>
+      </div>
     </div>
 
     <!-- buffs & afflictions; space reserved so the helm never reflows -->
     <div class="chips">
       {#each player.buffs as buff (buff.id)}
         <span class="chip" style:--bh={BUFF_HUES[buff.id]}>
+          <span class="chip-dot"></span>
           <span class="chip-name">{BUFF_NAMES[buff.id]}</span>
           <span class="num">{ticksToSeconds(buff.remainingTicks)}s</span>
         </span>
       {/each}
       {#if player.dot}
         <span class="chip venom">
+          <span class="chip-dot"></span>
           <span class="chip-name">{player.dot.name}</span>
           <span class="num">{ticksToSeconds(player.dot.remainingTicks)}s</span>
         </span>
@@ -137,7 +147,9 @@
   .hud {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+    min-width: 0;
+    width: 100%;
     transition:
       filter 400ms ease,
       opacity 400ms ease;
@@ -145,81 +157,39 @@
 
   .orb-wrap {
     position: relative;
-    width: 128px;
-    height: 128px;
+    width: 72px;
+    height: 72px;
     flex: none;
   }
 
-  .vitals {
+  .orb-ring {
     position: absolute;
     inset: 0;
-    width: 100%;
-    height: 100%;
-    transform: rotate(-90deg);
-    overflow: visible;
-  }
-
-  .track {
-    fill: none;
-    stroke: oklch(0.85 0.03 260 / 0.1);
-    stroke-width: 3;
-  }
-
-  .track.thin {
-    stroke-width: 2;
-  }
-
-  .arc {
-    fill: none;
-    stroke-linecap: round;
-    transition: stroke-dasharray 220ms ease;
-  }
-
-  .arc.hp {
-    stroke: var(--life);
-    stroke-width: 3.5;
-    filter: drop-shadow(0 0 6px oklch(0.78 0.15 160 / 0.55));
-  }
-
-  .critical .arc.hp {
-    stroke: var(--wound);
-    filter: drop-shadow(0 0 8px oklch(0.68 0.17 25 / 0.75));
-    animation: hp-throb 1.15s ease-in-out infinite;
-  }
-
-  @keyframes hp-throb {
-    0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.55;
-    }
-  }
-
-  .arc.mana {
-    stroke: var(--mana);
-    stroke-width: 2.5;
-    filter: drop-shadow(0 0 5px oklch(0.72 0.12 240 / 0.5));
+    border-radius: 50%;
+    border: 1.5px solid oklch(0.78 0.08 82 / 0.32);
+    background: radial-gradient(circle, transparent 58%, oklch(0.6 0.08 300 / 0.12) 92%, transparent 100%);
+    box-shadow:
+      inset 0 0 20px -6px oklch(0.7 0.1 300 / 0.5),
+      0 6px 18px -10px oklch(0.05 0.02 280 / 0.9);
   }
 
   .orb {
     position: absolute;
-    inset: 17px;
+    inset: 9px;
     border-radius: 50%;
-    padding: 10px;
-    background: radial-gradient(circle, oklch(0.8 0.02 260 / 0.08) 0%, transparent 72%);
+    padding: 8px;
+    background: radial-gradient(circle, oklch(0.8 0.02 260 / 0.1) 0%, transparent 72%);
   }
 
   /* A faceted shell of starlight, slowly turning. It reads as *held*. */
   .shell {
     position: absolute;
-    inset: 9px;
+    inset: 3px;
     border-radius: 50%;
     border: 1.5px solid oklch(0.85 0.06 240 / 0.55);
     box-shadow:
-      inset 0 0 18px oklch(0.85 0.06 240 / 0.28),
-      0 0 22px -2px oklch(0.85 0.06 240 / 0.45);
+      inset 0 0 16px oklch(0.85 0.06 240 / 0.28),
+      0 0 20px -2px oklch(0.85 0.06 240 / 0.45);
     background: conic-gradient(
       from 0deg,
       oklch(0.85 0.06 240 / 0.02),
@@ -240,7 +210,6 @@
       scale: 1.35;
     }
   }
-
   @keyframes shell-turn {
     to {
       rotate: 360deg;
@@ -249,7 +218,7 @@
 
   .veil {
     position: absolute;
-    inset: 8px;
+    inset: 3px;
     border-radius: 50%;
     display: flex;
     flex-direction: column;
@@ -259,25 +228,25 @@
     background: oklch(0.1 0.025 280 / 0.72);
     backdrop-filter: blur(2.5px);
   }
-
   .veil-word {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: 13px;
     letter-spacing: 0.06em;
     color: var(--text-dim);
   }
-
   .veil-count {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 640;
     color: var(--text);
   }
 
-  .scroll {
+  .readout {
     display: flex;
     flex-direction: column;
-    gap: 3px;
-    min-width: 128px;
+    gap: 5px;
+    min-width: 148px;
+    max-width: 210px;
+    flex: 1;
   }
 
   .name-row {
@@ -285,62 +254,139 @@
     align-items: baseline;
     gap: 10px;
   }
-
   .name {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 580;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 150px;
+    max-width: 170px;
   }
-
   .level {
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 620;
     letter-spacing: 0.08em;
     color: var(--ether);
   }
 
-  .vital-row {
+  /* ---- vital bars ---------------------------------------------------- */
+  .bar-row {
     display: flex;
-    align-items: baseline;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
   }
-
-  .hp-num {
-    font-size: 15px;
-    font-weight: 640;
+  .glyph {
+    width: 14px;
+    font-size: 13px;
+    text-align: center;
+    flex: none;
+  }
+  .glyph.hp {
     color: var(--life);
   }
-
-  .mana-num {
-    font-size: 12.5px;
-    font-weight: 620;
+  .glyph.mana {
     color: var(--mana);
-  }
-
-  .dim {
     font-size: 11px;
-    color: var(--text-dim);
   }
 
-  .shield-chip {
-    margin-left: 6px;
-    font-size: 11.5px;
-    font-weight: 640;
+  .bar {
+    position: relative;
+    flex: 1;
+    height: 16px;
+    border-radius: 8px;
+    background: oklch(0.05 0.02 290 / 0.7);
+    border: 1px solid oklch(0.85 0.03 260 / 0.14);
+    overflow: hidden;
+    box-shadow: inset 0 1px 3px oklch(0.02 0.01 280 / 0.8);
+  }
+  .mana-bar {
+    height: 13px;
+  }
+
+  .fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border-radius: inherit;
+    transition: width 240ms var(--ease-out-expo);
+  }
+  .fill::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 50% 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, oklch(1 0 0 / 0.22), transparent);
+  }
+
+  .hp-fill {
+    background: linear-gradient(90deg, oklch(0.68 0.15 158), var(--life));
+    box-shadow: 0 0 12px -2px oklch(0.78 0.15 160 / 0.7);
+  }
+  .hp-bar.crit .hp-fill {
+    background: linear-gradient(90deg, oklch(0.6 0.17 25), var(--wound));
+    box-shadow: 0 0 14px -1px oklch(0.68 0.17 25 / 0.85);
+    animation: hp-throb 1.05s ease-in-out infinite;
+  }
+  @keyframes hp-throb {
+    50% {
+      filter: brightness(1.4);
+    }
+  }
+
+  .shield-fill {
+    background: repeating-linear-gradient(
+      -45deg,
+      oklch(0.85 0.06 240 / 0.55) 0 5px,
+      oklch(0.85 0.06 240 / 0.3) 5px 10px
+    );
+    border-left: 1px solid oklch(0.9 0.06 240 / 0.7);
+    transition:
+      width 240ms var(--ease-out-expo),
+      left 240ms var(--ease-out-expo);
+  }
+  .shield-fill::after {
+    content: none;
+  }
+
+  .mana-fill {
+    background: linear-gradient(90deg, oklch(0.62 0.12 242), var(--mana));
+    box-shadow: 0 0 10px -2px oklch(0.72 0.12 240 / 0.6);
+  }
+
+  .bar-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-right: 8px;
+    font-size: 10.5px;
+    font-weight: 660;
+    color: var(--text);
+    text-shadow: 0 1px 3px oklch(0.03 0.01 280 / 0.95);
+    pointer-events: none;
+  }
+  .slash {
+    font-weight: 500;
+    opacity: 0.6;
+    margin-left: 1px;
+  }
+  .shield-inline {
     color: var(--shield);
+    font-weight: 660;
   }
 
+  /* ---- chips --------------------------------------------------------- */
   .chips {
     display: flex;
     gap: 5px;
-    margin-top: 4px;
-    min-height: 24px; /* reserved — chips fade in without reflow */
+    margin-top: 2px;
+    min-height: 22px; /* reserved — chips fade in without reflow */
     flex-wrap: wrap;
-    max-width: 220px;
+    max-width: 260px;
   }
-
   .chip {
     --bh: 240;
     display: inline-flex;
@@ -348,26 +394,29 @@
     gap: 5px;
     padding: 2px 9px;
     border-radius: 99px;
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 600;
-    color: oklch(0.8 0.12 var(--bh));
-    background: oklch(0.8 0.12 var(--bh) / 0.09);
-    border: 1px solid oklch(0.8 0.12 var(--bh) / 0.32);
-    box-shadow: 0 0 14px oklch(0.8 0.12 var(--bh) / 0.15);
+    color: oklch(0.82 0.12 var(--bh));
+    background: oklch(0.8 0.12 var(--bh) / 0.1);
+    border: 1px solid oklch(0.8 0.12 var(--bh) / 0.34);
+    box-shadow: 0 0 14px oklch(0.8 0.12 var(--bh) / 0.16);
     animation: chip-in 200ms var(--ease-spring) both;
   }
-
+  .chip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: oklch(0.82 0.13 var(--bh));
+    box-shadow: 0 0 7px oklch(0.82 0.13 var(--bh) / 0.85);
+  }
   @keyframes chip-in {
     from {
       opacity: 0;
       scale: 0.8;
     }
   }
-
   .chip.venom {
-    color: oklch(0.78 0.13 130);
-    background: oklch(0.78 0.13 130 / 0.08);
-    border: 1px solid oklch(0.78 0.13 130 / 0.3);
+    --bh: 130;
   }
 
   .dead {
@@ -375,7 +424,6 @@
   }
 
   /* ---- one-shot choreography ---------------------------------------- */
-
   .hud {
     --power: 1;
     --knock: calc(-9px * var(--power));
@@ -384,15 +432,12 @@
   :global(.hud.hit) {
     animation: recoil-left 300ms var(--ease-punch);
   }
-
   :global(.hud.crit-hit) {
     animation: crit-left 520ms var(--ease-punch);
   }
-
   :global(.hud.bloomed) .orb-wrap {
     animation: heal-bloom 520ms ease-out;
   }
-
   :global(.hud.reborn) {
     animation: fade-up 420ms ease-out;
   }
@@ -402,12 +447,7 @@
       opacity: 0.3;
       transform: translateY(8px);
     }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
-
   @keyframes recoil-left {
     0% {
       transform: translate3d(0, 0, 0);
@@ -428,7 +468,6 @@
       filter: brightness(1);
     }
   }
-
   @keyframes crit-left {
     0% {
       transform: translate3d(0, 0, 0);
@@ -453,7 +492,6 @@
       filter: brightness(1);
     }
   }
-
   @keyframes heal-bloom {
     0% {
       filter: drop-shadow(0 0 18px oklch(0.78 0.15 160 / 0.6));
@@ -468,7 +506,7 @@
     :global(.hud.crit-hit),
     :global(.hud.bloomed) .orb-wrap,
     :global(.hud.reborn),
-    .critical .arc.hp,
+    .hp-bar.crit .hp-fill,
     .shell {
       animation: none;
     }
