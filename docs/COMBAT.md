@@ -5,8 +5,11 @@
 > pressure, choose the perfect moment to unleash it.
 
 This document explains the combat system: the **universal** layer every calling
-shares (the Strike, Openings & Focus) and the **War-Weaver (Arcanist)** built on
-top of it (Smolder, Heat, and its six-spell kit).
+shares (the Strike, and the reading of enemy tells) and the **War-Weaver
+(Arcanist)** built on top of it (Stoke, Smolder, Heat, and its six-spell kit).
+
+The heart of the wheel (**Space**) is a **class ability**, not a universal one:
+each calling gets its own. The War-Weaver's is **Stoke**.
 
 All timings are given in seconds and in **ticks** — the engine runs at **20 ticks
 per second** (1 tick = 50 ms). The global cooldown (GCD) is **24 ticks / 1.2 s**.
@@ -20,9 +23,9 @@ spam — it creates *inevitable* destruction. Every fight follows the same
 emotional arc:
 
 ```
-Swing the staff  →  Read the moment  →  Ignite  →  Feed the flames
-                                                        ↓
-                    Detonate   ←   Wait for the right moment
+Swing the staff  →  Loose the fire  →  Stoke it as it lands  →  Feed the flames
+                                                                     ↓
+                     Detonate   ←   Wait for the right moment
 ```
 
 The depth comes from four simple systems **interacting**, not from a longer
@@ -31,9 +34,10 @@ button sequence:
 | System | Lives on | One-line role |
 |---|---|---|
 | **The Strike** | you | The staff's basic attack on **Q** — swung when *you* call it, even spell-less. |
-| **Openings** | both sides | A timing read on **any swing about to land** — theirs *or yours* — answered with **Focus**. |
+| **Stoke** | you | The calling on **Space**: half a second of open flue, timed onto a *landing* working. |
 | **Smolder** | the enemy | Lingering fire you stack and let *age*, then consume. |
 | **Heat** | you | Riding momentum: every point burns hotter, unfed it bleeds away. |
+| **Openings** | the enemy | A foe cracked wide (Flashpoint): +30% from everything you do. |
 
 Approachable at level 1 with a wooden staff and no spells at all; deep at level
 10 through how the systems feed each other.
@@ -53,7 +57,8 @@ follows is a commitment you then have to time.
   the taught workings, and the bar reads *"Q ▸ strike"* while it waits.
 - **Damage:** `2 + level + ⌊staff ilvl / 2⌋` to that +4, scaled by **power**.
   Bare hands still swing; a staff just swings harder. Every fresh conscript is
-  issued a **Wooden Training Staff** (ilvl 1, stat-less — it exists to be swung).
+  issued a **Grey Wood Staff** (ilvl 1, +2 power / +2 stamina — a training issue,
+  deliberately under the drop tables, taken off the yard's rack at the gate).
 - **Casting holds the swing.** A hardcast in flight parks the wind-up where it
   is; it resumes the moment your hands are free. The GCD does *not* stop it.
 - **Dormant packs** simply stand there: your Q (or any cast) is the free first
@@ -66,51 +71,57 @@ Resolution: `GameSim.resolveStrike()`.
 
 ---
 
-## 3. The universal layer — Openings & Focus
+## 3. Reading the field — tells & Openings
 
 Every enemy cycles through **combat states** you can read on its figure:
 
 | State | What it means | Shown as |
 |---|---|---|
 | `guarded` | Neutral. Nothing to exploit. | (no special marker) |
-| `telegraph` | **Winding up** — a tell is open. | *"WINDING UP — FOCUS"*, totem pulses orange |
+| `telegraph` | **Winding up** — the blow is committed and coming. | *"WINDING UP"*, totem pulses orange |
 | `exposed` | An **Opening** is live. | *"Exposed"*, foe glows gold |
 | `recovering` | Just committed a swing; briefly safe. | (no special marker) |
 
-And **you have a tell too**: the last **40%** of your own staff wind-up is the
-**Sharpen stretch** (the strike bar brightens through it).
-
-### Focus — the universal timing read (Space / the heart of the wheel)
-
-One non-damaging action, three outcomes, priority top-down:
-
-1. **The read** — a foe is telegraphing (last 40% of its wind-up, or any
-   hardcast): you **deflect the incoming blow** (its swing resets; a hardcast is
-   *interrupted*) and the foe is **Exposed for 3 s**. This is the defensive
-   timing: Focus *right before their attack lands*.
-2. **The Sharpen** — no enemy tell, but your own swing is deep in its wind-up:
-   the landing blow is **Sharpened, +50%**. This is the offensive timing: Focus
-   *right before your own attack lands*.
-3. **The whiff** — nothing readable: a short **1.5 s** lockout so it can't be
-   mashed.
-
-A successful read or Sharpen costs the full **2.5 s** Focus cooldown.
+A tell is **information, not a prompt**: it tells you a blow has already been
+decided (last 40% of a wind-up, or any hardcast). Learning to read the rhythm of
+a bout is what the training camp's proving is for — and it is what makes the
+War-Weaver's own timing window playable later.
 
 ### What an Opening is worth
 
-While a foe is **Exposed**: it takes **+30% damage** from everything you do,
-Fireball into it lays an extra Smolder and banks an extra Heat, Kindle lays 2.
+While a foe is **Exposed** it takes **+30% damage** from everything you do, and
+Kindle lays **2** Smolder instead of 1. Openings are forced by **Flashpoint**
+(§6), not read out of the air.
 
-> **The staff-only loop (the training camp):** **Q** to swing → Space late in
-> *your* wind-up to Sharpen → Space on *their* wind-up to deflect and Expose.
-> Two keys, zero spells, and you are already playing a timing duel from both
-> sides. (The Sharpen needs a swing actually in flight: Focus with an idle staff
-> and no enemy tell is a whiff.)
+**Constants:** `OPENING_TICKS=60`, `OPENING_DMG_PCT=30`, `TELL_FROM_PROGRESS=0.6`.
 
-**Constants:** `OPENING_TICKS=60`, `OPENING_DMG_PCT=30`, `FOCUS_CD_TICKS=50`,
-`FOCUS_WHIFF_CD_TICKS=30`, `TELL_FROM_PROGRESS=0.6`, `STRIKE_TELL_FROM=0.6`,
-`STRIKE_SHARPEN_PCT=50`. Focus is `GameSim.focus()` — deliberately **not** an
-ability id, so it never competes for a wheel seat or a hotkey.
+---
+
+## 3b. The calling — Stoke (Space / the heart of the wheel)
+
+The heart of the wheel is **class-specific**. The War-Weaver's is **Stoke**, and
+it is pure timing:
+
+- Press **Space**: the flue is open for **0.5 s** (10 ticks).
+- Any working of yours that **lands** inside that half second banks **2 Heat**
+  instead of **1**.
+- **3 s cooldown** (60 ticks). Nothing else: no damage, no defence.
+
+The word that matters is *lands*. Fireball has a **2.2 s** cast and the flue
+shuts in half a second, so you open it **for where the fire will be**, not where
+your hand is. Instants (Kindle, Detonate) are the easy case — press, press —
+and the cooldown is what stops that from being free.
+
+> **Where the difficulty lives:** not in the press, but in the *lead*. A player
+> who never times it still builds Heat at the base rate; a player who does
+> reaches Empowered and the Boil roughly twice as fast.
+
+**Constants:** `STOKE_WINDOW_TICKS=10`, `STOKE_CD_TICKS=60`,
+`HEAT_PER_LANDING=1`, `HEAT_PER_STOKED_LANDING=2`. Stoke is `GameSim.stoke()` —
+deliberately **not** an ability id, so it never competes for a wheel seat or a
+hotkey. It is refused outright for every calling but the Arcanist — and, for the
+Arcanist, until **Fireball** has actually been taught: through the Kindle Yard's
+three proving duels there is no fire in the flue, so the seat renders sealed.
 
 ---
 
@@ -154,9 +165,10 @@ but stacks expire at 11 s, so the Volatile window (5 s → 11 s) is wide but fin
 **Heat** is riding momentum (0–10). *"Nobody masters the Weave. You chase the
 boil your whole life."* — it is designed so you can never sit on a full bar.
 
-- **Every point of Heat burns your fire +3% hotter** — a visible, immediate ramp.
-- Banked by offensive fire: **+1** per Fireball, **+2** per Detonate, **+1** per
-  Kindle (**+1 extra** when Fireball is loosed into an Opening).
+- **Every point of Heat burns your fire +5% hotter** — a visible, immediate ramp.
+- Banked by **any working of yours that lands on a foe**: **+1**, or **+2** when
+  it lands inside an open **Stoke** (§3b). One rule, every spell. The staff is
+  wood — it feeds nothing.
 - **Unfed Heat bleeds away:** −1 every 3 s your hands are idle. A cast in flight
   counts as feeding it (the decay clock parks while you're casting).
 - **The Boil (10):** your next Fireball is a **Blaze** — it pierces the whole
@@ -168,21 +180,20 @@ boil your whole life."* — it is designed so you can never sit on a full bar.
 
 | Heat | Band | Fireball becomes |
 |---|---|---|
-| 0–4 | **Riding** | Single target, +3%/point. |
+| 0–4 | **Riding** | Single target, +5%/point. |
 | 5–9 | **Empowered** | **Splashes** up to 2 other foes for 40% + a lick of Smolder each. |
 | 10 | **The Boil** | The **Blaze**: pierces the whole pack, Smolders them all — then crashes to 0. |
 
 **Constants:** `HEAT_MAX=10`, `HEAT_EMPOWERED_AT=5`, `HEAT_OVERHEAT_AT=10`,
-`HEAT_FIRE_PCT_PER_POINT=3`, `HEAT_DECAY_TICKS=60`, `HEAT_PER_FIREBALL=1`,
-`HEAT_PER_DETONATE=2`, `HEAT_PER_KINDLE=1`, `HEAT_OPENING_BONUS=1`,
-`FIREBALL_SPLASH_PCT=40`.
+`HEAT_FIRE_PCT_PER_POINT=5`, `HEAT_DECAY_TICKS=60`, `HEAT_PER_LANDING=1`,
+`HEAT_PER_STOKED_LANDING=2`, `FIREBALL_SPLASH_PCT=40`.
 
 ---
 
 ## 6. The kit — spell by spell
 
-Six seats on the wheel (hotkeys 1–6), plus universal Focus on the heart / Space
-and the staff swinging underneath it all. Everything is fire school. Damage
+Six seats on the wheel (hotkeys 1–6), plus the calling (**Stoke**) on the heart
+/ Space and the staff swinging underneath it all. Everything is fire school. Damage
 scales with **power** (`3 × (level−1) + gear`), school bonuses, Heat, and crit
 (**×1.75**).
 
@@ -190,28 +201,32 @@ scales with **power** (`3 × (level−1) + gear`), school bonuses, Heat, and cri
 `14 mana · 2.2 s cast · no cooldown`
 
 Your workhorse. Deals a base fire hit (**16–24** + power + Heat), lays
-**1 Smolder**, banks **1 Heat**. Its behaviour evolves with Heat (see §5). Cast
-into an Opening: **+1 Smolder, +1 Heat**, and the hit gets the Exposed **+30%**.
+**1 Smolder**, banks **1 Heat** on landing (**2** inside a Stoke). Its behaviour
+evolves with Heat (see §5). Cast into an Opening: **+1 Smolder**, and the hit
+gets the Exposed **+30%**.
 
 ### 2 · Detonate — *taught at Hardened*
 `12 mana · instant · 3 s cooldown` — *requires ≥1 Smolder on the target*
 
 Sets off **every** Smolder stack at once. Damage = the sum of each stack's band
 value (Fresh 6 / Heated 11 / Volatile 18), then power/Heat/crit-scaled. Banks
-**2 Heat**. The first major decision of the class: cash a Fresh field now for
+**1 Heat** on landing (**2** inside a Stoke); an empty Detonate lands on nobody
+and banks nothing. The first major decision of the class: cash a Fresh field now for
 tempo, or wait for Volatile and hit like a landslide.
 
 ### 3 · Kindle — *taught at Trusted*
 `10 mana · instant · 5 s cooldown`
 
-Instantly lays **1 Smolder** — **2** if the target is Exposed. Banks **1 Heat**.
-The fast way to build pressure without a cast (and to keep Heat fed between casts).
+Instantly lays **1 Smolder** — **2** if the target is Exposed. Banks **1 Heat**
+(**2** inside a Stoke). The fast way to build pressure without a cast — and,
+being instant, the easiest thing in the kit to drop into an open flue.
 
 ### 4 · Wildfire — *taught at Sworn of the Ember*
 `20 mana · instant · 15 s cooldown`
 
 Two things at once:
-- **Active:** seeds **2 Smolder** on **every** living foe.
+- **Active:** seeds **2 Smolder** on **every** living foe, and banks **1 Heat**
+  (**2** inside a Stoke).
 - **Passive (while learned):** whenever you **consume** Smolder, living fire
   **leaps to the rest of the pack** — each other foe takes **45%** of the
   detonation as splash and catches **1 Smolder** (2 if the field was Volatile).
@@ -234,11 +249,11 @@ in one bloom. Per-foe damage = `Heat × 4 + (age-weighted Smolder) × 9`
 | # | Spell | Grace | Mana | Cast | CD | Consumes | Builds |
 |---|---|---|---|---|---|---|---|
 | Q | **The Strike** | issued at the gate | — | 1.8 s wind-up | — | — | (basic attack) |
-| ♦ | **Focus** | issued at the gate | — | instant | 2.5 s | — | an Opening / a Sharpen |
-| 1 | Fireball | Blooded (45) | 14 | 2.2 s | — | — | 1 Smolder, 1 Heat |
-| 2 | Detonate | Hardened (140) | 12 | instant | 3 s | all Smolder | 2 Heat |
-| 3 | Kindle | Trusted (300) | 10 | instant | 5 s | — | 1–2 Smolder, 1 Heat |
-| 4 | Wildfire | Sworn (520) | 20 | instant | 15 s | — | 2 Smolder (all foes) + spread |
+| ♦ | **Stoke** | the calling itself | — | instant | 3 s | — | 0.5 s of double Heat |
+| 1 | Fireball | Blooded (45) | 14 | 2.2 s | — | — | 1 Smolder, 1–2 Heat |
+| 2 | Detonate | Hardened (140) | 12 | instant | 3 s | all Smolder | 1–2 Heat |
+| 3 | Kindle | Trusted (300) | 10 | instant | 5 s | — | 1–2 Smolder, 1–2 Heat |
+| 4 | Wildfire | Sworn (520) | 20 | instant | 15 s | — | 2 Smolder (all foes) + spread, 1–2 Heat |
 | 5 | Flashpoint | Ember-Lord (780) | 14 | instant | 20 s | all Heat | guaranteed Opening |
 | 6 | Inferno | Pyre-Sovereign (1080) | 26 | instant | 25 s | all Heat + all Smolder | massive AoE |
 
@@ -268,9 +283,10 @@ a level-1 freebie.
 ## 8. How the kit unlocks — Grace, and the Kindle Yard
 
 Access is **Grace** (the Legion's trust — Standing), not raw level; power still
-scales with level. A recruit is taught **nothing**: the staff and Focus are the
-whole level-1 kit, and the training camp (see `docs/GDD.md` §3) teaches them
-before the first spell is ever granted.
+scales with level. A recruit is taught **nothing**: the staff is the whole
+level-1 kit, and the training camp (see `docs/GDD.md` §3) drills the swing and
+the reading of tells before the first spell is ever granted — the Stoke is
+taught in the Tempering, once there is fire to time.
 
 | Tier | Standing | Teaches |
 |---|---|---|
@@ -298,13 +314,14 @@ it — nobody has to take up a new spell mid-swing. `Expedition` persists the
 
 ## 9. Playing it — the loop at each stage
 
-**The Kindle Yard (no spells).** You swing the staff with **Q** and play the
-timing. Space late in your own wind-up → Sharpened blow. Space on their wind-up
-→ deflect + Expose. The whole game in miniature, with two buttons.
+**The Kindle Yard (no spells).** You swing the staff with **Q**, learn that a
+cast holds the wind-up, and learn to read a foe's committed blow. One button and
+a pair of eyes — the timing habit the Stoke will need.
 
-**Blooded (Fireball).** Watch the foe. Focus its tell → Fireball into the
-Opening (extra Smolder, extra Heat, +30%). The staff keeps swinging between
-casts. Heat starts mattering: every point is +3%, and stopping bleeds it.
+**Blooded (Fireball).** The fire arrives, and with it the calling: loose a
+Fireball, then **Stoke** so the flue is open when it *lands* — two Heat instead
+of one. The staff keeps swinging between casts. Heat starts mattering: every
+point is +5%, and stopping bleeds it.
 
 **Mid game (+ Detonate, Kindle).** Build a Smolder field, let it **age to
 Volatile**, **Detonate** at the peak. Ride Heat into **Empowered** so Fireball
@@ -312,23 +329,23 @@ splashes. Spend a talent point on **Lingering Flame** if you want the field to
 gnaw while it ripens.
 
 **Full kit.** Open with **Wildfire**, ride Heat to **the Boil** and spend the
-Blaze through the whole line, **Flashpoint** to manufacture an Opening when the
-enemy won't give one — then decide: **Detonate** now for tempo (Wildfire spreads
-it), or hold and dump everything into **Inferno**.
+Blaze through the whole line, **Flashpoint** to manufacture an Opening when you
+want one — then decide: **Detonate** now for tempo (Wildfire spreads it), or hold
+and dump everything into **Inferno**. The Stoke runs underneath all of it, three
+seconds apart, asking the same question every time: *what lands next, and when?*
 
-You are always balancing six questions: **When do they strike? (their tell) ·
-When do I? (my wind-up) · How much pressure is banked? (Smolder) · Is it ripe?
-(age) · Am I riding or bleeding? (Heat) · Spend or save? (the boil)**
+You are always balancing five questions: **What lands next, and can I open the
+flue for it? (Stoke) · When do they strike? (their tell) · How much pressure is
+banked? (Smolder) · Is it ripe? (age) · Am I riding or bleeding? (Heat)**
 
 ---
 
 ## 10. Cheat sheet
 
 ```
-(auto)  Staff       swings every 1.8 s; casts hold it; crits happen
-SPACE   Focus       their tell → deflect + Expose (+30%)
-                    your late wind-up → Sharpen the landing blow (+50%)
-                    nothing open → whiff (1.5 s lockout)
+Q       Staff       1.8 s wind-up, swung on your call; casts hold it
+SPACE   Stoke       0.5 s of open flue — a working that LANDS inside it
+                    banks 2 Heat instead of 1. 3 s cooldown.
 1  Fireball     cast; lay Smolder, build Heat; splashes at 5, Blazes at 10
 2  Detonate     blow the field — older stacks hit far harder
 3  Kindle       instant Smolder (2 if Exposed)
@@ -336,10 +353,12 @@ SPACE   Focus       their tell → deflect + Expose (+30%)
 5  Flashpoint   spend all Heat → guaranteed Opening
 6  Inferno      spend everything → apocalypse
 
-Openings :  read the "WINDING UP — FOCUS" tell → +30% dmg while Exposed
+Openings :  Flashpoint cracks a foe → +30% dmg while Exposed
+Tells    :  "WINDING UP" = the blow is already committed
 Smolder  :  Fresh → Heated (2s) → Volatile (5s) → falls off (11s); max 5
             inert until Lingering Flame is talented — fuel, not a faucet
-Heat     :  +3%/point · −1 per idle 3 s · at 10 the Blaze fires, then crash
+Heat     :  +5%/point · +1 per landing working (2 stoked) · −1 per idle 3 s
+            at 10 the Blaze fires, then crash
 ```
 
 ---
@@ -351,15 +370,15 @@ Heat     :  +3%/point · −1 per idle 3 s · at 10 the Blaze fires, then crash
 | Constants (all tunables) | `src/engine/abilities.ts` |
 | Ability defs & effects | `src/engine/abilities.ts` |
 | Kit & talents | `src/engine/content/classes.ts`, `content/talents.ts` |
-| Strike / Smolder / Heat / Openings / Focus resolution | `src/engine/sim.ts` |
+| Strike / Smolder / Heat / Stoke / Openings resolution | `src/engine/sim.ts` |
 | Per-enemy Smolder & combat state | `src/engine/enemyUnit.ts` |
-| Strike & Sharpen state | `src/engine/playerUnit.ts` (snapshot via `StrikeSnapshot`) |
-| Events | `src/engine/events.ts` (`strikeLanded`, `heatChanged`, `smolderApplied`, `smolderDetonated`, `openingCreated`, `focusUsed`, `tellOpened`) |
+| Strike & Stoke state | `src/engine/playerUnit.ts` (snapshot via `StrikeSnapshot` / `PlayerSnapshot`) |
+| Events | `src/engine/events.ts` (`strikeLanded`, `heatChanged`, `smolderApplied`, `smolderDetonated`, `openingCreated`, `stoked`, `tellOpened`) |
 | Heat gauge widget | `src/ui/slice/WeaveHeat.svelte` |
-| Strike bar (wind-up + Sharpen stretch) | `src/ui/slice/views/ArenaView.svelte` |
+| Strike bar (the wind-up) | `src/ui/slice/views/ArenaView.svelte` |
 | Smolder pips + tell/Exposed visuals | `src/ui/components/EnemyFigure.svelte` |
 | Q wiring (the strike) | `src/ui/game.svelte.ts` (`strike`, `onKeyDown`) |
-| Space wiring (Focus / walk on / the circle) | `src/ui/game.svelte.ts` (`hubAction`) |
+| Space wiring (Stoke / walk on / the circle) | `src/ui/game.svelte.ts` (`hubAction`) |
 | FX recipes (incl. the strike's thwack) | `src/ui/fx/spells.ts`, `palette.ts`, `director.ts` |
 | Tests | `tests/strike.test.ts`, `tests/spells.test.ts`, `tests/heat.test.ts` |
 

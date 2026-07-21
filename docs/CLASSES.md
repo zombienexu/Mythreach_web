@@ -10,7 +10,8 @@ Shared spine (all classes): 20 ticks/s, GCD 1.2 s, mana + regen, level cap
 Each kit gets 6–7 abilities (a level-1 opener through a level-11 capstone)
 and six talents (the Arcanist carries a seventh — Lingering Flame). Every
 hero also carries the Strike (their weapon's basic attack, swung on **Q**) and
-the universal Focus timing read. Every class must pass the same balance smoke test: a fresh
+one **calling** on the heart of the wheel (**Space**), unique to the class —
+the Arcanist's is Stoke. Every class must pass the same balance smoke test: a fresh
 level-1 hero on the test-only auto-driver survives and progresses in the
 starting region.
 
@@ -21,11 +22,12 @@ starting region.
 *For the player who wants to read a fight and choose a moment — and for whom
 fire should feel like something alive that they are barely holding.*
 
-The War-Weaver of the slice. Three interlocking systems: **Openings** (the
-Focus timing read, on their swings and yours), **Smolder** (aging fuel on the
-foe — inert until the Lingering Flame talent, then a burn), and **Heat**
-(riding momentum: +3% fire per point, bleeds unfed, and the overheat Blaze
-always spends itself back to cold). The class thesis is spoken by its drill
+The War-Weaver of the slice. Three interlocking systems: **Stoke** (the calling
+on Space — half a second of open flue, timed onto a *landing* working),
+**Smolder** (aging fuel on the foe — inert until the Lingering Flame talent,
+then a burn), and **Heat** (riding momentum: +5% fire per point, +1 per landing
+working and +2 when stoked, bleeds unfed, and the overheat Blaze always spends
+itself back to cold). The class thesis is spoken by its drill
 sergeant: nobody masters the Weave — you ride it. Full detail in
 `docs/COMBAT.md`.
 

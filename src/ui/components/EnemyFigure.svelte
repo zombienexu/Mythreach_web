@@ -177,7 +177,7 @@
       {:else if !dead && enemy.combatState === 'exposed'}
         <span class="state-tag exposed"><span class="pip"></span>Exposed — strike now</span>
       {:else if !dead && enemy.combatState === 'telegraph'}
-        <span class="state-tag tell"><span class="pip"></span>Winding up — Focus</span>
+        <span class="state-tag tell"><span class="pip"></span>Winding up</span>
       {:else if !dead && enemy.enraged}
         <span class="state-tag enrage"><span class="pip"></span>Enraged</span>
       {/if}

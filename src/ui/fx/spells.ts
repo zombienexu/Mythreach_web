@@ -32,8 +32,10 @@ export type FxSource =
   | 'thorns'
   /** The Arcanist's lingering Smolder burn (FX-only, not an ability). */
   | 'smolder'
-  /** Focus — the read-the-foe deflection (FX-only). */
-  | 'focus'
+  /** A chant cut short — the blow turned aside (FX-only). */
+  | 'deflect'
+  /** Stoke — the flue thrown open on the caster (FX-only). */
+  | 'stoke'
   /** The staff's basic attack landing (FX-only, not an ability). */
   | 'strike'
   /** Absorb shields wear this look, keyed by the shared 'barrier' buff. */
@@ -257,8 +259,8 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
     sfx: { impact: 'burn' },
   },
 
-  // Focus: a sharp read — the incoming blow turned aside, the foe cracked open.
-  focus: {
+  // Deflect: a chant cut short — the working turned aside before it landed.
+  deflect: {
     tone: TONE.flashpoint,
     deep: TONE_DEEP.fireball,
     css: 'var(--tone-flashpoint)',
@@ -271,6 +273,21 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
       { fx: 'hitStop', hold: 0.04 },
     ],
     sfx: { release: 'interrupt' },
+  },
+
+  // Stoke: the flue thrown open on the caster — a short, hot updraught around
+  // you, not a blow at anyone. Bright enough to time by, quiet enough to sit
+  // under a Fireball landing half a second later.
+  stoke: {
+    tone: TONE.fireball,
+    deep: TONE_DEEP.fireball,
+    css: 'var(--tone-fireball)',
+    release: [
+      { fx: 'flash', tint: 'hot', size: 46, life: 0.14, alpha: 0.75, grow: 1.7 },
+      { fx: 'ring', tint: 'hot', from: 10, to: 96, life: 0.34, alpha: 0.7 },
+      { fx: 'burst', count: 10, speed: [40, 150], size: [4, 10], life: [0.3, 0.6], spread: 'up', gravity: -190, drag: 1.25 },
+    ],
+    sfx: { release: 'ignite' },
   },
 
   // The Strike: a staff blow — wood and weight, not weave. Deliberately duller

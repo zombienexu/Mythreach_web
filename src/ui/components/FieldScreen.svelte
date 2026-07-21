@@ -2,53 +2,42 @@
   /** THE FIELD — the exploration screen, played on the ground itself.
    *
    *  Every sighting the front turned up stands somewhere on this screen: a lone
-   *  mob is one figure, a warband is its whole formation bundled together, and
-   *  each of them wears its own plate — name, level, threat, what it pays.
+   *  mob is one figure, a warband is its whole formation bundled together.
    *  Nothing is lined up in a row of four cards any more; you are looking at a
    *  clearing, scattered right to left, and choosing where to walk.
    *
-   *  The one rule that makes the choice interesting: **proximity**. Groups
-   *  standing inside each other's watch (the aggro ring) come as a set — pull
-   *  one and every one of them turns. Hovering or marking a sighting draws that
-   *  ring and wires it to whoever else it would drag in, so the price is always
-   *  visible before it is paid.
+   *  It is **target-first**, the way an overworld is: you Tab (or click) from
+   *  body to body, each wearing its own small card — name and level — and the
+   *  fight opens when you *attack*, not when you press a commit key. Nothing
+   *  draws the aggro geometry any more: proximity is a thing the field teaches
+   *  you by dragging the neighbours in, not a ring you read off the screen.
    *
    *  Space walks on: the whole screen turns over for a fresh scatter. */
   import { ENEMIES } from '../../engine'
-  import { AGGRO_RADIUS, RARITIES, clusterOf, type FieldState, type Offer } from '../slice/field'
+  import { RARITIES, type FieldState, type Offer } from '../slice/field'
   import EnemyPortrait from './portraits/EnemyPortrait.svelte'
 
   let {
     field,
     intro,
-    onselect,
-    onengage,
+    onmark,
     onnext,
   }: {
     field: FieldState
     intro?: string
-    onselect: (id: number) => void
-    onengage: (id: number) => void
+    onmark: (offerId: number, index: number) => void
     onnext: () => void
   } = $props()
-
-  /** The sighting the ring is drawn around: whatever the pointer is over, and
-   *  the marked one otherwise. */
-  let hovered: number | null = $state(null)
-  const focusId = $derived(hovered ?? field.selectedId)
-
-  /** Everything that would join a fight with the focused sighting. */
-  const cluster = $derived(focusId === null ? [] : clusterOf(field, focusId))
-  const clusterIds = $derived(new Set(cluster.map((o) => o.id)))
-  /** More than one group in the ring: this is a pull, not a fight. */
-  const pulls = $derived(cluster.length > 1)
-  const focused = $derived(cluster[0] ?? null)
 
   const threatBand = (t: number): string =>
     t < 0.35 ? 'low' : t < 0.6 ? 'moderate' : t < 0.82 ? 'high' : 'lethal'
   const threatHue = (t: number): number => Math.round(200 - t * 175)
 
   const hasRare = $derived(field.offers.some((o) => o.rarity === 'rare' || o.rarity === 'apex'))
+
+  /** The group the reticle is standing in — everything the old group plate used
+   *  to carry, now read out once in the footer. */
+  const markedOffer = $derived(field.offers.find((o) => o.id === field.selectedId) ?? null)
 
   // Where each mob stands inside its group's bundle. Templates are authored
   // back-most first, so a 'back'-row mob claims the deeper (higher, smaller)
@@ -88,33 +77,70 @@
    *  and in front. Cheap parallax, no perspective transforms. */
   const depth = (o: Offer): number => 0.78 + o.y * 0.34
 
-  /** Two groups standing inside each other's watch is the *point* of the
-   *  field — but their name-plates would then land on top of each other and
-   *  read as mush. The figures stay exactly where the model put them (the ring
-   *  and the wires are geometry, and must not lie); only the plate steps down
-   *  out of the way, one rung per group already crowding this spot. */
-  const PLATE_STEP = 44
-  const CROWD_X = 0.17
-  const CROWD_Y = 0.13
-  const plateDrop = $derived.by(() => {
-    const drop = new Map<number, number>()
-    field.offers.forEach((o, i) => {
-      let rung = 0
-      for (let j = 0; j < i; j++) {
-        const other = field.offers[j]!
-        if (Math.abs(other.x - o.x) < CROWD_X && Math.abs(other.y - o.y) < CROWD_Y) {
-          rung = Math.max(rung, (drop.get(other.id) ?? 0) / PLATE_STEP + 1)
-        }
+  /** Every body wears its own card now, and bodies stand 20–25px apart inside a
+   *  bundle — so at one height the cards read as a single smear. Same rule the
+   *  group plates used to use (one rung down per card already crowding this
+   *  patch of ground), but run *once over every card on the screen* in the
+   *  pixels the player actually sees: within a bundle and between two sightings
+   *  huddled inside each other's watch, a card is a card. Back-most first, so a
+   *  back-row body keeps the higher card. The figures never move — only the
+   *  card steps down out of the way, on its own leader line. */
+  const CARD_STEP = 26
+  /** How much room one card claims — a shade wider and taller than it draws. */
+  const CARD_W = 124
+  const CARD_H = 26
+  /** A freak huddle must not walk a card off the bottom of the ground. */
+  const MAX_RUNGS = 6
+  /** the ground's real size, so the stagger reasons in screen pixels */
+  let groundW = $state(1000)
+  let groundH = $state(420)
+
+  const cardDrop = $derived.by(() => {
+    type Slot = { key: string; x: number; y: number; s: number; rung: number }
+    const slots: Slot[] = []
+    for (const o of field.offers) {
+      const s = depth(o)
+      const fig = layout(o)
+      o.roster.forEach((_, k) => {
+        const p = fig[k]
+        if (!p) return
+        slots.push({
+          key: `${o.id}:${k}`,
+          x: o.x * groundW + p.x * s,
+          // the card hangs off the bottom of the body it belongs to
+          y: o.y * groundH + (p.y + 26 * p.s) * s,
+          s,
+          rung: 0,
+        })
+      })
+    }
+    // back-most card first, then step each one down until it has this patch of
+    // ground to itself — measured against where the cards already *landed*, not
+    // where their bodies stand, or a dropped card lands on the next one.
+    slots.sort((a, b) => a.y - b.y)
+    const drop = new Map<string, number>()
+    const taken: Array<{ x: number; y: number }> = []
+    for (const slot of slots) {
+      let y = slot.y
+      while (
+        slot.rung < MAX_RUNGS &&
+        taken.some((t) => Math.abs(t.x - slot.x) < CARD_W && Math.abs(t.y - y) < CARD_H)
+      ) {
+        slot.rung++
+        y = slot.y + slot.rung * CARD_STEP
       }
-      drop.set(o.id, rung * PLATE_STEP)
-    })
+      taken.push({ x: slot.x, y })
+      // the sighting is scaled by depth, so undo it: a rung is CARD_STEP real
+      // pixels whether the body stands on the horizon or right in front of you.
+      drop.set(slot.key, (slot.rung * CARD_STEP) / slot.s)
+    }
     return drop
   })
 </script>
 
 <section class="field" aria-label="The field — sightings scattered across the ground">
   <header class="field-head">
-    <span class="readout">the field · sightings scattered — mark one and take it, or walk on</span>
+    <span class="readout">the field · sightings scattered — mark your quarry and swing, or walk on</span>
     {#if intro}<span class="field-intro">{intro}</span>{/if}
     {#if hasRare}
       <span class="rare-flag" role="status">⚡ a rare sighting stands the field</span>
@@ -122,102 +148,76 @@
   </header>
 
   {#key field.rerolls}
-    <div class="ground" role="group" aria-label="Sightings — Tab to mark, Enter or click to engage">
-      <!-- the aggro geometry, drawn in the same normalized space the field
-           model reasons in: the ring around the focused sighting, and a wire to
-           everyone it would drag in with it. -->
-      <svg class="wires" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        {#if focused}
-          <ellipse
-            class="ring"
-            class:danger={pulls}
-            cx={focused.x * 100}
-            cy={focused.y * 100}
-            rx={AGGRO_RADIUS * 100}
-            ry={AGGRO_RADIUS * 100}
-          />
-          {#each cluster.slice(1) as o (o.id)}
-            <line class="wire" x1={focused.x * 100} y1={focused.y * 100} x2={o.x * 100} y2={o.y * 100} />
-          {/each}
-        {/if}
-      </svg>
-
+    <div
+      class="ground"
+      role="group"
+      aria-label="Sightings — Tab to mark a foe, Q opens the fight"
+      bind:clientWidth={groundW}
+      bind:clientHeight={groundH}
+    >
       {#each field.offers as o, i (o.id)}
         {@const fig = layout(o)}
         {@const rar = RARITIES[o.rarity]}
-        {@const inRing = clusterIds.has(o.id)}
-        {@const dragged = inRing && o.id !== focusId}
-        <button
+        <div
           class="sighting rarity-{o.rarity}"
           class:marked={o.id === field.selectedId}
-          class:dragged
-          class:quiet={focusId !== null && !inRing}
           style:left="{o.x * 100}%"
           style:top="{o.y * 100}%"
-          style:z-index={Math.round(o.y * 100) + (inRing ? 200 : 0)}
+          style:z-index={Math.round(o.y * 100) + (o.id === field.selectedId ? 200 : 0)}
           style:--s={depth(o)}
           style:--rh={rar.hue}
           style:--i={i}
-          onpointerenter={() => (hovered = o.id)}
-          onpointerleave={() => (hovered = null)}
-          onfocus={() => (hovered = o.id)}
-          onblur={() => (hovered = null)}
-          onclick={() => onengage(o.id)}
-          oncontextmenu={(e) => {
-            e.preventDefault()
-            onselect(o.id)
-          }}
-          aria-label="{o.title}, {rar.name}, level {o.level}, {o.size} {o.size === 1 ? 'foe' : 'foes'}, {o.xp} xp{dragged ? ' — would be pulled in' : ''}"
         >
-          <span class="bundle">
-            {#each o.roster as id, k (k)}
-              {@const m = ENEMIES[id]}
-              {@const p = fig[k]}
-              {#if m && p}
-                <span
-                  class="fig"
-                  class:lead={id === o.headline && o.size > 1}
-                  style:left="calc(50% + {p.x}px)"
-                  style:top="calc(52% + {p.y}px)"
-                  style:--f={p.s}
-                  style:z-index={Math.round(p.y) + 40}
-                >
+          {#each o.roster as id, k (k)}
+            {@const m = ENEMIES[id]}
+            {@const p = fig[k]}
+            {#if m && p}
+              {@const mark = o.id === field.selectedId && k === field.selectedIndex}
+              <button
+                class="mob"
+                class:marked={mark}
+                class:lead={id === o.headline && o.size > 1}
+                style:left="calc(50% + {p.x}px)"
+                style:top="calc(52% + {p.y}px)"
+                style:--f={p.s}
+                style:z-index={Math.round(p.y) + 40 + (mark ? 60 : 0)}
+                onfocus={() => onmark(o.id, k)}
+                onclick={() => onmark(o.id, k)}
+                aria-label="{m.name}, level {m.level} — {o.title}, {rar.name}"
+                aria-pressed={mark}
+              >
+                <span class="fig">
                   <EnemyPortrait family={m.portrait.family} hue={m.portrait.hue} name={m.name} />
                 </span>
-              {/if}
-            {/each}
-          </span>
-
-          <span class="plate" style:--drop="{plateDrop.get(o.id) ?? 0}px">
-            <span class="plate-top">
-              <span class="badge">{rar.name}</span>
-              {#if o.hasQuestTarget}<span class="orders" title="Holds a target from your Orders">★</span>{/if}
-            </span>
-            <span class="title">{o.title}</span>
-            <span class="line">
-              <span class="lv mono">Lv {o.level}</span>
-              <span class="sep">·</span>
-              <span class="threat" style:--th={threatHue(o.threat)}>{threatBand(o.threat)}</span>
-              <span class="sep">·</span>
-              <span class="xp mono">{o.xp} xp</span>
-            </span>
-            {#if dragged}<span class="drag-word">joins the fight</span>{/if}
-          </span>
-        </button>
+                <span class="card" style:--drop="{cardDrop.get(`${o.id}:${k}`) ?? 0}px">
+                  {#if o.hasQuestTarget}<span class="orders" title="A target from your Orders">★</span>{/if}
+                  <span class="name">{m.name}</span>
+                  <span class="lv mono">Lv {m.level}</span>
+                </span>
+              </button>
+            {/if}
+          {/each}
+        </div>
       {/each}
     </div>
   {/key}
 
   <footer class="field-foot">
-    {#if pulls}
-      <span class="warn" role="status">
-        ⚠ {cluster.length} groups stand inside one watch — pull one and they all come
+    {#if markedOffer}
+      {@const rar = RARITIES[markedOffer.rarity]}
+      <span class="group-read" style:--rh={rar.hue} role="status">
+        <span class="badge">{rar.name}</span>
+        <span class="title">{markedOffer.title}</span>
+        <span class="sep">·</span>
+        <span>{markedOffer.size} {markedOffer.size === 1 ? 'foe' : 'foes'}</span>
+        <span class="sep">·</span>
+        <span class="threat" style:--th={threatHue(markedOffer.threat)}>{threatBand(markedOffer.threat)}</span>
+        <span class="sep">·</span>
+        <span class="xp mono">{markedOffer.xp} xp</span>
       </span>
-    {:else}
-      <span class="calm">clear ground — this one comes alone</span>
     {/if}
     <span class="hint">
-      <kbd>Tab</kbd> mark · <kbd>Enter</kbd> or click to engage ·
+      <kbd>Tab</kbd> mark · <kbd>Q</kbd> or a working opens the fight ·
       <button class="walk" onclick={onnext}><kbd>Space</kbd> walk on</button>
     </span>
   </footer>
@@ -269,66 +269,14 @@
     margin: 6px clamp(40px, 6vw, 96px) 34px;
   }
 
-  .wires {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-    pointer-events: none;
-    z-index: 1;
-  }
-  .ring {
-    fill: oklch(0.7 0.09 205 / 0.035);
-    stroke: oklch(0.8 0.1 205 / 0.28);
-    stroke-width: 0.3;
-    stroke-dasharray: 1.6 1.4;
-    vector-effect: non-scaling-stroke;
-    animation: ring-in 320ms var(--ease-out-expo);
-  }
-  .ring.danger {
-    fill: oklch(0.7 0.18 35 / 0.07);
-    stroke: oklch(0.78 0.19 38 / 0.75);
-    animation:
-      ring-in 320ms var(--ease-out-expo),
-      ring-warn 1.6s ease-in-out infinite 320ms;
-  }
-  @keyframes ring-in {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes ring-warn {
-    50% {
-      stroke-opacity: 0.35;
-    }
-  }
-  .wire {
-    stroke: oklch(0.78 0.19 38 / 0.55);
-    stroke-width: 1;
-    stroke-dasharray: 2 2;
-    vector-effect: non-scaling-stroke;
-  }
-
   /* ---- one sighting, standing where it stands ------------------------ */
   .sighting {
     position: absolute;
     translate: -50% -50%;
     z-index: 2;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: inherit;
-    cursor: pointer;
+    width: 132px;
+    height: 84px;
     scale: var(--s, 1);
-    transition:
-      filter 220ms ease,
-      opacity 220ms ease,
-      scale 220ms var(--ease-spring);
     animation: sighting-in 460ms var(--ease-out-expo) both;
     animation-delay: calc(var(--i) * 60ms);
   }
@@ -339,35 +287,37 @@
       filter: brightness(1.7);
     }
   }
-  .sighting:hover,
-  .sighting:focus-visible {
-    outline: none;
-    scale: calc(var(--s, 1) * 1.06);
-  }
-  /* everything outside the ring recedes, so the price of this pull reads */
-  .sighting.quiet {
-    filter: saturate(0.5) brightness(0.72);
-    opacity: 0.72;
-  }
-  .sighting.dragged .plate {
-    border-color: oklch(0.78 0.19 38 / 0.7);
-    box-shadow: 0 0 18px -6px oklch(0.75 0.19 38 / 0.8);
-  }
 
-  .bundle {
-    position: relative;
-    display: block;
-    width: 132px;
-    height: 84px;
-  }
-  .fig {
+  /* ---- one mob: a body, and the card it wears ------------------------ */
+  .mob {
     position: absolute;
     translate: -50% -50%;
     width: calc(52px * var(--f, 1));
     height: calc(52px * var(--f, 1));
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    /* the card hangs below the body — the button box is the figure alone, so
+       the figures stand exactly where the formation put them */
+    overflow: visible;
+    transition:
+      filter 200ms ease,
+      opacity 200ms ease,
+      scale 200ms var(--ease-spring);
+  }
+  .mob:hover,
+  .mob:focus-visible {
+    outline: none;
+    scale: 1.08;
+  }
+  .fig {
+    position: absolute;
+    inset: 0;
     filter: drop-shadow(0 4px 6px oklch(0.05 0.02 280 / 0.7));
   }
-  .fig.lead {
+  .mob.lead .fig {
     filter: drop-shadow(0 0 10px oklch(0.75 0.14 var(--rh) / 0.5));
   }
   .fig :global(canvas) {
@@ -375,97 +325,70 @@
     height: 100%;
   }
 
-  /* the group's card, worn under its feet */
-  .plate {
-    position: relative;
-    /* stepped clear of any plate already crowding this patch of ground */
-    margin-top: var(--drop, 0px);
+  /* the mob's own card, worn under its feet and stepped clear of any card
+     already crowding this patch of ground */
+  .card {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    translate: -50% 0;
+    /* clear of the body's own glow, then down its leader line */
+    margin-top: calc(8px + var(--drop, 0px));
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-    padding: 5px 11px 6px;
-    border-radius: 10px;
-    border: 1px solid oklch(0.7 0.1 var(--rh) / 0.34);
-    background:
-      radial-gradient(120% 90% at 50% 0%, oklch(0.6 0.12 var(--rh) / 0.1), transparent 70%),
-      linear-gradient(180deg, oklch(0.13 0.03 250 / 0.82), oklch(0.09 0.03 250 / 0.9));
+    align-items: baseline;
+    gap: 4px;
+    white-space: nowrap;
+    padding: 2px 7px 3px;
+    border-radius: 7px;
+    border: 1px solid oklch(0.7 0.1 var(--rh) / 0.3);
+    background: linear-gradient(180deg, oklch(0.13 0.03 250 / 0.86), oklch(0.09 0.03 250 / 0.92));
     backdrop-filter: blur(6px);
+    opacity: 0.78;
     transition:
-      border-color 200ms ease,
-      box-shadow 200ms ease;
+      border-color 180ms ease,
+      opacity 180ms ease,
+      box-shadow 180ms ease;
   }
-  .sighting.marked .plate {
-    border-color: oklch(0.84 0.12 var(--rh) / 0.95);
-    box-shadow:
-      0 0 0 1px oklch(0.84 0.12 var(--rh) / 0.45),
-      0 8px 26px -14px oklch(0.6 0.14 var(--rh) / 0.9);
-  }
-  .sighting.rarity-apex .plate {
-    border-color: oklch(0.72 0.19 25 / 0.75);
-    box-shadow: 0 0 26px -8px oklch(0.74 0.2 30 / 0.9);
-  }
-
-  .plate::before {
+  .card::before {
     content: '';
     position: absolute;
     left: 50%;
     bottom: 100%;
     width: 1px;
-    height: var(--drop, 0px);
-    background: linear-gradient(180deg, transparent, oklch(0.7 0.06 250 / 0.4));
+    height: calc(8px + var(--drop, 0px));
+    background: linear-gradient(180deg, transparent, oklch(0.7 0.06 250 / 0.35));
     pointer-events: none;
   }
-
-  .plate-top {
-    display: flex;
-    align-items: center;
-    gap: 5px;
+  .mob:hover .card,
+  .mob:focus-visible .card {
+    opacity: 1;
   }
-  .badge {
-    font-family: var(--font-mono);
-    font-size: 7.5px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: oklch(0.85 0.14 var(--rh));
+  .mob.marked .card {
+    opacity: 1;
+    border-color: oklch(0.84 0.12 var(--rh) / 0.95);
+    box-shadow:
+      0 0 0 1px oklch(0.84 0.12 var(--rh) / 0.45),
+      0 8px 26px -14px oklch(0.6 0.14 var(--rh) / 0.9);
+  }
+  .name {
+    font-family: var(--font-display);
+    font-size: 9.5px;
+    color: var(--text);
+  }
+  .mob.marked .name {
+    color: oklch(0.94 0.05 var(--rh));
+  }
+  .lv {
+    font-size: 8.5px;
+    color: var(--text-dim);
   }
   .orders {
-    font-size: 9px;
+    font-size: 8.5px;
     color: oklch(0.82 0.14 85);
     text-shadow: 0 0 8px oklch(0.82 0.14 85 / 0.6);
   }
-  .title {
-    font-family: var(--font-display);
-    font-size: 12.5px;
-    color: var(--text);
-    white-space: nowrap;
-  }
-  .line {
-    display: flex;
-    align-items: baseline;
-    gap: 5px;
-    font-size: 10px;
-    color: var(--text-dim);
-  }
-  .sep {
-    opacity: 0.45;
-  }
-  .threat {
-    color: oklch(0.78 0.14 var(--th));
-    text-transform: capitalize;
-  }
-  .xp {
-    color: var(--signal);
-  }
-  .drag-word {
-    font-family: var(--font-mono);
-    font-size: 8px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: oklch(0.82 0.18 38);
-  }
 
-  /* ---- the footer: the price, and the way out ------------------------ */
+  /* ---- the footer: what you have marked, and the way out ------------- */
   .field-foot {
     flex: none;
     display: flex;
@@ -476,12 +399,32 @@
     font-size: 11px;
     color: var(--text-dim);
   }
-  .warn {
-    color: oklch(0.82 0.18 38);
-    font-weight: 600;
+  .group-read {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
   }
-  .calm {
-    opacity: 0.7;
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: oklch(0.85 0.14 var(--rh));
+  }
+  .title {
+    font-family: var(--font-display);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .sep {
+    opacity: 0.45;
+  }
+  .threat {
+    color: oklch(0.78 0.14 var(--th));
+    text-transform: capitalize;
+  }
+  .xp {
+    color: var(--signal);
   }
   .hint {
     display: inline-flex;
@@ -516,15 +459,13 @@
     .ground {
       margin-inline: 12px;
     }
-    .bundle {
+    .sighting {
       width: 108px;
       height: 72px;
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .sighting,
-    .ring,
-    .ring.danger,
     .rare-flag {
       animation: none;
     }

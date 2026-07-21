@@ -31,16 +31,24 @@
 
   const IDLE_IMPACT: Impact = { n: 0, power: 1, crit: false }
 
+  // Before the First Weaving the calling has nothing to work with — the staff
+  // is wood and there is no fire in the flue, so the seat sits sealed.
+  const stokeSealed = $derived(
+    game.progress.classId === 'arcanist' && !game.taught.includes('fireball'),
+  )
+
   // The heart of the wheel says what Space does right now: sweep the spoils,
   // step into the circle (camp), walk on to the next scatter of sightings
-  // (the field), or read the foe mid-fight.
+  // (the field), or — mid-fight — throw the flue open: Stoke.
   const hub: HubMode = $derived(
     !game.combat.player.alive
       ? 'fallen'
       : looting
         ? 'collect'
         : shown.length > 0
-          ? 'focus'
+          ? stokeSealed
+            ? 'sealed'
+            : 'stoke'
           : inCamp
             ? 'summon'
             : 'advance',
@@ -140,8 +148,7 @@
       <FieldScreen
         field={game.field}
         intro={region?.intro}
-        onselect={(id) => game.selectOffer(id)}
-        onengage={(id) => game.engageOffer(id)}
+        onmark={(offerId, index) => game.markMob(offerId, index)}
         onnext={() => game.nextScreen()}
       />
     {/if}
@@ -178,8 +185,9 @@
       denied={game.denied}
       {hub}
       respawnIn={game.combat.player.respawnIn}
-      focusReady={game.combat.player.focusReady}
-      focusCd={game.combat.player.focusCd}
+      stokeReady={game.combat.player.stokeReady}
+      stokeCd={game.combat.player.stokeCd}
+      stokeTicks={game.combat.player.stokeTicks}
       hue={FACTION.hue}
       empowered={game.heatEmpowered}
       onactivate={(id) => game.use(id)}
@@ -198,22 +206,15 @@
               <span class="cast-time num">{ticksToSeconds(cast.remainingTicks)}s</span>
             </div>
           {:else if strike}
-            <!-- the staff's basic attack: the wind-up bar, with the Sharpen
-                 window burning in its last stretch. Space inside it whets the
-                 landing blow; the whole bar goes gold once a Sharpen is banked. -->
-            <div
-              class="strike"
-              class:armed={strike.sharpenReady}
-              class:open={strike.windowOpen && strike.swinging}
-              class:idle={!strike.swinging}
-            >
+            <!-- the staff's basic attack: the wind-up bar, ticking out the
+                 1.8 s arc of a blow you called for yourself. -->
+            <div class="strike" class:idle={!strike.swinging}>
               <span class="strike-name">Staff</span>
               <span class="strike-track">
-                <span class="strike-window" aria-hidden="true"></span>
                 <span class="strike-fill" style:width="{strike.swinging ? strike.progress * 100 : 0}%"></span>
               </span>
               <span class="strike-tag mono">
-                {#if !strike.swinging}Q ▸ strike · {strike.dmgMin}–{strike.dmgMax}{:else if strike.sharpenReady}sharpened{:else if strike.windowOpen}Space ▸ sharpen{:else}{strike.dmgMin}–{strike.dmgMax}{/if}
+                {#if !strike.swinging}Q ▸ strike · {strike.dmgMin}–{strike.dmgMax}{:else}{strike.dmgMin}–{strike.dmgMax}{/if}
               </span>
             </div>
           {/if}
@@ -221,7 +222,7 @@
             <!-- no gauge before the First Weaving: a staff-only recruit has no
                  fire to ride, and the empty bar would spoil the reveal -->
             {#if game.taught.includes('fireball')}
-              <WeaveHeat heat={game.combat.player.heat} />
+              <WeaveHeat heat={game.combat.player.heat} stoked={game.combat.player.stokeTicks > 0} />
             {/if}
           {:else}
             <ClassResource resource={game.combat.resource} echo={game.combat.echo} classId={game.progress.classId} />
@@ -542,7 +543,7 @@
   }
 
   /* the staff's wind-up: same station as the cast bar, humbler dress —
-     wood-and-gilt, with the Sharpen window burning in the last stretch */
+     wood-and-gilt, ticking out the arc of the blow you called for */
   .strike {
     --wood: oklch(0.78 0.09 85);
     display: flex;
@@ -556,17 +557,6 @@
   /* at rest the bar is only a prompt: the staff waits on your hand */
   .strike.idle {
     opacity: 0.72;
-  }
-  .strike.idle .strike-window {
-    opacity: 0.35;
-  }
-  .strike.open {
-    border-color: color-mix(in oklch, var(--wood) 65%, transparent);
-    box-shadow: 0 0 14px -6px var(--wood);
-  }
-  .strike.armed {
-    border-color: var(--ember-glow);
-    box-shadow: 0 0 18px -6px oklch(0.72 0.19 45 / 0.8);
   }
   .strike-name {
     font-family: var(--font-display);
@@ -583,11 +573,6 @@
     background: oklch(0.85 0.03 260 / 0.12);
     overflow: hidden;
   }
-  .strike-window {
-    position: absolute;
-    inset: 0 0 0 60%;
-    background: color-mix(in oklch, var(--wood) 30%, transparent);
-  }
   .strike-fill {
     position: absolute;
     inset: 0 auto 0 0;
@@ -596,21 +581,11 @@
     box-shadow: 0 0 9px -1px var(--wood);
     transition: width 60ms linear;
   }
-  .strike.armed .strike-fill {
-    background: var(--ember-glow);
-    box-shadow: 0 0 10px -1px var(--ember-glow);
-  }
   .strike-tag {
     font-size: 10.5px;
     color: var(--text-dim);
     min-width: 74px;
     text-align: right;
-  }
-  .strike.open .strike-tag {
-    color: var(--wood);
-  }
-  .strike.armed .strike-tag {
-    color: var(--ember-glow);
   }
 
   @media (max-width: 1000px) {

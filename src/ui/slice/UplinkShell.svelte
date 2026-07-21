@@ -4,13 +4,14 @@
   import AbilityIcon from '../components/icons/AbilityIcon.svelte'
   import Background from '../components/Background.svelte'
   import CritFlash from '../components/CritFlash.svelte'
+  import ItemTile from '../components/ItemTile.svelte'
   import LevelUpBanner from '../components/LevelUpBanner.svelte'
   import PlayerHud from '../components/PlayerHud.svelte'
   import Toast from '../components/Toast.svelte'
   import Vignette from '../components/Vignette.svelte'
   import type { Game, View } from '../game.svelte'
   import { loadSettings } from '../profile'
-  import { GRADUATION_SEND_OFF, HEAT_LECTURE } from './camp'
+  import { FIREBALL_GUIDE, GRADUATION_SEND_OFF, HEAT_GUIDE, STAFF_RACK, type Guide } from './camp'
   import { FACTION, FIRST_ORDER, SERGEANT } from './content'
   import ArenaView from './views/ArenaView.svelte'
   import CodexView from './views/CodexView.svelte'
@@ -37,13 +38,16 @@
     { id: 'codex', label: 'Codex', hint: 'research · recovery' },
   ]
 
-  // Vale's Heat lecture: the beat between the proving and the First Weaving —
-  // you are told what the fire *is* before you are handed any of it.
-  const lecture = $derived(ex.justLecture)
+  // The rack: the yard's very first beat, ahead of everything else on screen.
+  const rack = $derived(!ex.staffTaken)
+  const rackStaff = $derived(game.progress.equipped.staff ?? null)
+  // The Heat guide: manual page one, between the proving and the First Weaving —
+  // you are told how the fire works before you are handed any of it.
+  const lecture = $derived(!rack && ex.justLecture)
   // teaching ceremony — the Fireball teach is the First Weaving: the camp's
-  // big moment, dressed grander than any later rite. It waits behind the
-  // lecture, so the explanation always lands before the gift.
-  const teaching = $derived(lecture ? null : ex.justTaught)
+  // big moment, dressed grander than any later rite, and it carries manual
+  // page two. It waits behind the Heat guide, so the rules land in order.
+  const teaching = $derived(rack || lecture ? null : ex.justTaught)
   const teachNames = $derived((teaching ?? []).map((id) => ABILITIES[id]?.name ?? id))
   const firstWeaving = $derived(teaching?.includes('fireball') ?? false)
   // graduation — Vale's send-off and the classic first order
@@ -185,15 +189,41 @@
   {/key}
 {/if}
 
-<!-- The Heat lecture: Vale explains the fire before anyone hands it over.
-     Clearing it lets the First Weaving ceremony behind it come through. -->
+<!-- one manual page: a single line of flavour, then the rules that matter -->
+{#snippet guide(g: Guide)}
+  <p class="guide-blurb">{g.blurb}</p>
+  <ul class="rules">
+    {#each g.lines as line, i (i)}
+      <li>{line}</li>
+    {/each}
+  </ul>
+{/snippet}
+
+<!-- The rack: the yard's opening beat. Nothing is handed to a conscript —
+     you take a practice staff off the rack yourself. -->
+{#if rack}
+  <button class="ceremony" onclick={() => ex.takeStaff()} aria-label={STAFF_RACK.take}>
+    <div class="rite console-panel ticked">
+      <span class="readout">the kindle yard · {STAFF_RACK.title}</span>
+      <h2 class="brief-name">{SERGEANT}</h2>
+      <p class="rite-blurb">{STAFF_RACK.blurb}</p>
+      {#if rackStaff}
+        <div class="rack-item"><ItemTile item={rackStaff} /></div>
+      {/if}
+      <span class="take-btn">{STAFF_RACK.take}</span>
+      <span class="rite-hint readout">click or press Space to take it</span>
+    </div>
+  </button>
+{/if}
+
+<!-- Manual page one — Heat. Vale explains how the fire works before anyone
+     hands it over; clearing it lets the First Weaving behind it come through. -->
 {#if lecture}
   <button class="ceremony" onclick={() => ex.clearLecture()} aria-label="Acknowledge">
     <div class="rite console-panel ticked">
-      <span class="readout">the kindle yard · before the fire</span>
-      <h2 class="brief-name">{HEAT_LECTURE.speaker}</h2>
-      <span class="lecture-title readout ember">{HEAT_LECTURE.title}</span>
-      <p class="rite-blurb">{HEAT_LECTURE.body}</p>
+      <span class="readout">the kindle yard · field manual · 1 of 2</span>
+      <h2 class="brief-name">{HEAT_GUIDE.title}</h2>
+      {@render guide(HEAT_GUIDE)}
       <p class="rite-learn mono">next: the first weaving</p>
       <span class="rite-hint readout">click or press Space to continue</span>
     </div>
@@ -226,11 +256,8 @@
         {/each}
       </div>
       {#if firstWeaving}
-        <p class="rite-blurb">
-          Vale takes your staff hand and turns it palm-up. “You proved the hands. Now feel what they
-          were for.” Something old and patient kindles behind your knuckles — the first spark of a
-          lost art, alive, and yours to feed.
-        </p>
+        <span class="readout">field manual · 2 of 2</span>
+        {@render guide(FIREBALL_GUIDE)}
         <p class="rite-learn mono">recorded to the codex · war-weaving, first working</p>
       {:else}
         <p class="rite-blurb">{ex.tier.blurb}</p>
@@ -404,8 +431,62 @@
     }
   }
 
-  .lecture-title {
-    letter-spacing: 0.1em;
+  /* ── the field manual: one compact page, rules over prose ─────────── */
+  .guide-blurb {
+    font-size: 12.5px;
+    line-height: 1.5;
+    font-style: italic;
+    color: var(--text-dim);
+    max-width: 46ch;
+  }
+  .rules {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    text-align: left;
+  }
+  .rules li {
+    position: relative;
+    padding: 7px 11px 7px 24px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--console-line);
+    /* opaque enough to read on its own — the panel's glass leans on a blur the
+       ceremony backdrop cannot always supply */
+    background: linear-gradient(180deg, oklch(0.16 0.03 40 / 0.86), oklch(0.11 0.03 40 / 0.9));
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .rules li::before {
+    content: '';
+    position: absolute;
+    top: 14px;
+    left: 10px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ember-glow);
+    box-shadow: 0 0 7px oklch(0.72 0.19 45 / 0.7);
+  }
+
+  /* the rack: the issued staff, shown as the item it actually is */
+  .rack-item {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, oklch(0.16 0.03 40 / 0.86), oklch(0.11 0.03 40 / 0.9));
+  }
+  .take-btn {
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    border: 1px solid oklch(0.72 0.19 45 / 0.5);
+    background: oklch(0.72 0.19 45 / 0.1);
+    font-family: var(--font-display);
+    font-size: 14px;
+    color: var(--ember-glow);
   }
 
   .recovery {

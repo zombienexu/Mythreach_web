@@ -9,10 +9,13 @@ import {
   AGGRO_RADIUS,
   clusterOf,
   clusterSpec,
+  cycleMob,
   MAX_CLUSTER_MOBS,
+  mobsOf,
   offerSpec,
   rerollBoard,
   rollBoard,
+  selectMob,
   selectOffer,
   type FieldState,
   type Offer,
@@ -129,6 +132,78 @@ describe('field board — sightings', () => {
     expect(selectOffer(s, id).selectedId).toBe(id)
     expect(selectOffer(s, -1).selectedId).toBe(s.selectedId)
     expect(offerSpec(s.offers[0]!)).toBe(s.offers[0]!.spec)
+  })
+})
+
+describe('the field is target-first — one mark per body', () => {
+  const board = (): FieldState => rollBoard('duskmire', mulberry32(12), 6, NO_TARGETS)
+
+  it('a fresh board marks the first group’s first mob', () => {
+    const s = board()
+    expect(s.selectedId).toBe(s.offers[0]!.id)
+    expect(s.selectedIndex).toBe(0)
+    expect(rerollBoard(s, mulberry32(13), 6, NO_TARGETS).selectedIndex).toBe(0)
+  })
+
+  it('mobsOf flattens every body on the screen, board order then roster order', () => {
+    const s = board()
+    const mobs = mobsOf(s)
+    expect(mobs).toHaveLength(s.offers.reduce((n, o) => n + o.roster.length, 0))
+    expect(mobs.map((m) => m.defId)).toEqual(s.offers.flatMap((o) => o.roster))
+    expect(mobs.map((m) => `${m.offerId}:${m.index}`)).toEqual(
+      s.offers.flatMap((o) => o.roster.map((_, i) => `${o.id}:${i}`)),
+    )
+  })
+
+  it('selectMob marks a body and its group; an unreal ref is a no-op', () => {
+    const s = board()
+    const last = s.offers[s.offers.length - 1]!
+    const k = last.roster.length - 1
+    const m = selectMob(s, last.id, k)
+    expect(m.selectedId).toBe(last.id)
+    expect(m.selectedIndex).toBe(k)
+    // unknown group, and an index past the end of a real group
+    expect(selectMob(s, -1, 0)).toBe(s)
+    expect(selectMob(s, last.id, last.roster.length)).toBe(s)
+    expect(selectMob(s, last.id, -1)).toBe(s)
+  })
+
+  it('selecting a group drops the reticle back onto its first body', () => {
+    const s = board()
+    const other = s.offers[1]!
+    const deep = selectMob(s, other.id, other.roster.length - 1)
+    expect(selectOffer(deep, other.id).selectedIndex).toBe(0)
+  })
+
+  it('cycleMob walks every body on the screen exactly once, then wraps', () => {
+    let s = board()
+    const mobs = mobsOf(s)
+    expect(mobs.length).toBeGreaterThan(s.offers.length) // some group holds a pack
+    const seen: string[] = [`${s.selectedId}:${s.selectedIndex}`]
+    for (let i = 1; i < mobs.length; i++) {
+      s = cycleMob(s)
+      seen.push(`${s.selectedId}:${s.selectedIndex}`)
+    }
+    expect(new Set(seen).size).toBe(mobs.length)
+    expect(seen).toEqual(mobs.map((m) => `${m.offerId}:${m.index}`))
+    // and round the horn: one more step is back on the first body
+    s = cycleMob(s)
+    expect(s.selectedId).toBe(mobs[0]!.offerId)
+    expect(s.selectedIndex).toBe(mobs[0]!.index)
+  })
+
+  it('cycleMob crosses group boundaries rather than staying in the bundle', () => {
+    let s = board()
+    const first = s.offers[0]!
+    for (let i = 0; i < first.roster.length; i++) s = cycleMob(s)
+    expect(s.selectedId).toBe(s.offers[1]!.id)
+    expect(s.selectedIndex).toBe(0)
+  })
+
+  it('cycleMob on an empty screen changes nothing', () => {
+    const empty: FieldState = { regionId: 'duskmire', offers: [], selectedId: null, selectedIndex: 0, nextId: 1, rerolls: 0 }
+    expect(cycleMob(empty)).toBe(empty)
+    expect(mobsOf(empty)).toEqual([])
   })
 })
 

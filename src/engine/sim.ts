@@ -26,25 +26,19 @@ import {
   STASIS_FREEZE_TICKS,
   // ── the staff's basic attack ──
   STRIKE_BASE,
-  STRIKE_SHARPEN_PCT,
   STRIKE_SPREAD,
   STRIKE_SWING_TICKS,
-  STRIKE_TELL_FROM,
   // ── the Arcanist's fire ──
   DETONATE_PER_STACK,
   FIREBALL_SPLASH_PCT,
   FLASHPOINT_TICKS_PER_HEAT,
-  FOCUS_CD_TICKS,
-  FOCUS_WHIFF_CD_TICKS,
   HEAT_DECAY_TICKS,
   HEAT_EMPOWERED_AT,
   HEAT_FIRE_PCT_PER_POINT,
   HEAT_MAX,
-  HEAT_OPENING_BONUS,
   HEAT_OVERHEAT_AT,
-  HEAT_PER_DETONATE,
-  HEAT_PER_FIREBALL,
-  HEAT_PER_KINDLE,
+  HEAT_PER_LANDING,
+  HEAT_PER_STOKED_LANDING,
   INFERNO_PER_HEAT,
   INFERNO_PER_SMOLDER,
   OPENING_DMG_PCT,
@@ -53,6 +47,8 @@ import {
   SMOLDER_MAX,
   SMOLDER_DURATION_TICKS,
   SMOLDER_TICK_TICKS,
+  STOKE_CD_TICKS,
+  STOKE_WINDOW_TICKS,
   WILDFIRE_SEED_STACKS,
   WILDFIRE_SPREAD_PCT,
   type AbilityEffect,
@@ -243,17 +239,18 @@ export class GameSim {
     const first = this.content.regions[0]
     if (!first) throw new Error('content pack has no regions')
     this.region = first
-    // Every conscript is issued a wooden training staff. Stat-less — it only
-    // feeds the strike formula — so derived stats are untouched by it. A
+    // Every conscript is issued a grey wood staff off the yard's rack. Its stat
+    // line is deliberately under the drop tables — a training issue, not a
+    // prize — but it is real gear, so the first true drop is a felt upgrade. A
     // loaded save replaces the whole equipped record with its own gear.
     this.equipped = {
       staff: {
         uid: this.nextUid++,
-        name: 'Wooden Training Staff',
+        name: 'Grey Wood Staff',
         slot: 'staff',
         ilvl: 1,
         rarity: 'common',
-        stats: {},
+        stats: { power: 2, stamina: 2 },
       },
     }
     this.stats = deriveStats(this.identity, this.level, this.talents, this.equipped)
@@ -295,10 +292,10 @@ export class GameSim {
     p.cheatedDeath = false
     p.striking = false
     p.strikeElapsed = 0
-    p.sharpenReady = false
     p.heat = 0
     p.heatIdle = 0
-    p.focusCd = 0
+    p.stoke = 0
+    p.stokeCd = 0
     p.lastHitTaken = 0
     p.debt = 0
     p.reckoningIn = RECKONING_INTERVAL_TICKS
@@ -423,7 +420,7 @@ export class GameSim {
       if (p.cooldowns[id] > 0) p.cooldowns[id]--
     }
     if (p.gcd > 0) p.gcd--
-    if (p.focusCd > 0) p.focusCd--
+    if (p.stokeCd > 0) p.stokeCd--
     if (p.combustion > 0) {
       p.combustion--
       if (p.combustion === 0) this.push({ kind: 'buffExpired', id: 'combustion' })
@@ -505,6 +502,11 @@ export class GameSim {
       }
     }
 
+    // The flue shuts. Counted down *after* the player's own phase, so a working
+    // that resolves this tick still lands inside the half second it was opened
+    // for — the half second is half a second of landings, not of bookkeeping.
+    if (p.stoke > 0) p.stoke--
+
     // Unfed Heat bleeds away — the fire is momentum, never a possession. A
     // cast in flight counts as feeding it: your hands are in the fire, so the
     // decay clock only runs while they are idle.
@@ -513,7 +515,13 @@ export class GameSim {
       if (p.heatIdle >= HEAT_DECAY_TICKS) {
         p.heatIdle = 0
         p.heat--
-        this.push({ kind: 'heatChanged', heat: p.heat, band: this.heatBand(p.heat), crossedUp: false })
+        this.push({
+          kind: 'heatChanged',
+          heat: p.heat,
+          band: this.heatBand(p.heat),
+          crossedUp: false,
+          stoked: false,
+        })
       }
     }
 
@@ -865,7 +873,7 @@ export class GameSim {
     return this.level >= ABILITIES[id].unlockLevel
   }
 
-  // ═══════════════════ The Arcanist's fire: Heat, Smolder, Focus ═══════════════════
+  // ═══════════════════ The Arcanist's fire: Heat, Smolder, Stoke ═══════════════════
 
   /** The band Heat sits in — drives Fireball's evolution and the gauge. */
   private heatBand(heat = this.player.heat): 'cold' | 'empowered' | 'overheat' {
@@ -876,7 +884,7 @@ export class GameSim {
 
   /** Bank Heat (capped at 10), announcing the moment it climbs a band.
    *  Feeding the fire also resets the unfed-decay clock. */
-  private heatGain(n: number): void {
+  private heatGain(n: number, stoked = false): void {
     const p = this.player
     if (n <= 0 || this.kit.id !== 'arcanist') return
     p.heatIdle = 0
@@ -889,7 +897,16 @@ export class GameSim {
       heat: p.heat,
       band: now,
       crossedUp: now !== this.heatBand(before) && now !== 'cold',
+      stoked,
     })
+  }
+
+  /** A working landed on a foe: the fire takes a point — two if it landed
+   *  inside an open Stoke. Every offensive working of the calling routes
+   *  through here, so the timing game has exactly one rule. */
+  private heatOnLanding(): void {
+    const stoked = this.player.stoke > 0
+    this.heatGain(stoked ? HEAT_PER_STOKED_LANDING : HEAT_PER_LANDING, stoked)
   }
 
   /** Spend all Heat back to cold (Flashpoint, Inferno). */
@@ -898,7 +915,7 @@ export class GameSim {
     const spent = p.heat
     if (spent > 0) {
       p.heat = 0
-      this.push({ kind: 'heatChanged', heat: 0, band: 'cold', crossedUp: false })
+      this.push({ kind: 'heatChanged', heat: 0, band: 'cold', crossedUp: false, stoked: false })
     }
     return spent
   }
@@ -970,7 +987,7 @@ export class GameSim {
   }
 
   /** Fireball resolves: the Heat you have already built decides what it becomes,
-   *  then it lays Smolder and banks Heat. An Opening makes it fiercer. */
+   *  then it lays Smolder and banks Heat. An Opening lays an extra ember. */
   private resolveFireball(): void {
     const e = this.target
     if (!e) return
@@ -995,7 +1012,7 @@ export class GameSim {
     // The Blaze spends itself: an overheat Fireball pierces the line, and then
     // the fire slips your grip — Heat crashes to cold. Never mastered.
     if (band === 'overheat') this.spendAllHeat()
-    else this.heatGain(HEAT_PER_FIREBALL + (exposed ? HEAT_OPENING_BONUS : 0))
+    else this.heatOnLanding()
   }
 
   // ═══════════════ The Strike: the staff's basic attack ═══════════════
@@ -1030,66 +1047,35 @@ export class GameSim {
   }
 
   /** A wind-up completes: the staff lands on the target. Power and crit scale
-   *  it; a banked Sharpen (Focus read into your own swing) pays out here. */
+   *  it. The staff is wood — it feeds no fire. */
   private resolveStrike(): void {
     const e = this.target
     if (!e) return
-    const p = this.player
     const [min, max] = this.strikeRange()
     let amount = Math.round((this.rollRange(min, max) * (100 + this.stats.power)) / 100)
-    const sharpened = p.sharpenReady
-    if (sharpened) {
-      p.sharpenReady = false
-      amount = Math.round((amount * (100 + STRIKE_SHARPEN_PCT)) / 100)
-    }
     // A staff blow is not a fire spell — it rolls the base crit lane.
     const crit = rollPct(this.rng, this.critChance('arcane'))
     if (crit) amount = Math.round((amount * 7) / 4)
-    this.push({ kind: 'strikeLanded', iid: e.iid, sharpened })
+    this.push({ kind: 'strikeLanded', iid: e.iid })
     this.damageEnemyUnit(e, Math.max(1, amount), crit, 'strike')
   }
 
-  /** Focus — the universal timing read (heart of the wheel / Space), on any
-   *  swing about to land, theirs or yours. A foe's open tell wins: deflect the
-   *  committed blow and crack them Exposed. Failing that, a swing of your own
-   *  deep in its final stretch Sharpens the landing strike. Nothing readable —
-   *  a whiff and a short lockout. Returns false only when Focus itself can't
-   *  act (dead, on cooldown). */
-  focus(): boolean {
+  /** Stoke — the Arcanist's calling, worn on the heart of the wheel (Space).
+   *  Throws the flue open for half a second: any working that *lands* inside
+   *  the open flue banks two Heat instead of one. Pure timing, and a 3 s wait
+   *  before the next one. Refused (false) when the calling isn't yours, before
+   *  the First Weaving has handed over any fire to stoke, or while dead / out
+   *  of a fight / still cooling. */
+  stoke(): boolean {
     const p = this.player
-    if (!p.alive || p.focusCd > 0) return false
+    if (this.kit.id !== 'arcanist') return false
+    // Sealed until Fireball: a staff-only conscript has no fire in the flue.
+    if (!this.available('fireball')) return false
+    if (!p.alive || p.stokeCd > 0) return false
     if (this.phase !== 'combat' && this.phase !== 'assault') return false
-    let e = this.target && this.target.tellOpen ? this.target : null
-    if (!e) e = this.living.find((u) => u.tellOpen) ?? null
-    if (e) {
-      // A read: deflect the committed blow and crack the foe open.
-      if (e.cast) this.interruptCast(e)
-      else e.swingElapsed = 0
-      e.opening = OPENING_TICKS
-      e.telling = false
-      p.focusCd = FOCUS_CD_TICKS
-      this.setTarget(e.iid)
-      this.push({ kind: 'openingCreated', iid: e.iid, viaFocus: true })
-      this.push({ kind: 'focusUsed', success: true, mode: 'read', iid: e.iid })
-      return true
-    }
-    // Your own tell: deep in the wind-up, the blow can still be turned.
-    const t = this.target
-    if (
-      t &&
-      p.striking &&
-      !p.sharpenReady &&
-      p.cast === null &&
-      p.strikeElapsed / STRIKE_SWING_TICKS >= STRIKE_TELL_FROM
-    ) {
-      p.sharpenReady = true
-      p.focusCd = FOCUS_CD_TICKS
-      this.push({ kind: 'focusUsed', success: true, mode: 'sharpen', iid: t.iid })
-      return true
-    }
-    // A whiff: nothing to read. Short lockout so it can't be mashed.
-    p.focusCd = FOCUS_WHIFF_CD_TICKS
-    this.push({ kind: 'focusUsed', success: false, mode: 'whiff', iid: null })
+    p.stoke = STOKE_WINDOW_TICKS
+    p.stokeCd = STOKE_CD_TICKS
+    this.push({ kind: 'stoked' })
     return true
   }
 
@@ -1236,18 +1222,22 @@ export class GameSim {
       // ── arcanist (the fire) ──
       case 'detonate': {
         const e = this.target
-        if (e) this.detonateSmolder(e, 'detonate')
-        this.heatGain(HEAT_PER_DETONATE)
+        // Nothing to cash in is nothing landed — an empty Detonate feeds no fire.
+        if (e && this.detonateSmolder(e, 'detonate') > 0) this.heatOnLanding()
         break
       }
       case 'kindle': {
         const e = this.target
-        if (e) this.applySmolder(e, e.opening > 0 ? 2 : 1)
-        this.heatGain(HEAT_PER_KINDLE)
+        if (e) {
+          this.applySmolder(e, e.opening > 0 ? 2 : 1)
+          this.heatOnLanding()
+        }
         break
       }
       case 'wildfire': {
-        for (const e of [...this.living]) this.applySmolder(e, WILDFIRE_SEED_STACKS)
+        const caught = [...this.living]
+        for (const e of caught) this.applySmolder(e, WILDFIRE_SEED_STACKS)
+        if (caught.length > 0) this.heatOnLanding()
         break
       }
       case 'flashpoint': {
@@ -1256,7 +1246,7 @@ export class GameSim {
         if (e) {
           e.opening = Math.max(OPENING_TICKS, heat * FLASHPOINT_TICKS_PER_HEAT)
           e.telling = false
-          this.push({ kind: 'openingCreated', iid: e.iid, viaFocus: false })
+          this.push({ kind: 'openingCreated', iid: e.iid })
         }
         break
       }
@@ -2154,8 +2144,6 @@ export class GameSim {
       swinging: p.striking,
       ready: this.canStrike(),
       progress,
-      windowOpen: progress >= STRIKE_TELL_FROM,
-      sharpenReady: p.sharpenReady,
       dmgMin,
       dmgMax,
     }
@@ -2398,7 +2386,7 @@ export class GameSim {
     const living = this.living
     if (living.length === 0) return
 
-    // Focus fire: finishing the weakest packmate shrinks incoming damage —
+    // Cut the pack down: finishing the weakest packmate shrinks incoming damage —
     // unless a duel has the rest of the pack locked outside the door.
     const e0 = this.target
     if (e0 && living.length > 1 && !p.hasBuff('doorway')) {
@@ -2406,8 +2394,9 @@ export class GameSim {
       if (weakest.combatant.hp < e0.combatant.hp) this.setTarget(weakest.iid)
     }
 
-    // Read the foe: answer any open tell with Focus (off the GCD) before acting.
-    if (p.focusCd === 0 && living.some((u) => u.tellOpen)) this.focus()
+    // Throw the flue open whenever it is free (off the GCD): the headless drive
+    // can't time the flue, but it can keep the fire fed.
+    if (p.stokeCd === 0) this.stoke()
 
     switch (this.kit.id) {
       case 'arcanist':

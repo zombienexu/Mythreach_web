@@ -153,9 +153,9 @@ export const CODEX: readonly CodexObjective[] = [
     count: (e) => (e.kind === 'smolderDetonated' ? 1 : 0),
   },
   {
-    id: 'silence', title: 'Silence', note: 'Read a hostile chant and cut it short. Focus an interrupt.',
-    target: 5, findings: 10,
-    count: (e) => (e.kind === 'interrupted' ? 1 : 0),
+    id: 'stoked', title: 'Open Flue', note: 'Land a working inside the Stoke — the fire taking double.',
+    target: 10, findings: 10,
+    count: (e) => (e.kind === 'heatChanged' && e.stoked ? 1 : 0),
   },
   {
     id: 'cornered', title: 'Cornered Flame', note: 'Fell a foe while it rages — the Weave under pressure.',

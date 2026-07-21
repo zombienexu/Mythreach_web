@@ -662,10 +662,6 @@ export const STRIKE_SWING_TICKS = 36 // 1.8 s
 /** Base strike damage: 2 + level + floor(staff ilvl / 2), a 4-point spread. */
 export const STRIKE_BASE = 2
 export const STRIKE_SPREAD = 4
-/** Your own wind-up is readable in its last stretch — the Sharpen opening. */
-export const STRIKE_TELL_FROM = 0.6
-/** A Sharpened strike (Focus read into your own wind-up) hits this much harder. */
-export const STRIKE_SHARPEN_PCT = 50
 
 // ── Heat: accumulated fire in the caster, 0–10. Momentum, not a bar: every
 //    point burns hotter, unfed Heat bleeds away, and a full boil spends
@@ -675,14 +671,12 @@ export const HEAT_MAX = 10
 export const HEAT_EMPOWERED_AT = 5
 /** 10 Heat: Fireball pierces the whole pack and lays burning ground. */
 export const HEAT_OVERHEAT_AT = 10
-/** Heat a Fireball / Detonate / Kindle bank on use. */
-export const HEAT_PER_FIREBALL = 1
-export const HEAT_PER_DETONATE = 2
-export const HEAT_PER_KINDLE = 1
-/** A Fireball loosed into an Opening runs hotter. */
-export const HEAT_OPENING_BONUS = 1
+/** Every working that lands on a foe banks a point of Heat — two when it lands
+ *  inside an open Stoke. Nothing else feeds the fire: the staff is wood. */
+export const HEAT_PER_LANDING = 1
+export const HEAT_PER_STOKED_LANDING = 2
 /** Every point of Heat burns your fire this much hotter, percent. */
-export const HEAT_FIRE_PCT_PER_POINT = 3
+export const HEAT_FIRE_PCT_PER_POINT = 5
 /** Unfed Heat bleeds: −1 point after this long without gaining any (3 s). */
 export const HEAT_DECAY_TICKS = 60
 /** Empowered Fireball's splash onto other foes, as a share of the main hit. */
@@ -711,16 +705,21 @@ export const WILDFIRE_SPREAD_PCT = 45
 /** Wildfire (active): Smolder seeded on every living foe. */
 export const WILDFIRE_SEED_STACKS = 2
 
-// ── Openings: read the foe's tell, answer with Focus, and it comes Exposed. ──
-/** How long a foe stays Exposed after a successful Focus (3 s). */
+// ── Stoke: the Arcanist's calling, worn on the heart of the wheel (Space).
+//    A half-second of open flue — any working that *lands* inside it banks
+//    double Heat. Pure timing: pressed early it shuts before the fire arrives,
+//    pressed late it never opens in time. ──
+/** How long the flue stays open (0.5 s) and how long before it can open again (3 s). */
+export const STOKE_WINDOW_TICKS = 10
+export const STOKE_CD_TICKS = 60
+
+// ── Openings: a foe cracked wide, today only by Flashpoint. ──
+/** How long a foe stays Exposed once an Opening is forced (3 s). */
 export const OPENING_TICKS = 60
 /** Bonus damage a foe takes from you while Exposed. */
 export const OPENING_DMG_PCT = 30
-/** Focus's own cooldown (2.5 s) and the shorter lockout on a whiff (1.5 s). */
-export const FOCUS_CD_TICKS = 50
-export const FOCUS_WHIFF_CD_TICKS = 30
-/** The tell: a foe is readable in the last stretch of a wind-up, or any time it
- *  is hardcasting. Focus only bites inside this tell. */
+/** The tell: a foe telegraphs in the last stretch of a wind-up, or any time it
+ *  is hardcasting — the readout that says a blow is committed and coming. */
 export const TELL_FROM_PROGRESS = 0.6
 /** Flashpoint: Exposed ticks granted per Heat spent (min OPENING_TICKS). */
 export const FLASHPOINT_TICKS_PER_HEAT = 8

@@ -1,6 +1,6 @@
 // End-to-end smoke for the Threshold slice + the Kindle Yard opening.
 // Verifies: projection, arrival at the recruitment camp, the sparring circle
-// (the Q-swung staff + Focus), camp progress persisting, and — on a seeded
+// (the Q-swung staff + Stoke), camp progress persisting, and — on a seeded
 // graduated save — the scattered field, the Map atlas, and Heat climbing.
 // Fails on any console/page error.
 import { mkdir } from 'node:fs/promises'
@@ -53,8 +53,15 @@ const results = {}
   // Arrival: the drill sergeant, the wooden staff, the proving.
   results.briefed = (await page.getByText(/Sergeant Vale/i).count()) > 0
   await page.screenshot({ path: `${OUT}/b1b-arrival-camp.png` })
-  await page.getByRole('button', { name: /Take up the staff/ }).click()
+  await page.getByRole('button', { name: /Report to the yard/ }).click()
   await page.waitForTimeout(900)
+
+  // The rack: the yard's opening beat — take a practice staff before anything
+  // else can take input. Space picks it up.
+  results.rack = (await page.getByText(/Grey Wood Staff/).count()) > 0
+  await page.screenshot({ path: `${OUT}/b1c-staff-rack.png` })
+  await page.keyboard.press(' ')
+  await page.waitForTimeout(600)
 
   // In-world: the Kindle Yard's sparring circle stands where the field board
   // will be, and the Map is locked until graduation.
@@ -71,6 +78,11 @@ const results = {}
   await page.waitForTimeout(900)
   results.strikeBar = (await page.getByText(/^Staff$/).count()) > 0
   results.qPrompt = (await page.getByText(/Q ▸ strike/).count()) > 0
+  // The calling is sealed in the proving: no fire in the flue until Fireball.
+  results.sealedHub = await page
+    .getByRole('button', { name: /Stoke — sealed/ })
+    .isDisabled()
+    .catch(() => false)
   await page.screenshot({ path: `${OUT}/b3-first-duel.png` })
 
   // Fight the proving the way a player does: Q swings, Space reads — the
@@ -156,13 +168,36 @@ const results = {}
 
   await page.getByRole('button', { name: 'Arena' }).click()
   await page.waitForTimeout(700)
-  // The scattered field: sightings stand on the ground, each with its plate.
+  // The scattered field: every body stands on the ground wearing its own card.
   results.scatter = (await page.getByText(/sightings scattered/i).count()) > 0
+  const ground = page.getByRole('group', { name: /Sightings/ })
+  results.mobCards = await ground.getByRole('button').count()
   await page.screenshot({ path: `${OUT}/b4c-field-scatter.png`, fullPage: true })
-  // Space walks on to a fresh scatter, then Enter engages the marked sighting.
+  // Space walks on to a fresh scatter; Tab walks the reticle body by body, and
+  // the fight opens by *attacking* the marked one — no commit key any more.
   await page.keyboard.press(' ')
   await page.waitForTimeout(600)
+  await page.keyboard.press('Tab')
+  await page.waitForTimeout(250)
+  results.marked = await ground.getByRole('button', { pressed: true }).count()
+  // Enter must do nothing out here: the field only opens to a blow.
   await page.keyboard.press('Enter')
+  await page.waitForTimeout(400)
+  results.enterInert = (await page.getByText(/sightings scattered/i).count()) > 0
+  await page.keyboard.press('q')
+
+  await page.waitForTimeout(900)
+  // The blow pulled the pack: the field screen is gone and foes stand the arena.
+  results.qOpened = (await page.getByText(/sightings scattered/i).count()) === 0
+  // The heart of the wheel is the calling now: Stoke, not a read.
+  results.stokeHub = (await page.getByRole('button', { name: 'Stoke' }).count()) > 0
+  // Time one properly: loose a Fireball, then throw the flue open late enough
+  // that the fire *lands* inside the half second and banks two Heat.
+  await page.keyboard.press('1')
+  await page.waitForTimeout(2050)
+  await page.keyboard.press(' ')
+  await page.screenshot({ path: `${OUT}/b4d-stoke-open.png` })
+  await page.waitForTimeout(500)
 
   // Ride the Heat by hand: Fireball (1) and Kindle (3) feed it; chaining casts
   // parks the decay clock. Poll for the band crossing into Empowered/the Boil.
@@ -170,7 +205,7 @@ const results = {}
   for (let i = 0; i < 80; i++) {
     await page.keyboard.press(i % 7 === 6 ? 'q' : i % 4 === 3 ? '3' : '1')
     await page.waitForTimeout(260)
-    if (i % 5 === 4) await page.keyboard.press(' ') // Focus: the read
+    if (i % 5 === 4) await page.keyboard.press(' ') // Stoke: throw the flue open
     const empowered = await page.getByText(/Empowered|The Boil/).count()
     if (empowered > 0) {
       heatClimbed = true
@@ -190,15 +225,22 @@ server.httpServer.close()
 console.log('\n===== SLICE SMOKE (the Kindle Yard opening + combat) =====')
 console.log('codex directive granted:', results.directive)
 console.log('arrival at the camp shown:', results.briefed)
+console.log('staff rack offered at the gate:', results.rack)
 console.log('kindle yard circle shown:', results.camp)
 console.log('map locked in camp:', results.mapLocked)
 console.log('strike bar shown in the duel:', results.strikeBar)
 console.log('staff prompts for Q (no auto-swing):', results.qPrompt)
+console.log('stoke sealed during the proving:', results.sealedHub)
 console.log('camp progress:', JSON.stringify(results.grind))
 console.log('warfront atlas (graduated):', results.atlas)
 console.log('talents screen (grace ladder):', results.talents)
 console.log('workings offered to learn:', results.offers)
 console.log('field scattered across the ground:', results.scatter)
+console.log('mobs wearing their own cards:', results.mobCards)
+console.log('Tab marks exactly one body:', results.marked)
+console.log('Enter commits to nothing out here:', results.enterInert)
+console.log('Q opened the fight on the marked body:', results.qOpened)
+console.log('the wheel\'s heart is the calling (Stoke):', results.stokeHub)
 console.log('heat climbed a band:', results.heatClimbed)
 console.log('errors:', errors.length ? errors : 'none')
 console.log('shots in:', OUT)
@@ -211,13 +253,20 @@ const ok =
   results.briefed === true &&
   results.camp === true &&
   results.mapLocked === true &&
+  results.rack === true &&
   results.strikeBar === true &&
   results.qPrompt === true &&
+  results.sealedHub === true &&
+  results.stokeHub === true &&
   duelsWon >= 1 &&
   standing > 0 &&
   results.atlas === true &&
   results.talents === true &&
   results.scatter === true &&
+  results.mobCards >= 4 &&
+  results.marked === 1 &&
+  results.enterInert === true &&
+  results.qOpened === true &&
   results.heatClimbed === true
 
 console.log(ok ? '\n✅ PASS — the fresh start turns end to end' : '\n❌ FAIL — see above')

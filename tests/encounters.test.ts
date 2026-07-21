@@ -216,7 +216,7 @@ describe('multiple attackers', () => {
     expect(attackers.size).toBe(3)
   })
 
-  it('Focus reads a committed chant and cuts it short', () => {
+  it('a chant reads as a committed tell, even from the back row', () => {
     const sim = makeSim({
       level: 10,
       content: testContent(
@@ -240,15 +240,13 @@ describe('multiple attackers', () => {
       ),
     })
     advanceToSpawn(sim)
-    advance(sim, 55) // chanter's first cast starts at cooldown/2 = 50
+    const tells = advance(sim, 55) // chanter's first cast starts at cooldown/2 = 50
     const chanter = sim.combatSnapshot().enemies.find((e) => e.defId === 'chanter')!
     expect(chanter.cast).not.toBeNull()
-    // A hardcast is a fully-committed tell — Focus reads it even from the back
-    // row, interrupts the chant, and leaves the caster Exposed.
-    expect(sim.focus()).toBe(true)
-    const events = advance(sim, 1)
-    expect(eventsOf(events, 'interrupted').map((e) => e.iid)).toEqual([chanter.iid])
-    expect(sim.combatSnapshot().enemies.find((e) => e.iid === chanter.iid)?.combatState).toBe('exposed')
+    // A hardcast is a fully-committed tell: the back row telegraphs it as
+    // plainly as the front, and the announcement fires exactly once.
+    expect(chanter.combatState).toBe('telegraph')
+    expect(eventsOf(tells, 'tellOpened').map((e) => e.iid)).toContain(chanter.iid)
   })
 })
 

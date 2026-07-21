@@ -48,7 +48,7 @@ export class EnemyUnit {
   /** The Arcanist's Smolder: one age (in ticks) per stack, oldest first. Each
    *  ages on its own, hits harder as it matures, and falls off untended. */
   smolder: number[] = []
-  /** Ticks left Exposed after a read Focus (or Flashpoint). 0 = not Exposed. */
+  /** Ticks left Exposed (Flashpoint). 0 = not Exposed. */
   opening = 0
   /** Counts toward the next lingering-Smolder burn tick. */
   smolderBurnTimer = 0
@@ -124,7 +124,7 @@ export class EnemyUnit {
   }
 
   /** True when a tell is open: a foe deep in a wind-up (or hardcasting) that
-   *  isn't already Exposed or frozen. This is the moment Focus answers. */
+   *  isn't already Exposed or frozen. This is the blow already committed. */
   get tellOpen(): boolean {
     if (this.frozen > 0 || this.opening > 0 || !this.combatant.alive) return false
     return this.swingFraction >= TELL_FROM_PROGRESS

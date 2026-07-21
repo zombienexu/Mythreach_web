@@ -7,7 +7,7 @@
 //
 // You start at level 10 in the Ember-Lord tier, so the WHOLE fire kit is
 // taught: Fireball (1) · Detonate (2) · Kindle (3) · Wildfire (4) ·
-// Flashpoint (5) · Inferno (6), plus the universal Focus on the heart of the
+// Flashpoint (5) · Inferno (6), plus the calling — Stoke — on the heart of the
 // wheel / Space. Heat is already flowing and every foe reads a tell.
 // ─────────────────────────────────────────────────────────────────────────
 ;(() => {

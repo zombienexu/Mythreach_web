@@ -59,7 +59,8 @@ Title → Name the conscript → Opening lore (the Institute briefs you)
 ```
 
 **Arrival.** Sergeant Vale — caster-sergeant, drill instructor — meets the new
-conscript at the gate. You hold a **Wooden Training Staff**. You know **no
+conscript at the gate, and a rack of practice staves stands beside it: you take
+a **Grey Wood Staff** off it yourself (nothing is handed to a conscript). You know **no
 magic**: Grace tier 0 (*Recruit*) teaches nothing. The Map is locked; the
 sparring circle is the whole world.
 
@@ -68,22 +69,27 @@ Varn), one per bout, each teaching one mechanic:
 
 1. **The swing** — **Q** swings your staff (1.8 s wind-up); nothing swings
    itself, so watch the wind-up you called for.
-2. **The Sharpen** — Focus (Space) in the last stretch of *your own* wind-up
-   turns the landing blow (+50%).
-3. **The read** — Focus on *the foe's* wind-up deflects the blow and cracks
-   them Exposed (+30% taken, 3 s).
+2. **One pair of hands** — a working in flight holds the wind-up where it
+   stands; whenever you are not weaving, you should be swinging.
+3. **The read** — a burning ring means the blow is already committed. Learning
+   to see it is the timing habit the calling will need.
 
-**The Heat lecture.** Winning the proving crosses the *Blooded* Standing
-threshold (3 kills × 4 + a 45-point proving commendation = 57 ≥ 45) — but
-before anything is handed over, Vale explains **what Heat is**: momentum, not a
-resource; every working banks a point, every point burns the next three parts
-hotter, and stopping bleeds it straight back out. The rule always lands before
-the gift.
+**The field manual, page 1 — Heat.** Winning the proving crosses the *Blooded*
+Standing threshold (3 kills × 4 + a 45-point proving commendation = 57 ≥ 45) —
+but before anything is handed over, the yard hands out a **manual page on
+Heat**: rules, not a speech, every number read straight out of the engine
+constants (what banks Heat, the per-point damage bonus, how it bleeds off, the
+empowered band, the Blaze at 10, and Stoke's window/double-bank/cooldown). The
+rules always land before the gift.
 
-**The First Weaving.** Then the ceremony — deliberately grander than every
-later rite — teaches **Fireball**. This is the big moment, and everything
-before it exists to make this one spell feel enormous. It is also the **only**
-working the game ever auto-teaches (see §3.1).
+**The First Weaving — page 2, Fireball.** Then the ceremony — deliberately
+grander than every later rite — teaches **Fireball**, and carries its own
+manual page (cast, cost, what it does, that it feeds Heat, and how to time a
+landing into the Stoke). This is the big moment, and everything before it
+exists to make this one spell feel enormous. It is also the **only** working
+the game ever auto-teaches (see §3.1). Until it lands, the heart of the wheel
+sits **sealed**: a staff-only conscript has no fire to stoke, and the engine
+refuses `GameSim.stoke()` outright.
 
 **The Tempering — three duels with fire in hand**, drilling Heat:
 
@@ -130,7 +136,7 @@ persists what has actually been `learned`; `pendingLearns` is the difference.
         │  anything inside the aggro ring comes with it        │
         │  Space walks on for a fresh scatter                  │
         ▼                                                      │
-  COMBAT — strike + Focus timing + the fire kit                │
+  COMBAT — strike + Stoke timing + the fire kit                │
         │  clear → loot the corpses → the board rotates ───────┘
         ▼
   Standing (kills, turn-ins, rare clears) → Grace tiers → new teachings
@@ -156,12 +162,12 @@ persists what has actually been `learned`; `pendingLearns` is the difference.
 
 Pure deterministic engine at 20 ticks/s: packs of 1–3 free-standing enemy
 figures with swing-arc rings, dormant until aggro. The **Strike** is your
-staff on **Q** — one called blow at a time; **Focus (Space)** is one universal
-timing read on any swing about to land — theirs (deflect + Expose) or yours
-(Sharpen). The War-Weaver builds
-**Smolder** (aging fuel; inert until the *Lingering Flame* talent lights it),
-rides **Heat** (+3%/point, bleeds unfed, crashes after the Blaze), and chooses
-its moment. Full detail: `COMBAT.md`.
+staff on **Q** — one called blow at a time; **Space** is the **calling**, one
+per class, and the War-Weaver's is **Stoke**: half a second of open flue on a
+3 s cooldown, and a working that *lands* inside it banks double Heat. The
+War-Weaver builds **Smolder** (aging fuel; inert until the *Lingering Flame*
+talent lights it), rides **Heat** (+5%/point, +1 per landing working, bleeds
+unfed, crashes after the Blaze), and chooses its moment. Full detail: `COMBAT.md`.
 
 ## 6. Systems inventory (all live)
 
@@ -197,7 +203,9 @@ its moment. Full detail: `COMBAT.md`.
 ## 8. Roadmap (the planned future)
 
 - **Near:** camp polish (per-duel FX beats, Vale bark variety), a first-staff
-  upgrade moment from the boar quest reward, sound pass on Sharpen/read.
+  upgrade moment from the boar quest reward, sound pass on the Stoke window.
+- **The other five callings** each need their own heart-of-the-wheel ability —
+  Stoke is the first, and the pattern the rest are cut from.
 - **Mid:** the second world — the Projection Station already lists them: the
   Ossuary Reach (Necrologue / gravewright), the Loamward Wood (the Green Rite /
   thornspeaker), each a new camp, Grace ladder, and Codex.

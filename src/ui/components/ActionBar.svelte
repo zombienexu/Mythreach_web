@@ -3,6 +3,7 @@
   import {
     ABILITIES,
     GCD_TICKS,
+    STOKE_CD_TICKS,
     type AbilityId,
     type CastSnapshot,
     type School,
@@ -11,9 +12,12 @@
   import { cooldownLabel, ticksToSeconds } from '../format'
   import AbilityIcon from './icons/AbilityIcon.svelte'
 
-  /** What the hub offers right now. `focus` is combat: read the foe (Space).
+  /** What the hub offers right now. `stoke` is combat: the calling itself, a
+   *  half-second window timed onto a landing working (Space). `sealed` is the
+   *  same seat before the First Weaving — a staff-only conscript has no fire
+   *  to stoke, so the heart of the wheel is shut.
    *  `advance` is the field lull: walk on to the next screen of sightings. */
-  export type HubMode = 'summon' | 'advance' | 'focus' | 'collect' | 'fallen'
+  export type HubMode = 'summon' | 'advance' | 'stoke' | 'sealed' | 'collect' | 'fallen'
 
   let {
     readouts,
@@ -31,8 +35,9 @@
     denied,
     hub,
     respawnIn = 0,
-    focusReady = false,
-    focusCd = 0,
+    stokeReady = false,
+    stokeCd = 0,
+    stokeTicks = 0,
     hue = 260,
     empowered = null,
     onactivate,
@@ -55,9 +60,11 @@
     denied: Record<AbilityId, number>
     hub: HubMode
     respawnIn?: number
-    /** Universal Focus readiness — the hub glows when a tell can be answered. */
-    focusReady?: boolean
-    focusCd?: number
+    /** Stoke readiness — the hub banks its ring while the flue is cooling, and
+     *  burns for the half second the window is actually open. */
+    stokeReady?: boolean
+    stokeCd?: number
+    stokeTicks?: number
     hue?: number
     /** An ability the moment has empowered: its tile burns and beckons. */
     empowered?: AbilityId | null
@@ -120,9 +127,11 @@
           ? 'Loot all'
           : hub === 'fallen'
             ? 'Fallen'
-            : 'Focus',
+            : hub === 'sealed'
+              ? 'Stoke — sealed until the First Weaving'
+              : 'Stoke',
   )
-  const hubDisabled = $derived(hub === 'fallen')
+  const hubDisabled = $derived(hub === 'fallen' || hub === 'sealed')
 </script>
 
 <div class="bar" style:--zh={hue} role="toolbar" aria-label="Abilities">
@@ -139,7 +148,6 @@
         class="tile staff"
         class:unusable={!strike?.ready}
         class:swinging={strike?.swinging}
-        class:armed={strike?.sharpenReady}
         class:pressed={pressedKeys.has('q')}
         onclick={() => onstrike?.()}
         aria-label="Staff strike (key Q)"
@@ -175,11 +183,11 @@
         </div>
         <p class="tip-desc">
           The blow you were issued on day one. It swings when you call it and never before —
-          press <b>Space</b> late in the wind-up to Sharpen the landing blow.
+          and it is wood, so it feeds no fire.
         </p>
         <div class="tip-foot {strike?.swinging ? 'cast' : strike?.ready ? 'ready' : 'cd'}">
           <span class="foot-dot"></span>
-          {strike?.sharpenReady ? 'Sharpened — let it land' : strike?.swinging ? 'Winding up…' : strike?.ready ? 'Ready' : 'Nothing to swing at'}
+          {strike?.swinging ? 'Winding up…' : strike?.ready ? 'Ready' : 'Nothing to swing at'}
         </div>
       </div>
     </div>
@@ -277,11 +285,12 @@
     <div class="cell hub-cell" style:--i={abilityIds.length + 1}>
       <button
         class="hub {hub}"
-        class:ready={hub === 'focus' && focusReady}
+        class:ready={hub === 'stoke' && stokeReady}
+        class:open={hub === 'stoke' && stokeTicks > 0}
         disabled={hubDisabled}
         onclick={() => onhub?.()}
         aria-label={hubLabel}
-        title={hub === 'summon' ? 'Engage the marked sighting (Space)' : hub === 'advance' ? 'Walk on — turn the field over for a fresh screen of sightings (Space)' : hub === 'collect' ? 'Collect every spoil (Space or R)' : hub === 'focus' ? 'Focus — read the foe and crack it open (Space)' : 'Fallen — waiting to revive'}
+        title={hub === 'summon' ? 'Engage the marked sighting (Space)' : hub === 'advance' ? 'Walk on — turn the field over for a fresh screen of sightings (Space)' : hub === 'collect' ? 'Collect every spoil (Space or R)' : hub === 'stoke' ? 'Stoke — half a second of open flue: a working landed inside it banks double Heat (Space)' : hub === 'sealed' ? 'Sealed until the First Weaving — there is no fire in the flue yet' : 'Fallen — waiting to revive'}
       >
         {#if hub === 'summon'}
           <svg class="hub-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6 L14.3 9.7 L21.4 12 L14.3 14.3 L12 21.4 L9.7 14.3 L2.6 12 L9.7 9.7 Z" fill="currentColor" /></svg>
@@ -301,18 +310,27 @@
         {:else if hub === 'fallen'}
           <span class="hub-word dim">Fallen</span>
           <span class="hub-key num">{ticksToSeconds(respawnIn)}s</span>
+        {:else if hub === 'sealed'}
+          <!-- the flue is shut: there is no fire to stoke before the First Weaving -->
+          <svg class="hub-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11 V8 a4 4 0 0 1 8 0 v3" />
+          </svg>
+          <span class="hub-word dim">Stoke</span>
+          <span class="hub-key num">sealed</span>
         {:else}
           <svg class="hub-arc" viewBox="0 0 100 100" aria-hidden="true">
             <circle class="arc-track" cx="50" cy="50" r="44" pathLength="100" />
-            {#if !focusReady && focusCd > 0}
-              <circle class="arc-cd" cx="50" cy="50" r="44" pathLength="100" style:stroke-dasharray="{(1 - Math.min(1, focusCd / 60)) * 100} 100" />
+            {#if !stokeReady && stokeCd > 0}
+              <circle class="arc-cd" cx="50" cy="50" r="44" pathLength="100" style:stroke-dasharray="{(1 - Math.min(1, stokeCd / STOKE_CD_TICKS)) * 100} 100" />
             {/if}
           </svg>
-          <svg class="hub-glyph eye" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M2.5 12 C5 7 9 5 12 5 C15 5 19 7 21.5 12 C19 17 15 19 12 19 C9 19 5 17 2.5 12 Z" fill="none" stroke="currentColor" stroke-width="1.8" />
-            <circle cx="12" cy="12" r="3.2" fill="currentColor" />
+          <!-- the flue: a flame, not an eye. It burns open for half a second. -->
+          <svg class="hub-glyph flame" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2.5 C13.4 6.2 17 7.6 17 12.2 A5 5 0 0 1 7 12.2 C7 9.6 8.6 8.4 9.4 6.6 C10.6 8.4 11 9.6 11 9.6 C11.6 7.4 12.3 5.2 12 2.5 Z" fill="currentColor" />
+            <path d="M12 21 C9.2 21 7 19.4 7 19.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.5" />
           </svg>
-          <span class="hub-word">{focusReady ? 'Focus' : 'Focus'}</span>
+          <span class="hub-word">Stoke</span>
           <span class="hub-key num">Space</span>
         {/if}
       </button>
@@ -618,13 +636,6 @@
   }
   .tile.staff.swinging {
     border-color: color-mix(in oklch, var(--tone) 70%, transparent);
-  }
-  .tile.staff.armed {
-    border-color: var(--ember-glow, oklch(0.8 0.16 55));
-    box-shadow: 0 0 22px -6px oklch(0.72 0.19 45 / 0.85);
-  }
-  .tile.staff.armed .icon {
-    color: var(--ember-glow, oklch(0.8 0.16 55));
   }
   /* the wind-up fills the tile from the floor up — the swing you called for */
   .windup {
@@ -942,6 +953,15 @@
     color: oklch(0.84 0.08 205);
     border-color: oklch(0.8 0.09 205 / 0.45);
   }
+  /* sealed: the same seat, shut — dashed and cold, like an untaught tile */
+  .hub.sealed {
+    color: oklch(0.72 0.05 60 / 0.6);
+    border-style: dashed;
+    border-color: oklch(0.72 0.19 45 / 0.24);
+    opacity: 0.6;
+    background: linear-gradient(180deg, oklch(0.15 0.02 300 / 0.8), oklch(0.1 0.02 305 / 0.9));
+    box-shadow: none;
+  }
   .hub.summon,
   .hub.collect {
     animation: hub-invite 1.8s ease-in-out infinite;
@@ -956,19 +976,28 @@
     }
   }
 
-  .hub.focus.ready {
-    color: oklch(0.82 0.11 195);
-    border-color: oklch(0.82 0.11 195 / 0.6);
-    animation: focus-ready 1.2s ease-in-out infinite;
+  /* the calling, at rest but ready: a banked ember waiting on your timing */
+  .hub.stoke.ready {
+    color: oklch(0.8 0.16 55);
+    border-color: oklch(0.8 0.16 55 / 0.55);
+    animation: stoke-ready 1.6s ease-in-out infinite;
   }
-  @keyframes focus-ready {
+  @keyframes stoke-ready {
     0%,
     100% {
-      box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 10px -4px oklch(0.82 0.11 195 / 0.6);
+      box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 10px -4px oklch(0.8 0.16 55 / 0.55);
     }
     50% {
-      box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 26px -2px oklch(0.82 0.11 195 / 0.8);
+      box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06), 0 0 24px -2px oklch(0.82 0.18 50 / 0.85);
     }
+  }
+  /* the flue is open — half a second, and the whole seat is alight */
+  .hub.stoke.open {
+    color: oklch(0.93 0.16 75);
+    border-color: oklch(0.9 0.19 62 / 0.9);
+    background: radial-gradient(120% 130% at 50% 120%, oklch(0.72 0.2 45 / 0.35), transparent 70%);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), 0 0 34px -4px oklch(0.85 0.2 55 / 0.95);
+    animation: none;
   }
 
   .hub-glyph {
@@ -976,9 +1005,13 @@
     height: 26px;
     filter: drop-shadow(0 0 7px currentColor);
   }
-  .hub-glyph.eye {
-    width: 30px;
-    height: 22px;
+  .hub-glyph.flame {
+    width: 27px;
+    height: 29px;
+  }
+  .hub.stoke.open .hub-glyph.flame {
+    transform: scale(1.14);
+    transition: transform 90ms ease-out;
   }
   .hub-arc {
     position: absolute;
@@ -993,9 +1026,10 @@
     stroke: oklch(0.85 0.03 260 / 0.12);
     stroke-width: 3;
   }
+  /* the flue banking back up: an ember arc closing the ring */
   .arc-cd {
     fill: none;
-    stroke: oklch(0.82 0.11 195 / 0.6);
+    stroke: oklch(0.8 0.16 55 / 0.75);
     stroke-width: 3;
     stroke-linecap: round;
   }
@@ -1021,7 +1055,7 @@
     .spark,
     .hub.summon,
     .hub.collect,
-    .hub.focus.ready,
+    .hub.stoke.ready,
     :global(.tile.struck),
     :global(.tile.struck) .wave,
     :global(.tile.struck) .icon,

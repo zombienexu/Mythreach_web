@@ -20,9 +20,11 @@ see `CLASSES.md`.*
   one blow per press, a 1.8 s wind-up (`2 + level + ⌊staff ilvl/2⌋` damage, +4
   spread, power- and crit-scaled). Nothing swings on its own. Casting holds the
   wind-up; against a dormant pack your first Q is the free opening blow.
-- **Focus (`Space`) is the timing read.** On a foe's wind-up: deflect the blow
-  and crack them **Exposed** (+30% taken, 3 s). Late in **your own** wind-up:
-  **Sharpen** the landing strike (+50%). Nothing open: a 1.5 s whiff lockout.
+- **`Space` is your calling — one per class.** The War-Weaver's is **Stoke**:
+  half a second of open flue on a 3 s cooldown. Any working that *lands* inside
+  it banks **2 Heat** instead of 1. Time it for where the fire will be. It stays
+  **sealed** until the camp's First Weaving hands you Fireball — there is no
+  fire in the flue before that.
 - **The global cooldown is 1.2 s.** Most abilities trigger it. Pressing a
   button mid-cast or mid-GCD *queues* it — it fires the instant you're free.
 - **Casts resolve at the end.** Mana is spent when the spell lands, and a cast
@@ -55,19 +57,21 @@ and the Grace ladder live on the **Talents** screen. A respec costs 50 gold.
 **Role:** Pyromancer · **Mechanic: Smolder & Heat** — build lingering fire on
 the foe, ride your own rising momentum, and choose the moment to spend both.
 Taught by the Ember Legion one Grace tier at a time; a fresh conscript starts
-with the staff and Focus alone, and earns Fireball in the Kindle Yard.
+with the staff alone, and earns Fireball in the Kindle Yard.
 
 | Key | Ability | Taught at | What it does |
 |---|---|---|---|
-| 1 | **Fireball** | Blooded (45) | 16–24 fire, 2.2 s cast, 14 mana. Lays 1 Smolder, banks 1 Heat. Splashes the pack at 5 Heat; at 10 the **Blaze** pierces the whole line, then Heat crashes to 0. |
-| 2 | **Detonate** | Hardened (140) | Instant, 3 s cooldown. Sets off every Smolder on the target — Fresh 6 / Heated 11 / Volatile 18 per stack. Banks 2 Heat. |
+| ♦ | **Stoke** | the calling itself | `Space`. Instant, 3 s cooldown. Throws the flue open for 0.5 s: a working that lands inside it banks 2 Heat instead of 1. |
+| 1 | **Fireball** | Blooded (45) | 16–24 fire, 2.2 s cast, 14 mana. Lays 1 Smolder, banks 1 Heat on landing. Splashes the pack at 5 Heat; at 10 the **Blaze** pierces the whole line, then Heat crashes to 0. |
+| 2 | **Detonate** | Hardened (140) | Instant, 3 s cooldown. Sets off every Smolder on the target — Fresh 6 / Heated 11 / Volatile 18 per stack. Banks 1 Heat. |
 | 3 | **Kindle** | Trusted (300) | Instant, 5 s cooldown. 1 Smolder (2 if Exposed), 1 Heat. |
 | 4 | **Wildfire** | Sworn (520) | Instant, 15 s cooldown. Seeds 2 Smolder on every foe; while learned, consuming Smolder spreads fire to the rest of the pack. |
 | 5 | **Flashpoint** | Ember-Lord (780) | Instant, 20 s cooldown. Spend all Heat: a guaranteed Opening, `max(3 s, Heat × 0.4 s)`. |
 | 6 | **Inferno** | Pyre-Sovereign (1080) | Instant, 25 s cooldown. Spend all Heat and every Smolder on the field in one bloom. |
 
-**Heat** is +3% fire damage per point, bleeds 1 per idle 3 s (casting counts as
-feeding it), and always crashes to cold after the Blaze. **Smolder** is inert
+**Heat** is +5% fire damage per point, banked 1 per landing working (2 inside a
+Stoke), bleeds 1 per idle 3 s (casting counts as feeding it), and always crashes
+to cold after the Blaze. **Smolder** is inert
 fuel until the **Lingering Flame** talent lights its per-second burn.
 
 **Talents:** Improved Fireball (−0.1 s cast/rank), Quickened Flame (−0.1 s
@@ -76,11 +80,10 @@ each second, ×rank, 3 ranks), Critical Mass (+2% crit/rank), Fortitude (+6%
 health/rank), Meditation (+12% regen/rank).
 
 **How it plays:** the staff fills the gaps between casts, one `Q` at a time.
-Focus the foe's tell
-(deflect + Expose) or your own late wind-up (Sharpen). Fireball into Openings,
-stack Smolder, let it ripen to Volatile, Detonate at the peak — and keep the
-Heat fed, because the moment you stop weaving it starts leaving. Full detail:
-`COMBAT.md`.
+Loose a working and **Stoke** it as it lands — the flue is open for half a
+second and the fire takes double. Stack Smolder, let it ripen to Volatile,
+Detonate at the peak — and keep the Heat fed, because the moment you stop
+weaving it starts leaving. Full detail: `COMBAT.md`.
 
 ---
 

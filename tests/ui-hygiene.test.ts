@@ -86,16 +86,30 @@ describe('new workings are learned at leisure, never mid-swing', () => {
 })
 
 describe('the field is scattered ground, not a row of cards', () => {
-  it('sightings are placed in field coordinates and show their pull', () => {
+  it('sightings are placed in field coordinates, one card per body', () => {
     const s = squish(field)
-    expect(s).toContain('AGGRO_RADIUS')
-    expect(s).toContain('clusterOf(field,focusId)')
     expect(s).toContain('left="{o.x*100}%"')
     expect(s).toContain('top="{o.y*100}%"')
+    expect(s).toContain('onmark(o.id,k)')
+  })
+
+  it('the aggro geometry is invisible — the field teaches proximity by pulling', () => {
+    expect(field).not.toContain('AGGRO_RADIUS')
+    expect(field).not.toContain('clusterOf')
+    expect(field).not.toContain('wires')
   })
 
   it('engaging pulls the whole cluster, and Space walks on', () => {
     expect(game).toContain('clusterSpec(this.field, id)')
     expect(game).toContain('nextScreen()')
+  })
+
+  it('the fight opens by attacking the marked body, not by a commit key', () => {
+    const s = squish(game)
+    expect(s).toContain('this.engageMarkedMob()')
+    // Tab walks bodies out in the field; Enter no longer commits to anything
+    expect(s).toContain('this.cycleMob()')
+    // Enter still only acknowledges a ceremony — it commits to nothing
+    expect(game).not.toContain('engageSelectedOffer')
   })
 })

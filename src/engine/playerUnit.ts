@@ -59,9 +59,6 @@ export class PlayerUnit {
   /** Ticks into the current wind-up. Advances only while swinging at a live
    *  target with no cast in flight; the landing blow resets it. */
   strikeElapsed = 0
-  /** A Focus read banked into your own wind-up: the next landing blow is
-   *  Sharpened. Consumed when the strike lands. */
-  sharpenReady = false
 
   // ── class mechanic state ──
   /** Arcanist Heat: accumulated fire, 0–10. Momentum — every point burns
@@ -69,8 +66,11 @@ export class PlayerUnit {
   heat = 0
   /** Ticks since Heat was last fed — drives the unfed-Heat decay. */
   heatIdle = 0
-  /** Focus (universal read-the-foe action): remaining cooldown ticks. */
-  focusCd = 0
+  /** Stoke (the Arcanist's calling): ticks the flue is still open. Anything
+   *  that lands while this is above zero banks double Heat. */
+  stoke = 0
+  /** Ticks until Stoke can be opened again. */
+  stokeCd = 0
   /** Gravewright: banked ledger pages (the one resource that persists). */
   pages = 0
   /** Gravewright: the last foe written in, ready to be exhumed. */
@@ -125,10 +125,10 @@ export class PlayerUnit {
     this.gcd = 0
     this.striking = false
     this.strikeElapsed = 0
-    this.sharpenReady = false
     this.heat = 0
     this.heatIdle = 0
-    this.focusCd = 0
+    this.stoke = 0
+    this.stokeCd = 0
     this.shield = null
     this.combustion = 0
     this.buffs.clear()
@@ -157,8 +157,9 @@ export class PlayerUnit {
       alive: this.alive,
       respawnIn: this.alive ? 0 : this.respawnIn,
       heat: this.heat,
-      focusCd: this.focusCd,
-      focusReady: this.focusCd === 0 && this.alive,
+      stokeTicks: this.stoke,
+      stokeCd: this.stokeCd,
+      stokeReady: this.stokeCd === 0 && this.alive,
       strike,
       buffs,
       dot:

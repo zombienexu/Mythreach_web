@@ -439,10 +439,10 @@ export interface BuffSnapshot {
 }
 
 /** The staff's basic attack, live: whether a swing is in flight, how far the
- *  wind-up has come, whether the landing blow is Sharpened, and the damage
- *  range it would roll. Present whenever there is something to swing at, even
- *  at rest — the bar reads "Q ▸ strike" until the player looses one. Null when
- *  nothing is being swung at (idle, looting, no living target). */
+ *  wind-up has come, and the damage range it would roll. Present whenever there
+ *  is something to swing at, even at rest — the bar reads "Q ▸ strike" until
+ *  the player looses one. Null when nothing is being swung at (idle, looting,
+ *  no living target). */
 export interface StrikeSnapshot {
   /** A wind-up is in flight (the player pressed Q and the blow has not landed). */
   swinging: boolean
@@ -450,10 +450,6 @@ export interface StrikeSnapshot {
   ready: boolean
   /** 0 at rest → 1 as the blow lands. 0 whenever nothing is swinging. */
   progress: number
-  /** True once progress enters the Sharpen stretch (your own tell). */
-  windowOpen: boolean
-  /** A Focus read is banked: the next landing blow hits harder. */
-  sharpenReady: boolean
   dmgMin: number
   dmgMax: number
 }
@@ -468,10 +464,13 @@ export interface PlayerSnapshot {
   respawnIn: number
   /** The Arcanist's Heat: accumulated fire, 0–10. Empowers Fireball in bands. */
   heat: number
-  /** Focus (the universal read-the-foe action): remaining cooldown ticks. */
-  focusCd: number
-  /** True when Focus is off cooldown and ready to answer a tell. */
-  focusReady: boolean
+  /** Stoke: ticks the flue is still open (0 = shut). Anything landing inside
+   *  the open flue banks double Heat. */
+  stokeTicks: number
+  /** Stoke's remaining cooldown ticks. */
+  stokeCd: number
+  /** True when Stoke can be opened this instant. */
+  stokeReady: boolean
   /** The staff's swing (player-loosed), or null when nothing is being swung at. */
   strike: StrikeSnapshot | null
   buffs: BuffSnapshot[]
@@ -490,8 +489,8 @@ export interface SmolderSnapshot {
 }
 
 /** The read-the-foe state the UI paints on each enemy. `telegraph` = a tell is
- *  open (answer with Focus); `exposed` = an Opening is live; `recovering` = it
- *  just committed and is briefly safe; `guarded` = neutral. */
+ *  open (a blow is committed and coming); `exposed` = an Opening is live;
+ *  `recovering` = it just committed and is briefly safe; `guarded` = neutral. */
 export type EnemyCombatState = 'guarded' | 'telegraph' | 'exposed' | 'recovering'
 
 /** The class resource, as the UI sees it. Null for callings that run on
@@ -540,7 +539,7 @@ export interface EnemySnapshot {
   smolder: SmolderSnapshot | null
   /** The read-the-foe state (drives the tell / Exposed visuals). */
   combatState: EnemyCombatState
-  /** Ticks left Exposed after a Focus, 0 when not. */
+  /** Ticks left Exposed, 0 when not. */
   openingTicks: number
   /** Unlooted spoils on a corpse; null while alive or once collected. */
   loot: LootBundle | null

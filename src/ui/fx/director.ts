@@ -344,6 +344,10 @@ export class FxDirector {
       case 'enemyCastStarted':
         this.host?.sfx('warn')
         break
+      case 'stoked':
+        // The flue opens on you, not on them: the flare is worn, not thrown.
+        this.play(SPELL_FX.stoke.release, SPELL_FX.stoke, 'player', 'player')
+        break
       case 'enemyEnraged':
         this.host?.sfx('boss')
         break
@@ -394,7 +398,11 @@ export class FxDirector {
         this.play(BARRIER_SHATTER, SPELL_FX.barrier, 'player', 'player')
         break
       case 'interrupted':
-        this.play(SPELL_FX.focus.release, SPELL_FX.focus, 'player', 'enemy', 1, event.iid)
+        this.play(SPELL_FX.deflect.release, SPELL_FX.deflect, 'player', 'enemy', 1, event.iid)
+        break
+      case 'stoked':
+        // The flue opens on you, not on them: the flare is worn, not thrown.
+        this.play(SPELL_FX.stoke.release, SPELL_FX.stoke, 'player', 'player')
         break
       case 'enemyEnraged':
         this.play(ENRAGE, ENRAGE_AURA, 'player', 'enemy', 1, event.iid)

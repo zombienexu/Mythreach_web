@@ -9,8 +9,8 @@
  *  The scatter is the tactic. Groups mostly stand well apart, but a roll will
  *  occasionally set two of them shoulder to shoulder, and pulling one inside
  *  `AGGRO_RADIUS` of the other brings *both* down on you (see `clusterOf`).
- *  Aggro is direct-radius only, never transitive — you must be able to read the
- *  danger off the screen with your eyes, not simulate a chain reaction.
+ *  Aggro is direct-radius only, never transitive: nothing is drawn on screen to
+ *  warn you, so a careless pull must cost you one neighbour, never a cascade.
  *
  *  Grinders chase the fattest XP; questers wait for the rotation that turns up
  *  their quarry; boss-hunters watch for the apex. This module is pure: state in,
@@ -156,10 +156,23 @@ export interface Offer {
   y: number
 }
 
+/** One mob on the screen, addressed the way the player sees it: a body standing
+ *  in a particular group's formation. The field is *target-first* — you mark a
+ *  body, not a bundle — and the group it belongs to is what the aggro rules
+ *  still reason about. */
+export interface MobRef {
+  offerId: number
+  index: number
+  defId: string
+}
+
 export interface FieldState {
   regionId: string
   offers: Offer[]
   selectedId: number | null
+  /** which mob of the marked group wears the reticle — an index into that
+   *  offer's `roster`. */
+  selectedIndex: number
   nextId: number
   /** total rotations this deployment — animation key / telemetry. */
   rerolls: number
@@ -424,7 +437,7 @@ export function rollBoard(
   targets: Set<string>,
 ): FieldState {
   const { offers, nextId } = buildOffers(regionId, rng, playerLevel, targets, 1)
-  return { regionId, offers, selectedId: offers[0]?.id ?? null, nextId, rerolls: 0 }
+  return { regionId, offers, selectedId: offers[0]?.id ?? null, selectedIndex: 0, nextId, rerolls: 0 }
 }
 
 /** Rotate the field: the **next screen** — a whole new roll of scattered
@@ -440,15 +453,45 @@ export function rerollBoard(
     regionId: state.regionId,
     offers,
     selectedId: offers[0]?.id ?? null,
+    selectedIndex: 0,
     nextId,
     rerolls: state.rerolls + 1,
   }
 }
 
-/** Mark a sighting to engage. */
+/** Mark a sighting to engage. The reticle drops onto its first mob — marking a
+ *  group is only ever the coarse half of marking a body. */
 export function selectOffer(state: FieldState, id: number): FieldState {
   if (!state.offers.some((o) => o.id === id)) return state
-  return { ...state, selectedId: id }
+  return { ...state, selectedId: id, selectedIndex: 0 }
+}
+
+/** Every mob standing on the screen, flattened in board order then roster
+ *  order — the order the reticle walks them in. */
+export function mobsOf(state: FieldState): MobRef[] {
+  const out: MobRef[] = []
+  for (const o of state.offers) {
+    o.roster.forEach((defId, index) => out.push({ offerId: o.id, index, defId }))
+  }
+  return out
+}
+
+/** Mark one specific body (and, implicitly, the group it stands in). A ref that
+ *  isn't on the screen changes nothing. */
+export function selectMob(state: FieldState, offerId: number, index: number): FieldState {
+  const offer = state.offers.find((o) => o.id === offerId)
+  if (!offer || index < 0 || index >= offer.roster.length) return state
+  return { ...state, selectedId: offerId, selectedIndex: index }
+}
+
+/** Tab: slide the reticle to the next body on the screen, wrapping — across
+ *  group boundaries, exactly as an overworld target-cycle does. */
+export function cycleMob(state: FieldState): FieldState {
+  const mobs = mobsOf(state)
+  if (mobs.length === 0) return state
+  const i = mobs.findIndex((m) => m.offerId === state.selectedId && m.index === state.selectedIndex)
+  const next = mobs[(i + 1) % mobs.length]!
+  return selectMob(state, next.offerId, next.index)
 }
 
 /** The sim seam that spawns a sighting exactly — the group alone, ignoring who

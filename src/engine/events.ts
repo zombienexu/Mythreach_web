@@ -79,22 +79,27 @@ export type CombatEvent =
   | { kind: 'enemyFrozen'; iid: number; name: string }
   /** The birth sign stepped in: a killing blow left you at 1 HP. */
   | { kind: 'signIntervened' }
-  // ── the Arcanist's fire: Openings, Smolder, Heat ──
+  // ── the Arcanist's fire: Stoke, Smolder, Heat ──
   /** Heat changed. `band` is the current tier; `crossedUp` marks the moment it
-   *  climbs into Empowered (5) or Overheat (10) — worth a flash and a sound. */
-  | { kind: 'heatChanged'; heat: number; band: 'cold' | 'empowered' | 'overheat'; crossedUp: boolean }
+   *  climbs into Empowered (5) or Overheat (10) — worth a flash and a sound;
+   *  `stoked` marks a gain doubled by an open Stoke (the timing paid off). */
+  | {
+      kind: 'heatChanged'
+      heat: number
+      band: 'cold' | 'empowered' | 'overheat'
+      crossedUp: boolean
+      stoked: boolean
+    }
   /** Smolder laid on a foe (Fireball, Kindle, Wildfire, a spread). `stacks` is
    *  the new total; `spread` marks a Wildfire jump rather than a direct apply. */
   | { kind: 'smolderApplied'; iid: number; stacks: number; spread: boolean }
   /** Smolder cashed in: `stacks` consumed, at the fiercest `band`. */
   | { kind: 'smolderDetonated'; iid: number; stacks: number; band: SmolderBand }
-  /** A foe came Exposed — from a read Focus (`viaFocus`) or from Flashpoint. */
-  | { kind: 'openingCreated'; iid: number; viaFocus: boolean }
-  /** Focus resolved. `read` answered a foe's tell (deflect + Expose); `sharpen`
-   *  read your own wind-up (the landing strike hits harder); `whiff` found
-   *  nothing and eats the short lockout. `success` = not a whiff. */
-  | { kind: 'focusUsed'; success: boolean; mode: 'read' | 'sharpen' | 'whiff'; iid: number | null }
-  /** The staff's basic attack landed (`sharpened` = a banked Focus paid out). */
-  | { kind: 'strikeLanded'; iid: number; sharpened: boolean }
-  /** A tell just opened on a foe — the moment to consider Focus. */
+  /** A foe was cracked wide open (Flashpoint). */
+  | { kind: 'openingCreated'; iid: number }
+  /** The flue is open: half a second in which anything that lands runs double. */
+  | { kind: 'stoked' }
+  /** The staff's basic attack landed. */
+  | { kind: 'strikeLanded'; iid: number }
+  /** A tell just opened on a foe — a blow is committed and coming. */
   | { kind: 'tellOpened'; iid: number }

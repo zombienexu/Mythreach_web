@@ -1,11 +1,99 @@
 import { describe, expect, it } from 'vitest'
+import { STOKE_CD_TICKS, STOKE_WINDOW_TICKS } from '../src/engine/abilities'
 import { advance, advanceToSpawn, eventsOf, makeSim, targetOf, testContent } from './helpers'
 
 /** A foe that winds up on a readable clock (and hits for nothing, so the hero
  *  survives to keep testing). */
 const teller = () => testContent({ hp: 100_000, swingTicks: 40, dmgMin: 0, dmgMax: 0 })
 
-describe('openings — reading the foe with Focus', () => {
+describe('stoke — the half second of open flue', () => {
+  it('a working landed inside the window banks two Heat, not one', () => {
+    const sim = makeSim({ content: teller() })
+    advanceToSpawn(sim)
+    sim.useAbility('fireball')
+    // Fireball's cast is 44 ticks after the GCD — open the flue late, so the
+    // fire *lands* inside it rather than leaving before it opens.
+    advance(sim, 40)
+    expect(sim.stoke()).toBe(true)
+    advance(sim, 10)
+    expect(sim.combatSnapshot().player.heat).toBe(2)
+  })
+
+  it('the same working outside the window banks the ordinary one', () => {
+    const sim = makeSim({ content: teller() })
+    advanceToSpawn(sim)
+    expect(sim.stoke()).toBe(true) // opened far too early
+    sim.useAbility('fireball')
+    advance(sim, 50)
+    expect(sim.combatSnapshot().player.heat).toBe(1)
+  })
+
+  it('the flue shuts after half a second', () => {
+    const sim = makeSim({ content: teller() })
+    advanceToSpawn(sim)
+    sim.stoke()
+    expect(sim.combatSnapshot().player.stokeTicks).toBe(STOKE_WINDOW_TICKS)
+    advance(sim, STOKE_WINDOW_TICKS)
+    expect(sim.combatSnapshot().player.stokeTicks).toBe(0)
+  })
+
+  it('opening it announces itself and locks the calling for three seconds', () => {
+    const sim = makeSim({ content: teller() })
+    advanceToSpawn(sim)
+    expect(sim.stoke()).toBe(true)
+    expect(eventsOf(advance(sim, 1), 'stoked')).toBeDefined()
+    expect(sim.stoke()).toBe(false) // still cooling
+    advance(sim, STOKE_CD_TICKS)
+    expect(sim.combatSnapshot().player.stokeReady).toBe(true)
+    expect(sim.stoke()).toBe(true)
+  })
+
+  it('a stoked gain is flagged, so the UI can pay it off', () => {
+    const sim = makeSim({ content: teller() })
+    advanceToSpawn(sim)
+    sim.useAbility('fireball')
+    advance(sim, 40)
+    sim.stoke()
+    const gains = eventsOf(advance(sim, 10), 'heatChanged')
+    expect(gains.some((e) => e.stoked)).toBe(true)
+  })
+
+  it('every offensive working of the calling feeds the fire on landing', () => {
+    const sim = makeSim({ level: 11, content: teller() })
+    advanceToSpawn(sim)
+    sim.useAbility('kindle')
+    advance(sim, 25)
+    expect(sim.combatSnapshot().player.heat).toBe(1)
+    sim.useAbility('detonate') // cashes the ember Kindle laid
+    advance(sim, 25)
+    expect(sim.combatSnapshot().player.heat).toBe(2)
+    // Detonate with nothing to cash in lands on nobody, and pays nothing.
+    sim.useAbility('detonate')
+    advance(sim, 25)
+    expect(sim.combatSnapshot().player.heat).toBe(2)
+  })
+
+  it('is sealed until the First Weaving hands over Fireball', () => {
+    const sim = makeSim({ content: teller() })
+    advanceToSpawn(sim)
+    // A conscript still in the proving: taught nothing, so no fire to stoke.
+    sim.setTaught([])
+    expect(sim.stoke()).toBe(false)
+    expect(sim.combatSnapshot().player.stokeTicks).toBe(0)
+    // The First Weaving arms the calling.
+    sim.setTaught(['fireball'])
+    expect(sim.stoke()).toBe(true)
+    expect(sim.combatSnapshot().player.stokeTicks).toBe(STOKE_WINDOW_TICKS)
+  })
+
+  it('only the Arcanist has this calling', () => {
+    const grave = makeSim({ level: 5, identity: { classId: 'gravewright', originId: '', signId: '' } })
+    advanceToSpawn(grave)
+    expect(grave.stoke()).toBe(false)
+  })
+})
+
+describe('openings — a foe cracked wide', () => {
   it('a foe deep in its wind-up shows a tell', () => {
     const sim = makeSim({ content: teller() })
     advanceToSpawn(sim)
@@ -13,39 +101,16 @@ describe('openings — reading the foe with Focus', () => {
     expect(targetOf(sim)?.combatState).toBe('telegraph')
   })
 
-  it('Focus answers a tell and Exposes the foe', () => {
-    const sim = makeSim({ content: teller() })
-    advanceToSpawn(sim)
-    advance(sim, 26)
-    expect(sim.focus()).toBe(true)
-    const ev = advance(sim, 1)
-    expect(eventsOf(ev, 'openingCreated')).toBeDefined()
-    const t = targetOf(sim)
-    expect(t?.combatState).toBe('exposed')
-    expect(t?.openingTicks).toBeGreaterThan(0)
-  })
-
-  it('Focus whiffs (short lockout) when no tell is open', () => {
-    const sim = makeSim({ content: teller() })
-    advanceToSpawn(sim)
-    advance(sim, 3) // barely into the wind-up — nothing to read
-    expect(sim.focus()).toBe(true)
-    expect(eventsOf(advance(sim, 1), 'focusUsed')).toBeDefined()
-    expect(targetOf(sim)?.combatState).not.toBe('exposed')
-    // The lockout is shorter than a successful read's cooldown.
-    expect(sim.combatSnapshot().player.focusCd).toBeLessThan(50)
-  })
-
   it('an Exposed foe takes more from your fire', () => {
     const hit = (expose: boolean): number => {
-      const sim = makeSim({ level: 5, seed: 3, content: teller() })
+      const sim = makeSim({ level: 9, seed: 3, content: teller() })
       advanceToSpawn(sim)
+      sim.useAbility('kindle')
+      advance(sim, 25)
       if (expose) {
-        advance(sim, 26)
-        sim.focus()
+        sim.useAbility('flashpoint')
+        advance(sim, 25)
       }
-      sim.useAbility('kindle') // instant; the Opening outlasts the GCD
-      advance(sim, 25) // let the GCD clear before detonating
       sim.useAbility('detonate')
       return eventsOf(advance(sim, 3), 'damage').find((e) => e.source === 'detonate')?.amount ?? 0
     }
@@ -53,13 +118,16 @@ describe('openings — reading the foe with Focus', () => {
   })
 
   it('Kindle into an Opening lays two Smolder instead of one', () => {
-    const sim = makeSim({ level: 5, content: teller() })
+    const sim = makeSim({ level: 9, content: teller() })
     advanceToSpawn(sim)
-    advance(sim, 26)
-    sim.focus()
+    sim.useAbility('fireball') // bank the Heat Flashpoint spends
+    advance(sim, 50)
+    sim.useAbility('flashpoint')
+    advance(sim, 25)
+    const before = targetOf(sim)?.smolder?.stacks ?? 0
     sim.useAbility('kindle')
     advance(sim, 2)
-    expect(targetOf(sim)?.smolder?.stacks).toBe(2)
+    expect((targetOf(sim)?.smolder?.stacks ?? 0) - before).toBe(2)
   })
 })
 

@@ -30,7 +30,7 @@ describe('leveling', () => {
     expect(ups[0]!.level).toBe(2)
     expect(ups[0]!.unlocked).toEqual([]) // the arcanist's next spell (Detonate) lands at 3
     const snap = sim.combatSnapshot()
-    expect(snap.player.maxHp).toBe(120) // 80 + 20×2
+    expect(snap.player.maxHp).toBe(130) // 80 + 20×2 + 5×2 stamina (the issued staff)
     const progress = sim.progressSnapshot()
     expect(progress.level).toBeGreaterThanOrEqual(2)
     expect(progress.unlockedAbilities).toContain('fireball')

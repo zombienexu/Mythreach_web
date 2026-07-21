@@ -1,12 +1,12 @@
 <script lang="ts">
   /** The Arcanist's Heat gauge: ten rungs of riding momentum. Every point
-   *  burns your fire +3% hotter; unfed Heat bleeds away; at ten the next
+   *  burns your fire +5% hotter; unfed Heat bleeds away; at ten the next
    *  Fireball is a Blaze that pierces the line — and then the fire slips your
    *  grip back to cold. The heat washes the whole page in a deepening orange
    *  glow (driven from the arena, not here). */
   import { HEAT_FIRE_PCT_PER_POINT } from '../../engine'
 
-  let { heat }: { heat: number; focusReady?: boolean; focusCd?: number } = $props()
+  let { heat, stoked = false }: { heat: number; stoked?: boolean } = $props()
 
   const heatf = $derived(Math.max(0, Math.min(1, heat / 10)))
   const band = $derived(heat >= 10 ? 'overheat' : heat >= 5 ? 'empowered' : 'cold')
@@ -23,7 +23,7 @@
   )
 </script>
 
-<div class="fire {band}" style:--heatf={heatf}>
+<div class="fire {band}" class:stoked style:--heatf={heatf}>
   <div class="head">
     <span class="title">Heat</span>
     {#key state}<span class="state">{state}</span>{/key}
@@ -55,6 +55,12 @@
     transition:
       border-color var(--dur) ease,
       box-shadow var(--dur) ease;
+  }
+  /* the flue is open: the gauge itself catches, so the window is felt without
+     looking away from the field */
+  .stoked {
+    border-color: oklch(0.88 0.19 62 / 0.85);
+    box-shadow: 0 0 26px -10px oklch(0.85 0.2 55 / 0.95);
   }
   .overheat {
     box-shadow: 0 0 30px -12px oklch(0.75 0.21 42 / 0.85);

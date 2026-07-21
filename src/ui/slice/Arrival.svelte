@@ -46,7 +46,8 @@
 
   <footer class="foot">
     <p class="foot-note">The circle is waiting, {name}.</p>
-    <button class="seal begin" onclick={onaccept}>Take up the staff &amp; enter the yard</button>
+    <!-- the staff is taken off the rack inside the yard, not handed over here -->
+    <button class="seal begin" onclick={onaccept}>Report to the yard</button>
   </footer>
 </div>
 

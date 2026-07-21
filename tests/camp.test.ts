@@ -1,4 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import {
+  ABILITIES,
+  HEAT_FIRE_PCT_PER_POINT,
+  HEAT_OVERHEAT_AT,
+  HEAT_PER_STOKED_LANDING,
+  STOKE_WINDOW_TICKS,
+} from '../src/engine/abilities'
+import { ticksToSeconds } from '../src/ui/format'
 import { ENEMIES } from '../src/engine/content/enemies'
 import { QUEST_BY_ID } from '../src/engine/content/quests'
 import type { GameSim } from '../src/engine/sim'
@@ -8,14 +16,15 @@ import { expeditionKeyFor } from '../src/ui/profile'
 import {
   CAMP_DUELS,
   GRADUATION_BONUS,
-  HEAT_LECTURE,
+  FIREBALL_GUIDE,
+  HEAT_GUIDE,
   PROVING_BONUS,
   PROVING_DUELS,
   bonusForStep,
   currentDuel,
   inCamp,
 } from '../src/ui/slice/camp'
-import { FIRST_ORDER, GRACE_TIERS, SERGEANT, standingForKill, taughtFor } from '../src/ui/slice/content'
+import { FIRST_ORDER, GRACE_TIERS, standingForKill, taughtFor } from '../src/ui/slice/content'
 import { Expedition } from '../src/ui/slice/expedition.svelte'
 import { advanceToSpawn, eventsOf, makeSim, testContent } from './helpers'
 
@@ -42,10 +51,26 @@ describe('the Kindle Yard script', () => {
     expect(new Set(CAMP_DUELS.map((d) => d.opponentId)).size).toBe(CAMP_DUELS.length)
   })
 
-  it('Vale lectures on Heat before anyone is handed fire', () => {
-    expect(HEAT_LECTURE.speaker).toBe(SERGEANT)
-    expect(HEAT_LECTURE.title.length).toBeGreaterThan(0)
-    expect(HEAT_LECTURE.body.length).toBeGreaterThan(0)
+  it('two manual pages follow the proving — Heat, then Fireball', () => {
+    for (const g of [HEAT_GUIDE, FIREBALL_GUIDE]) {
+      expect(g.title.length).toBeGreaterThan(0)
+      // One short sentence of flavour, and no more.
+      expect(g.blurb.length).toBeGreaterThan(0)
+      expect(g.blurb.split('.').filter((s) => s.trim().length > 0)).toHaveLength(1)
+      expect(g.lines.length).toBeGreaterThan(2)
+      for (const line of g.lines) expect(line.length).toBeGreaterThan(0)
+    }
+    // The numbers are read out of the engine, never retyped: spot-check that
+    // the guides quote the constants they document.
+    const heat = HEAT_GUIDE.lines.join(' ')
+    expect(heat).toContain(`${HEAT_FIRE_PCT_PER_POINT}%`)
+    expect(heat).toContain(`${HEAT_OVERHEAT_AT} Heat`)
+    expect(heat).toContain(`${HEAT_PER_STOKED_LANDING} Heat`)
+    expect(heat).toContain(ticksToSeconds(STOKE_WINDOW_TICKS))
+    const fire = FIREBALL_GUIDE.lines.join(' ')
+    expect(FIREBALL_GUIDE.title).toBe(ABILITIES.fireball.name)
+    expect(fire).toContain(`${ticksToSeconds(ABILITIES.fireball.castTicks)}s cast`)
+    expect(fire).toContain(`${ABILITIES.fireball.manaCost} mana`)
   })
 
   it('sparring partners pay no coin and drop nothing — XP and Standing only', () => {
@@ -231,6 +256,35 @@ describe('the expedition runs the camp', () => {
     expect(ex.offeredIds()).toEqual([])
     expect(ex.pendingLearns).toEqual([])
     expect(currentDuel(ex.camp)).toBe(CAMP_DUELS[0])
+    // …and with nothing off the rack yet: the yard's first beat is still owed.
+    expect(ex.staffTaken).toBe(false)
+  })
+
+  it('the staff comes off the rack once, and survives the save round-trip', () => {
+    const storage = fakeStorage()
+    const a = new Expedition(storage)
+    expect(a.staffTaken).toBe(false)
+    a.takeStaff()
+    expect(a.staffTaken).toBe(true)
+    expect(new Expedition(storage).staffTaken).toBe(true)
+  })
+
+  it('a save that predates the rack is never sent back to it', () => {
+    // Mustered but no duel won yet — the old flow already put a staff in hand.
+    const briefed = fakeStorage({
+      [expeditionKeyFor(1)]: JSON.stringify({ standing: 0, progress: {}, transmitted: [], briefed: true, camp: 0 }),
+    })
+    expect(new Expedition(briefed).staffTaken).toBe(true)
+    // Mid-proving, same story.
+    const midCamp = fakeStorage({
+      [expeditionKeyFor(1)]: JSON.stringify({ standing: 8, progress: {}, transmitted: [], briefed: false, camp: 2 }),
+    })
+    expect(new Expedition(midCamp).staffTaken).toBe(true)
+    // Still standing at the gate: the rack is offered.
+    const atGate = fakeStorage({
+      [expeditionKeyFor(1)]: JSON.stringify({ standing: 0, progress: {}, transmitted: [], briefed: false, camp: 0 }),
+    })
+    expect(new Expedition(atGate).staffTaken).toBe(false)
   })
 })
 

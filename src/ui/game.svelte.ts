@@ -36,9 +36,12 @@ import { Expedition } from './slice/expedition.svelte'
 import {
   activeQuestTargets,
   clusterOf,
+  clusterRosterOf,
   clusterSpec,
+  cycleMob as boardCycleMob,
   rerollBoard,
   rollBoard,
+  selectMob as boardSelectMob,
   selectOffer as boardSelect,
   type FieldState,
 } from './slice/field'
@@ -126,7 +129,14 @@ export class Game implements FxHost {
   /** The field board for the current front: the 3–4 sightings the player sizes
    *  up and chooses between, re-rolled on each clear. Replaced wholesale like
    *  the combat/progress snapshots. */
-  field: FieldState = $state.raw({ regionId: '', offers: [], selectedId: null, nextId: 1, rerolls: 0 })
+  field: FieldState = $state.raw({
+    regionId: '',
+    offers: [],
+    selectedId: null,
+    selectedIndex: 0,
+    nextId: 1,
+    rerolls: 0,
+  })
   floats: FloatText[] = $state([])
   /** bump counters driving hit-recoil / heal-bloom choreography */
   impacts: Record<Side, Impact> = $state({
@@ -286,6 +296,9 @@ export class Game implements FxHost {
   // ─────────────── player intents ───────────────
 
   use(id: AbilityId): void {
+    // Out in the field a working is also the opener: it pulls the marked mob's
+    // group in and then lands on that mob.
+    this.engageMarkedMob()
     if (this.sim.useAbility(id)) {
       this.publish()
     } else {
@@ -343,24 +356,22 @@ export class Game implements FxHost {
 
   // ─────────────── the field board: size up sightings, pick your fight ──────
 
-  /** Mark a sighting to engage. */
-  selectOffer(id: number): void {
-    this.field = boardSelect(this.field, id)
+  /** Click a body out in the field: point the reticle at it. Marking never
+   *  starts anything — the fight opens when you swing (see `engageMarkedMob`). */
+  markMob(offerId: number, index: number): void {
+    if (this.field.selectedId === offerId && this.field.selectedIndex === index) return
+    const next = boardSelectMob(this.field, offerId, index)
+    if (next === this.field) return
+    this.field = next
     this.audio.play('target', 0.6)
   }
 
-  /** Engage the marked sighting (Enter / the Engage control / a click). */
-  engageSelectedOffer(): void {
-    if (this.field.selectedId !== null) this.engageOffer(this.field.selectedId)
-  }
-
-  /** Tab: slide the mark to the next sighting scattered across the field. */
-  cycleOffer(): void {
-    const offers = this.field.offers
-    if (offers.length < 2) return
-    const i = offers.findIndex((o) => o.id === this.field.selectedId)
-    const next = offers[(i + 1) % offers.length]!
-    this.selectOffer(next.id)
+  /** Tab: slide the reticle to the next body on the screen, across groups. */
+  cycleMob(): void {
+    const next = boardCycleMob(this.field)
+    if (next === this.field) return
+    this.field = next
+    this.audio.play('target', 0.6)
   }
 
   /** Space in a lull: walk on. The field turns over and a fresh screen of
@@ -407,10 +418,35 @@ export class Game implements FxHost {
     }
   }
 
+  /** The field is target-first: there is no commit key, you simply **attack the
+   *  thing you marked**. Q and every working run through here first — if a body
+   *  is marked out in the field and nothing is on the board yet, its group (and
+   *  anything standing too close to it) spawns, the reticle drops onto that
+   *  exact mob, and the caller's blow lands on it. The pack still spawns
+   *  dormant, so the blow itself is what pulls aggro.
+   *
+   *  Returns whether it opened a fight. */
+  private engageMarkedMob(): boolean {
+    if (this.combat.phase !== 'idle' || this.expedition.inCamp) return false
+    if (this.combat.enemies.length > 0 || !this.combat.player.alive) return false
+    const id = this.field.selectedId
+    if (id === null) return false
+    // `clusterRosterOf` leads with the engaged group, so the marked mob keeps
+    // its roster index in the arena — except that MAX_CLUSTER_MOBS can cut the
+    // merged pack short and drop it off the end.
+    const seat = Math.min(this.field.selectedIndex, clusterRosterOf(this.field, id).length - 1)
+    this.engageOffer(id)
+    const spawned = this.combat.enemies
+    if (spawned.length === 0) return false
+    const mob = spawned[Math.min(Math.max(seat, 0), spawned.length - 1)]
+    if (mob && this.sim.setTarget(mob.iid)) this.publish()
+    return true
+  }
+
   /** Space / the heart of the wheel: whatever the moment calls for — the
    *  circle in camp, walking on to the next screen of sightings in the field,
-   *  the sweep on a loot screen, and mid-fight the universal Focus: the timing
-   *  read on any swing about to land, yours or theirs. */
+   *  the sweep on a loot screen, and mid-fight the calling itself: Stoke, the
+   *  half-second window the Arcanist times their workings into. */
   hubAction(): void {
     if (this.combat.phase === 'looting') {
       this.lootAll()
@@ -424,12 +460,14 @@ export class Game implements FxHost {
       return
     }
     if (!this.combat.player.alive) return
-    this.focus()
+    this.stoke()
   }
 
   /** Q — swing the staff. The basic attack is yours to time now: nothing
    *  swings on its own, and the blow that lands is the one you called for. */
   strike(): void {
+    // Out in the field the swing *is* the pull: it opens on whatever is marked.
+    this.engageMarkedMob()
     if (this.sim.strike()) {
       this.audio.play('target', 0.45)
       this.publish()
@@ -504,19 +542,27 @@ export class Game implements FxHost {
     return this.expedition.pendingLearns
   }
 
-  /** Is a ceremony holding the screen — the Heat lecture, a teaching, the
-   *  graduation orders, the Recovery? While one is up the world underneath it
-   *  must not take input: nobody should start a duel through a speech. */
+  /** Is a ceremony holding the screen — the staff rack, the Heat guide, a
+   *  teaching, the graduation orders, the Recovery? While one is up the world
+   *  underneath it must not take input: nobody should start a duel through a
+   *  speech, or fight a bout before they have picked up a staff. */
   get ceremonyUp(): boolean {
     const ex = this.expedition
-    return ex.justLecture || (ex.justTaught?.length ?? 0) > 0 || ex.justGraduated || ex.justRecovered
+    return (
+      !ex.staffTaken ||
+      ex.justLecture ||
+      (ex.justTaught?.length ?? 0) > 0 ||
+      ex.justGraduated ||
+      ex.justRecovered
+    )
   }
 
   /** Acknowledge whatever is on screen, top-most first — the same order the
    *  shell stacks them in, so Space walks through the camp's big moments. */
   dismissCeremony(): void {
     const ex = this.expedition
-    if (ex.justLecture) ex.clearLecture()
+    if (!ex.staffTaken) ex.takeStaff()
+    else if (ex.justLecture) ex.clearLecture()
     else if ((ex.justTaught?.length ?? 0) > 0) ex.clearTeaching()
     else if (ex.justGraduated) ex.clearGraduated()
     else if (ex.justRecovered) ex.clearRecovered()
@@ -531,10 +577,14 @@ export class Game implements FxHost {
     return t?.smolder?.band === 'volatile' ? 'detonate' : null
   }
 
-  /** Focus (the universal read-the-foe action, on the heart of the wheel /
-   *  Space). Deflect a tell into an Opening — or eat a short lockout on a miss. */
-  focus(): void {
-    if (this.sim.focus()) {
+  /** Stoke (the Arcanist's calling, on the heart of the wheel / Space). Throw
+   *  the flue open for half a second: land a working inside it and the fire
+   *  takes two Heat instead of one. Sealed by the sim until the First Weaving
+   *  hands over Fireball — a staff-only conscript has no fire to stoke, and
+   *  the refusal comes back as the denied tone. */
+  stoke(): void {
+    if (this.sim.stoke()) {
+      this.audio.play('ignite', 0.5)
       this.publish()
     } else {
       this.audio.play('denied')
@@ -829,26 +879,19 @@ export class Game implements FxHost {
         this.audio.play('barrier')
         break
       case 'heatChanged':
-        // Climbing into Empowered or Overheat is a felt milestone.
+        // Climbing into Empowered or Overheat is a felt milestone — and so is
+        // a working landed dead inside the flue, which pays double.
         if (event.crossedUp) {
           this.audio.play('crit', 0.5)
+          this.bloom++
+        } else if (event.stoked) {
+          this.audio.play('burn', 0.7)
           this.bloom++
         }
         break
       case 'openingCreated':
-        // A read landing (or a manufactured Opening) is a beat worth feeling.
-        if (event.viaFocus) this.bloom++
-        break
-      case 'focusUsed':
-        // The read deflects (a shield-ring of a sound); the Sharpen whets the
-        // landing blow; a whiff is refused out loud.
-        this.audio.play(
-          event.mode === 'read' ? 'barrier' : event.mode === 'sharpen' ? 'target' : 'denied',
-          event.mode === 'whiff' ? 1 : 0.7,
-        )
-        break
-      case 'strikeLanded':
-        if (event.sharpened) this.bloom++
+        // A foe cracked wide is a beat worth feeling.
+        this.bloom++
         break
       case 'smolderDetonated':
         this.audio.play(event.band === 'volatile' ? 'crit' : 'hit', 0.7)
@@ -894,11 +937,11 @@ export class Game implements FxHost {
       return
     }
     // Tab is target-switching, the way every MMO hand learned it — and out in
-    // the field, where the quarry hasn't been picked yet, it walks the mark
-    // across the sightings scattered over the ground.
+    // the field it is the same gesture, walking the reticle body by body across
+    // the mobs scattered over the ground.
     if (e.key === 'Tab') {
       e.preventDefault()
-      if (this.combat.enemies.length === 0 && !this.expedition.inCamp) this.cycleOffer()
+      if (this.combat.enemies.length === 0 && !this.expedition.inCamp) this.cycleMob()
       else this.cycleTarget()
       return
     }
@@ -915,17 +958,10 @@ export class Game implements FxHost {
       return
     }
     // Space presses the heart of the wheel: walk on to the next screen of
-    // sightings while exploring, or the read (Focus) mid-fight.
+    // sightings while exploring, or the calling (Stoke) mid-fight.
     if (e.key === ' ') {
       e.preventDefault()
       this.hubAction()
-      return
-    }
-    // Enter commits to the marked sighting — and to everything standing too
-    // close to it.
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      this.engageSelectedOffer()
       return
     }
     const id = this.keyToAbility.get(e.key)

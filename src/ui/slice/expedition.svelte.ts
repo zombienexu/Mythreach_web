@@ -29,6 +29,9 @@ interface ExpeditionSave {
   briefed?: boolean
   /** Kindle Yard steps completed (absent on pre-camp saves). */
   camp?: number
+  /** Has the conscript taken a staff off the yard's rack? (absent on saves
+   *  that predate the rack — see the migration in `load`). */
+  staffTaken?: boolean
   /** Workings actually taken up (absent on saves that predate learning). */
   learned?: AbilityId[]
 }
@@ -61,10 +64,13 @@ export class Expedition {
   justRecovered = $state(false)
   /** the conscript has arrived and been mustered (persisted) */
   briefed = $state(false)
+  /** a practice staff has been taken off the yard's rack (persisted). Until it
+   *  is, the rack panel holds the screen — the very first beat of the yard. */
+  staffTaken = $state(false)
   /** set once, the moment the final duel graduates the conscript */
   justGraduated = $state(false)
-  /** set once, the moment the proving is won: Vale's Heat lecture is owed
-   *  before the Fireball ceremony can run. */
+  /** set once, the moment the proving is won: the Heat guide (manual page one)
+   *  is owed before the Fireball ceremony — page two — can run. */
   justLecture = $state(false)
 
   private readonly ctx: CodexCtx = { enraged: new Set() }
@@ -139,7 +145,7 @@ export class Expedition {
 
   /** A camp duel was won: advance the script and pay any boundary bonus (the
    *  proving crossing Blooded is what teaches Fireball). The proving's last win
-   *  also owes Vale's Heat lecture, which the UI shows *before* the ceremony.
+   *  also owes the Heat guide, which the UI shows *before* the ceremony.
    *  Returns any freshly learned abilities so the caller can re-arm the sim. */
   advanceCamp(): AbilityId[] | null {
     if (!this.inCamp) return null
@@ -155,6 +161,14 @@ export class Expedition {
   }
   clearLecture(): void {
     this.justLecture = false
+  }
+
+  /** Take a practice staff off the rack — the yard's opening beat. The sim
+   *  already issued it; this only records that the conscript has it in hand. */
+  takeStaff(): void {
+    if (this.staffTaken) return
+    this.staffTaken = true
+    this.save()
   }
 
   /** Mark the arrival muster done. */
@@ -297,6 +311,7 @@ export class Expedition {
         transmitted: [...this.transmitted],
         briefed: this.briefed,
         camp: this.camp,
+        staffTaken: this.staffTaken,
         learned: [...this.learned],
       }
       this.storage.setItem(this.key, JSON.stringify(data))
@@ -323,6 +338,10 @@ export class Expedition {
       } else {
         this.camp = Math.max(0, Math.min(data.camp, CAMP_DUELS.length))
       }
+      // Rack migration: a save written before the rack existed already fought
+      // with a staff in hand. Only a run still standing at the gate — no duel
+      // won, not yet mustered — is offered the panel.
+      this.staffTaken = data.staffTaken ?? (this.camp > 0 || this.briefed)
       // Learning migration: a save from before workings were taken up by hand
       // carried everything its Standing had reached — never take a spell away
       // from someone who already had it. Otherwise trust the stored list, but
