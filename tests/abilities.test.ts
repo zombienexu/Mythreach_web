@@ -89,9 +89,11 @@ describe('casting and the GCD', () => {
     // A 30-HP foe: Gravechill burns 5 at +20/+40/+60 and the bare-hand strike
     // lands 15–20 at +36, so death is pinned inside [+40, +60] — after the
     // gravebolt cast starts at +37 (strikes hold while casting), before it
-    // would resolve at +77. The kill mid-cast is what fizzles it.
+    // would resolve at +77. The kill mid-cast is what fizzles it. The staff no
+    // longer swings itself, so the strike that sets this clock is called for.
     const sim = makeSim({ level: 10, seed: 5, identity: gw, content: testContent({ hp: 30 }) })
     advanceToSpawn(sim)
+    sim.strike()
     sim.useAbility('gravechill')
     advance(sim, 37) // one burn (+20) and one strike (+36) — alive on ≤ 25 damage
     const manaBefore = sim.combatSnapshot().player.mana

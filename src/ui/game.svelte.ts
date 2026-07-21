@@ -35,15 +35,16 @@ import { FIRST_ORDER, SERGEANT, SLICE_IDENTITY } from './slice/content'
 import { Expedition } from './slice/expedition.svelte'
 import {
   activeQuestTargets,
-  offerSpec,
+  clusterOf,
+  clusterSpec,
   rerollBoard,
   rollBoard,
   selectOffer as boardSelect,
   type FieldState,
 } from './slice/field'
 
-/** The slice's three destinations on the uplink console. */
-export type View = 'arena' | 'map' | 'dossier' | 'codex'
+/** The slice's destinations on the uplink console. */
+export type View = 'arena' | 'map' | 'talents' | 'dossier' | 'codex'
 
 export interface FloatText {
   id: number
@@ -348,21 +349,53 @@ export class Game implements FxHost {
     this.audio.play('target', 0.6)
   }
 
-  /** Engage the marked sighting (Space / Enter / the Engage control). */
+  /** Engage the marked sighting (Enter / the Engage control / a click). */
   engageSelectedOffer(): void {
     if (this.field.selectedId !== null) this.engageOffer(this.field.selectedId)
   }
 
-  /** Commit to a sighting: spawn exactly that group and remember its rarity so a
-   *  clean clear can pay its bonus and rotate the board. */
+  /** Tab: slide the mark to the next sighting scattered across the field. */
+  cycleOffer(): void {
+    const offers = this.field.offers
+    if (offers.length < 2) return
+    const i = offers.findIndex((o) => o.id === this.field.selectedId)
+    const next = offers[(i + 1) % offers.length]!
+    this.selectOffer(next.id)
+  }
+
+  /** Space in a lull: walk on. The field turns over and a fresh screen of
+   *  sightings is scattered across it — nothing on this one tempted you. */
+  nextScreen(): void {
+    if (this.combat.phase !== 'idle' || this.expedition.inCamp) return
+    this.field = rerollBoard(
+      this.field,
+      Math.random,
+      this.progress.level,
+      activeQuestTargets(this.progress.quests),
+    )
+    this.engagedRarity = null
+    this.audio.play('target', 0.5)
+  }
+
+  /** Commit to a sighting: spawn it *and everything standing too close to it* —
+   *  pull one group inside the aggro radius and its neighbours come too. The
+   *  engaged group's rarity is remembered so a clean clear pays its bonus and
+   *  turns the field over. */
   engageOffer(id: number): void {
     if (this.combat.phase !== 'idle' || !this.combat.player.alive) return
     const o = this.field.offers.find((x) => x.id === id)
     if (!o) return
-    if (this.sim.startFight(offerSpec(o))) {
+    const cluster = clusterOf(this.field, id)
+    if (this.sim.startFight(clusterSpec(this.field, id))) {
       this.engagedRarity = o.rarity
       this.field = boardSelect(this.field, o.id)
-      if (o.rarity === 'apex') {
+      if (cluster.length > 1) {
+        this.audio.play('boss')
+        this.showToast(
+          'The whole clearing turns',
+          `${cluster.length} groups stood inside each other's watch — every one of them is on you now.`,
+        )
+      } else if (o.rarity === 'apex') {
         this.audio.play('boss')
         this.showToast('Apex sighting', `${o.title} stands the field — a rare quarry.`)
       } else if (o.rarity === 'rare') {
@@ -375,30 +408,50 @@ export class Game implements FxHost {
   }
 
   /** Space / the heart of the wheel: whatever the moment calls for — the
-   *  circle or the summons in a lull, the sweep on a loot screen, the loosed
-   *  first blow against a dormant pack, and mid-fight the universal Focus:
-   *  the timing read on any swing about to land, yours or theirs. */
+   *  circle in camp, walking on to the next screen of sightings in the field,
+   *  the sweep on a loot screen, and mid-fight the universal Focus: the timing
+   *  read on any swing about to land, yours or theirs. */
   hubAction(): void {
     if (this.combat.phase === 'looting') {
       this.lootAll()
       return
     }
     if (this.combat.enemies.length === 0 && this.combat.player.alive) {
-      // A lull: in camp, Space steps into the sparring circle; in the world it
-      // engages the marked sighting on the field board.
+      // A lull: in camp, Space steps into the sparring circle. In the field it
+      // walks on — nothing here is worth the fight, so turn the screen over.
       if (this.expedition.inCamp) this.engageCampDuel()
-      else this.engageSelectedOffer()
+      else this.nextScreen()
       return
     }
     if (!this.combat.player.alive) return
-    // A dormant pack holds your strike poised at the top: Space looses it.
-    if (this.combat.phase === 'combat' && !this.combat.engaged) {
-      if (this.sim.provoke()) {
-        this.publish()
-        return
-      }
-    }
     this.focus()
+  }
+
+  /** Q — swing the staff. The basic attack is yours to time now: nothing
+   *  swings on its own, and the blow that lands is the one you called for. */
+  strike(): void {
+    if (this.sim.strike()) {
+      this.audio.play('target', 0.45)
+      this.publish()
+    } else if (!this.combat.player.strike?.swinging) {
+      // A press during your own wind-up is just eagerness — stay quiet. Any
+      // other refusal (nothing to hit, mid-cast, dead) is worth saying out loud.
+      this.audio.play('denied')
+    }
+  }
+
+  /** Learn a working the Legion has offered — done at leisure on the Talents
+   *  screen, never in the middle of a fight. Re-arms the sim's teaching gate. */
+  learn(id: AbilityId): void {
+    if (!this.expedition.learn(id)) return
+    this.expedition.applyTo(this.sim)
+    this.progressDirty = true
+    this.audio.play('level')
+    this.showToast(
+      ABILITIES[id]?.name ?? 'A new working',
+      'Learned. It takes its place on your bar — the Weave answers to it now.',
+    )
+    this.publish()
   }
 
   /** Collect one corpse's spoils. */
@@ -439,10 +492,34 @@ export class Game implements FxHost {
     this.view = view
   }
 
-  /** The War-Weaving the Legion has taught so far — what the action wheel
-   *  shows. Reactive: reads the expedition's Standing. */
+  /** The War-Weaving the hero has actually *learned* — what the action wheel
+   *  shows and what the sim will let you cast. Reactive: reads the expedition. */
   get taught(): AbilityId[] {
     return this.expedition.taughtIds()
+  }
+
+  /** Workings the Legion has offered but the hero hasn't sat down and learned
+   *  yet — the badge on the Talents rail. */
+  get pendingLearns(): AbilityId[] {
+    return this.expedition.pendingLearns
+  }
+
+  /** Is a ceremony holding the screen — the Heat lecture, a teaching, the
+   *  graduation orders, the Recovery? While one is up the world underneath it
+   *  must not take input: nobody should start a duel through a speech. */
+  get ceremonyUp(): boolean {
+    const ex = this.expedition
+    return ex.justLecture || (ex.justTaught?.length ?? 0) > 0 || ex.justGraduated || ex.justRecovered
+  }
+
+  /** Acknowledge whatever is on screen, top-most first — the same order the
+   *  shell stacks them in, so Space walks through the camp's big moments. */
+  dismissCeremony(): void {
+    const ex = this.expedition
+    if (ex.justLecture) ex.clearLecture()
+    else if ((ex.justTaught?.length ?? 0) > 0) ex.clearTeaching()
+    else if (ex.justGraduated) ex.clearGraduated()
+    else if (ex.justRecovered) ex.clearRecovered()
   }
 
   /** The wheel's "do it now" highlight: Detonate glows once the targeted foe's
@@ -628,13 +705,23 @@ export class Game implements FxHost {
 
   private onEvent(event: CombatEvent): void {
     // The slice meta reacts to combat first: Standing and the Codex fold in
-    // every event, and when a kill/turn-in crosses a Grace tier the world
-    // teaches new War-Weaving — we re-arm the sim's gate on the spot.
-    const taught = this.expedition.observe(event)
-    if (taught) {
+    // every event. Crossing a Grace tier *offers* new War-Weaving — only the
+    // First Weaving is pressed into your hands on the spot; the rest wait on
+    // the Talents screen so nobody has to learn a spell mid-swing.
+    const learned = this.expedition.observe(event)
+    if (learned) {
       this.expedition.applyTo(this.sim)
       this.progressDirty = true
       this.audio.play('level')
+    }
+    const offered = this.expedition.justOffered
+    if (offered && offered.length > 0) {
+      this.expedition.clearOffered()
+      this.showToast(
+        'The Legion will teach you more',
+        `${offered.map((id) => ABILITIES[id]?.name ?? id).join(' · ')} — waiting on the Talents screen, whenever you have the quiet for it.`,
+      )
+      this.audio.play('epic', 0.5)
     }
     // The floats, recoils, shakes and spell sounds are all the FxDirector's job
     // (fx.handle, called alongside this). Here we only keep reactive UI state:
@@ -799,10 +886,27 @@ export class Game implements FxHost {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
-    // Tab is target-switching, the way every MMO hand learned it.
+    // A ceremony owns the screen while it is up: Space or Enter acknowledges
+    // it, and nothing else reaches the world behind it.
+    if (this.ceremonyUp) {
+      e.preventDefault()
+      if (e.key === ' ' || e.key === 'Enter') this.dismissCeremony()
+      return
+    }
+    // Tab is target-switching, the way every MMO hand learned it — and out in
+    // the field, where the quarry hasn't been picked yet, it walks the mark
+    // across the sightings scattered over the ground.
     if (e.key === 'Tab') {
       e.preventDefault()
-      this.cycleTarget()
+      if (this.combat.enemies.length === 0 && !this.expedition.inCamp) this.cycleOffer()
+      else this.cycleTarget()
+      return
+    }
+    // Q is the staff: the basic attack, swung on your call and no one else's.
+    if (e.key === 'q' || e.key === 'Q') {
+      e.preventDefault()
+      this.pressed.add('q')
+      this.strike()
       return
     }
     // R sweeps the loot screen, the way every loot-window hand learned it.
@@ -810,14 +914,15 @@ export class Game implements FxHost {
       this.lootAll()
       return
     }
-    // Space presses the heart of the wheel: engage the marked sighting while
-    // exploring, or the read (Focus) mid-fight.
+    // Space presses the heart of the wheel: walk on to the next screen of
+    // sightings while exploring, or the read (Focus) mid-fight.
     if (e.key === ' ') {
       e.preventDefault()
       this.hubAction()
       return
     }
-    // Enter also commits to the marked sighting.
+    // Enter commits to the marked sighting — and to everything standing too
+    // close to it.
     if (e.key === 'Enter') {
       e.preventDefault()
       this.engageSelectedOffer()
@@ -830,6 +935,6 @@ export class Game implements FxHost {
   }
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    this.pressed.delete(e.key)
+    this.pressed.delete(e.key === 'Q' ? 'q' : e.key)
   }
 }

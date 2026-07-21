@@ -30,7 +30,7 @@ button sequence:
 
 | System | Lives on | One-line role |
 |---|---|---|
-| **The Strike** | you | The staff's auto-swing — always fighting, even spell-less. |
+| **The Strike** | you | The staff's basic attack on **Q** — swung when *you* call it, even spell-less. |
 | **Openings** | both sides | A timing read on **any swing about to land** — theirs *or yours* — answered with **Focus**. |
 | **Smolder** | the enemy | Lingering fire you stack and let *age*, then consume. |
 | **Heat** | you | Riding momentum: every point burns hotter, unfed it bleeds away. |
@@ -42,22 +42,27 @@ Approachable at level 1 with a wooden staff and no spells at all; deep at level
 
 ## 2. The universal layer — the Strike
 
-Every hero swings their weapon. The staff **auto-attacks your target** on its own
-clock, League-style: you commit to a fight and the swings flow.
+Every hero swings their weapon. The staff is the **basic attack, bound to Q** —
+nothing swings on its own clock. You call each blow, and the wind-up that
+follows is a commitment you then have to time.
 
-- **Cadence:** one swing per **1.8 s** (36 ticks), shown as a wind-up bar in the
-  combat helm (and it can **crit** ×1.75).
+- **Cadence:** one swing per **1.8 s** (36 ticks) once called, shown as a wind-up
+  bar in the combat helm (and it can **crit** ×1.75). Pressing Q again mid-swing
+  is refused — the blow in flight is the blow you get.
+- **The seat:** the staff wears the first tile on the bar (key **Q**), left of
+  the taught workings, and the bar reads *"Q ▸ strike"* while it waits.
 - **Damage:** `2 + level + ⌊staff ilvl / 2⌋` to that +4, scaled by **power**.
   Bare hands still swing; a staff just swings harder. Every fresh conscript is
   issued a **Wooden Training Staff** (ilvl 1, stat-less — it exists to be swung).
 - **Casting holds the swing.** A hardcast in flight parks the wind-up where it
   is; it resumes the moment your hands are free. The GCD does *not* stop it.
-- **Dormant packs hold your strike poised** at the top of the wind-up — the
-  first blow stays yours to loose (any cast, or **Space** to release the strike).
-  When it lands, the field wakes (aggro).
+- **Dormant packs** simply stand there: your Q (or any cast) is the free first
+  blow, and when it *lands* the field wakes (aggro).
 
 **Constants:** `STRIKE_SWING_TICKS=36`, `STRIKE_BASE=2`, `STRIKE_SPREAD=4`
-(in `src/engine/abilities.ts`). Resolution: `GameSim.resolveStrike()`.
+(in `src/engine/abilities.ts`). Entry point: `GameSim.strike()` — refused when
+dead, out of a fight, without a target, mid-cast, or already swinging.
+Resolution: `GameSim.resolveStrike()`.
 
 ---
 
@@ -96,9 +101,11 @@ A successful read or Sharpen costs the full **2.5 s** Focus cooldown.
 While a foe is **Exposed**: it takes **+30% damage** from everything you do,
 Fireball into it lays an extra Smolder and banks an extra Heat, Kindle lays 2.
 
-> **The staff-only loop (the training camp):** let the staff swing → Space late
-> in *your* wind-up to Sharpen → Space on *their* wind-up to deflect and Expose.
-> Zero spells, and you are already playing a timing duel from both sides.
+> **The staff-only loop (the training camp):** **Q** to swing → Space late in
+> *your* wind-up to Sharpen → Space on *their* wind-up to deflect and Expose.
+> Two keys, zero spells, and you are already playing a timing duel from both
+> sides. (The Sharpen needs a swing actually in flight: Focus with an idle staff
+> and no enemy tell is a whiff.)
 
 **Constants:** `OPENING_TICKS=60`, `OPENING_DMG_PCT=30`, `FOCUS_CD_TICKS=50`,
 `FOCUS_WHIFF_CD_TICKS=30`, `TELL_FROM_PROGRESS=0.6`, `STRIKE_TELL_FROM=0.6`,
@@ -226,7 +233,7 @@ in one bloom. Per-foe damage = `Heat × 4 + (age-weighted Smolder) × 9`
 
 | # | Spell | Grace | Mana | Cast | CD | Consumes | Builds |
 |---|---|---|---|---|---|---|---|
-| — | **The Strike** | issued at the gate | — | 1.8 s swing | — | — | (auto-attack) |
+| Q | **The Strike** | issued at the gate | — | 1.8 s wind-up | — | — | (basic attack) |
 | ♦ | **Focus** | issued at the gate | — | instant | 2.5 s | — | an Opening / a Sharpen |
 | 1 | Fireball | Blooded (45) | 14 | 2.2 s | — | — | 1 Smolder, 1 Heat |
 | 2 | Detonate | Hardened (140) | 12 | instant | 3 s | all Smolder | 2 Heat |
@@ -268,7 +275,7 @@ before the first spell is ever granted.
 | Tier | Standing | Teaches |
 |---|---|---|
 | Recruit | 0 | — (a staff, a bunk, and a name) |
-| Blooded | 45 | Fireball *(the proving crosses this — the First Weaving)* |
+| Blooded | 45 | Fireball *(the proving crosses this — the First Weaving, the one working ever auto-taught)* |
 | Hardened | 140 | Detonate *(the boar order lands you here)* |
 | Trusted | 300 | Kindle |
 | Sworn of the Ember | 520 | Wildfire |
@@ -278,13 +285,22 @@ before the first spell is ever granted.
 *(The raw `unlockLevel`s — 1/3/5/7/9/11 — govern the level-up banner and the
 legacy level gate; the capstone lands at 11, an invariant the tests enforce.)*
 
+### Offered, then learned
+
+Crossing a tier **offers** the working; it does not press it into your hands.
+Only **Fireball** is auto-learned, at the camp's ceremony. Everything after it
+raises a badge on the **Talents** rail and waits there until you choose to learn
+it — nobody has to take up a new spell mid-swing. `Expedition` persists the
+`learned` list; `pendingLearns = taughtFor(standing) − learned`, and
+`Game.learn(id)` re-arms the sim's gate.
+
 ---
 
 ## 9. Playing it — the loop at each stage
 
-**The Kindle Yard (no spells).** The staff swings itself; you play the timing.
-Space late in your own wind-up → Sharpened blow. Space on their wind-up →
-deflect + Expose. The whole game in miniature, with one button.
+**The Kindle Yard (no spells).** You swing the staff with **Q** and play the
+timing. Space late in your own wind-up → Sharpened blow. Space on their wind-up
+→ deflect + Expose. The whole game in miniature, with two buttons.
 
 **Blooded (Fireball).** Watch the foe. Focus its tell → Fireball into the
 Opening (extra Smolder, extra Heat, +30%). The staff keeps swinging between
@@ -342,7 +358,8 @@ Heat     :  +3%/point · −1 per idle 3 s · at 10 the Blaze fires, then crash
 | Heat gauge widget | `src/ui/slice/WeaveHeat.svelte` |
 | Strike bar (wind-up + Sharpen stretch) | `src/ui/slice/views/ArenaView.svelte` |
 | Smolder pips + tell/Exposed visuals | `src/ui/components/EnemyFigure.svelte` |
-| Space wiring (provoke / Focus / engage) | `src/ui/game.svelte.ts` (`hubAction`) |
+| Q wiring (the strike) | `src/ui/game.svelte.ts` (`strike`, `onKeyDown`) |
+| Space wiring (Focus / walk on / the circle) | `src/ui/game.svelte.ts` (`hubAction`) |
 | FX recipes (incl. the strike's thwack) | `src/ui/fx/spells.ts`, `palette.ts`, `director.ts` |
 | Tests | `tests/strike.test.ts`, `tests/spells.test.ts`, `tests/heat.test.ts` |
 

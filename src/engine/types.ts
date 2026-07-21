@@ -438,11 +438,17 @@ export interface BuffSnapshot {
   amount?: number
 }
 
-/** The staff's basic attack, live: how far the wind-up has come, whether the
- *  landing blow is Sharpened, and the damage range it would roll. Null when
- *  nothing is being swung at (idle, looting, no target). */
+/** The staff's basic attack, live: whether a swing is in flight, how far the
+ *  wind-up has come, whether the landing blow is Sharpened, and the damage
+ *  range it would roll. Present whenever there is something to swing at, even
+ *  at rest — the bar reads "Q ▸ strike" until the player looses one. Null when
+ *  nothing is being swung at (idle, looting, no living target). */
 export interface StrikeSnapshot {
-  /** 0 at rest → 1 as the blow lands. */
+  /** A wind-up is in flight (the player pressed Q and the blow has not landed). */
+  swinging: boolean
+  /** True when a `strike()` would be accepted this instant — the Q prompt. */
+  ready: boolean
+  /** 0 at rest → 1 as the blow lands. 0 whenever nothing is swinging. */
   progress: number
   /** True once progress enters the Sharpen stretch (your own tell). */
   windowOpen: boolean
@@ -466,7 +472,7 @@ export interface PlayerSnapshot {
   focusCd: number
   /** True when Focus is off cooldown and ready to answer a tell. */
   focusReady: boolean
-  /** The staff's auto-swing, or null when nothing is being swung at. */
+  /** The staff's swing (player-loosed), or null when nothing is being swung at. */
   strike: StrikeSnapshot | null
   buffs: BuffSnapshot[]
   dot: DotSnapshot | null

@@ -5,9 +5,9 @@
 Mythreach is a dashboard action-RPG wrapped in a science-fiction frame: you are
 a far-future **Fieldworker** whose consciousness is projected into a lost
 magical past to *recover* a dead art by living it. Combat is real — an
-MMO-style kit with cast times, cooldowns, spell queueing, interrupts, an
-auto-swinging weapon, and one universal timing read (**Focus**) that rewards
-watching both your foe's wind-up and your own. It is **active-only**: no
+MMO-style kit with cast times, cooldowns, spell queueing, interrupts, a
+basic attack you swing yourself (**Q**), and one universal timing read
+(**Focus**) that rewards watching both your foe's wind-up and your own. It is **active-only**: no
 away-from-game progression, no passive accrual. When you step away, the world
 simply waits for you.
 
@@ -15,8 +15,9 @@ The current build is a complete single-player slice: a title screen with three
 save slots, a five-beat onboarding (naming → lore → the Projection Station →
 arrival), **the Kindle Yard** — a WoW-style recruitment-camp opening where you
 duel fellow trainees with a wooden staff before the Legion teaches you your
-first spell — then eight war-fronts (levels 1–24), a field board of rolled
-sightings with rare champions and apex world-bosses, quests, talents, loot,
+first spell — then eight war-fronts (levels 1–24), a scattered field of rolled
+sightings with rare champions, apex world-bosses and proximity pulls, quests,
+a Talents screen where new workings are taken up at leisure, loot,
 materials, a Standing → Grace teaching ladder, a research Codex, and local
 saves — all driven by one deterministic, pure engine.
 
@@ -42,13 +43,12 @@ Design pillars:
 3. **Hands-on combat is the differentiator.** The dashboard audience wants
    moments of mastery. Rotations, cooldown usage, and above all *timing* — the
    Focus read on any swing about to land, theirs or yours — are the skill
-   expression. There is no auto-battle; the staff swings itself, but every
-   decision is the player's.
+   expression. There is no auto-battle and nothing swings on its own: the staff
+   is a key like any other, and every blow is the player's decision.
 4. **Respect absence — don't simulate it.** The game is active-only: no
    away-from-game catch-up and no passive accrual. Close the tab and nothing
    happens; your absence is respected by the world simply waiting for you.
-   Auto-battle is an active-session assist (tab open, you present), and you
-   heal quickly between fights.
+   You heal quickly between fights so a session picks straight back up.
 5. **Numbers you can feel.** A damage number's *size is its value*. A burn tick
    is a small violet 11; a Pyroblast crit is an enormous stroked 240 that
    overshoots, snaps back and hangs in the air while the card it hit is still
@@ -64,24 +64,28 @@ fresh slot runs the onboarding — name your conscript, watch the Institute's
 briefing, choose the one open world at the **Projection Station**, and arrive
 at **the Kindle Yard**, the Ember Legion's recruitment camp.
 
-**The camp is the tutorial, diegetically.** You start with a Wooden Training
-Staff and no magic at all. Your staff **auto-attacks** (League-style basic
-attacks with a visible wind-up bar); **Focus (Space)** is the one universal
-action — pressed on a foe's tell it deflects the blow and cracks them Exposed,
-pressed late in *your own* wind-up it Sharpens the landing strike. Three
-staff-only duels against fellow trainees teach exactly that. Winning them earns
-the **First Weaving** — a full-screen ceremony where the Legion teaches
-**Fireball** — then two more duels teach **Heat** (momentum: +3% fire per
-point, bleeding away unfed, crashing to cold after the overheat Blaze — never
-mastered, only ridden). Graduation hands you the oldest first quest in the
+**The camp is the tutorial, diegetically** — and every new character runs it.
+You start with a Wooden Training Staff and no magic at all. The staff is your
+**basic attack on `Q`**: one called blow at a time, with a visible wind-up bar.
+**Focus (Space)** is the one universal action — pressed on a foe's tell it
+deflects the blow and cracks them Exposed, pressed late in *your own* wind-up it
+Sharpens the landing strike. Three staff-only duels against fellow trainees
+teach exactly that. Winning them earns Sergeant Vale's **lecture on Heat**, and
+then the **First Weaving** — a full-screen ceremony where the Legion teaches
+**Fireball** — after which three more duels drill Heat itself (momentum: +3%
+fire per point, bleeding away unfed, crashing to cold after the overheat Blaze —
+never mastered, only ridden). Graduation hands you the oldest first quest in the
 genre: **kill six boars**, and the world opens.
 
-Beyond the gate the loop is: the **field board** rolls 3–4 sightings per
-rotation (common packs, rare champions, an occasional **apex** world-boss) —
-pick your fight, clear it, loot the corpses, the board rotates. Kills and
-quest turn-ins earn **Standing**; Standing crosses **Grace tiers** where the
-Legion teaches the next spell (Detonate → Kindle → Wildfire → Flashpoint →
-Inferno); the **Codex** fills by *witnessing the magic behave* (crits,
+Beyond the gate the loop is: the **field** scatters 4–6 sightings across the
+ground (common packs, rare champions, an occasional **apex** world-boss), each
+group bundled in its formation under its own plate — mark one, and note the
+**aggro ring**: anything standing inside it comes with it. Take the fight, or
+press Space to walk on to a fresh scatter. Clear it, loot the corpses, the field
+rotates. Kills and quest turn-ins earn **Standing**; Standing crosses **Grace
+tiers**, which *offer* the next spell (Detonate → Kindle → Wildfire → Flashpoint
+→ Inferno) — the offer waits under a badge on the **Talents** screen until you
+sit down and learn it, because nobody should take up a new working mid-swing; the **Codex** fills by *witnessing the magic behave* (crits,
 detonations, interrupts, enraged kills) and transmits home as the Recovery
 percentage. Eight fronts ladder from Hollowroot Cavern (Lv 1–3) to the
 Gravecall Barrows (Lv 22–24), the deep three gated behind the Legion's fullest
@@ -186,10 +190,12 @@ store that owns the sim for one slot, publishes snapshots, and autosaves to
 a fireball's damage is dealt on the tick the sim says so, but it isn't *shown*
 until the bolt lands.
 
-Four destinations hang off the uplink rail: **Arena** (the camp's sparring
-circle pre-graduation, then the field board and the fight itself), **Map**
-(the warfront atlas — locked until graduation), **Dossier** (standing,
-loadout, orders), and **Codex** (research chapters and the Recovery). The sim
+Five destinations hang off the uplink rail: **Arena** (the camp's sparring
+circle pre-graduation, then the scattered field and the fight itself), **Map**
+(the warfront atlas — locked until graduation), **Talents** (offered workings
+waiting to be learned, the Grace ladder, and the level-up honing — it wears a
+badge when something is waiting), **Dossier** (standing, loadout, orders), and
+**Codex** (research chapters and the Recovery). The sim
 never pauses while you shop.
 
 ### The combat FX: effects as data
@@ -294,7 +300,7 @@ boss announces itself, and a reduced-motion player downloads neither.
 
 ### The tests: the contract
 
-`tests/` holds ~270 cases across twenty-nine files (incl. `strike.test.ts` — the auto-swinging weapon and the Focus Sharpen — and `camp.test.ts` — the Kindle Yard script and the sparring seam): an **engine-purity guard**
+`tests/` holds ~290 cases across twenty-nine files (incl. `strike.test.ts` — the Q-swung staff and the Focus Sharpen, `camp.test.ts` — the Kindle Yard script, the Heat lecture and learn-at-leisure teaching, and `field.test.ts` — the scatter placement and proximity pulls): an **engine-purity guard**
 that fails the build on any ambient global or wall-clock in the engine, the
 unit rules (combatant, DoT, RNG), every ability's exact timing (GCD, queueing,
 fizzle refunds, cooldown-at-resolve), enemy mechanics and encounters on custom

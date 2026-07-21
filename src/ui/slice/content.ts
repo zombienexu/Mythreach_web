@@ -51,6 +51,13 @@ export const GRACE_TIERS: readonly GraceTier[] = [
     blurb: 'The whole fire answers when you call. Spend it all at once.' },
 ]
 
+/** Crossing a Grace tier *offers* its War-Weaving; the conscript takes it up in
+ *  their own time, from the Talents screen. These are the exceptions — workings
+ *  the Legion puts in your hands whether you asked or not. Fireball is the camp's
+ *  First Weaving: it is a ceremony, not a shopping trip, and the tempering duels
+ *  that follow assume you are already holding it. */
+export const AUTO_LEARNED: readonly AbilityId[] = ['fireball']
+
 /** Standing paid out per felled foe, by rank. */
 export function standingForKill(rank: EnemyRank): number {
   return rank === 'boss' ? 45 : rank === 'elite' ? 14 : 4

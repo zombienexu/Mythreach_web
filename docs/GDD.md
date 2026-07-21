@@ -66,23 +66,33 @@ sparring circle is the whole world.
 **The Proving — three staff-only duels** against fellow trainees (Pell, Okka,
 Varn), one per bout, each teaching one mechanic:
 
-1. **The swing** — your staff auto-attacks (1.8 s cadence); watch your wind-up.
+1. **The swing** — **Q** swings your staff (1.8 s wind-up); nothing swings
+   itself, so watch the wind-up you called for.
 2. **The Sharpen** — Focus (Space) in the last stretch of *your own* wind-up
    turns the landing blow (+50%).
 3. **The read** — Focus on *the foe's* wind-up deflects the blow and cracks
    them Exposed (+30% taken, 3 s).
 
-**The First Weaving.** Winning the proving crosses the *Blooded* Standing
-threshold (3 kills × 4 + a 45-point proving commendation = 57 ≥ 45). A
-full-screen ceremony — deliberately grander than every later rite — teaches
-**Fireball**. This is the big moment, and everything before it exists to make
-this one spell feel enormous.
+**The Heat lecture.** Winning the proving crosses the *Blooded* Standing
+threshold (3 kills × 4 + a 45-point proving commendation = 57 ≥ 45) — but
+before anything is handed over, Vale explains **what Heat is**: momentum, not a
+resource; every working banks a point, every point burns the next three parts
+hotter, and stopping bleeds it straight back out. The rule always lands before
+the gift.
 
-**The Tempering — two duels with fire in hand**, teaching Heat:
+**The First Weaving.** Then the ceremony — deliberately grander than every
+later rite — teaches **Fireball**. This is the big moment, and everything
+before it exists to make this one spell feel enormous. It is also the **only**
+working the game ever auto-teaches (see §3.1).
 
-4. **The chant** (Sparhand Derrin, a hardcaster) — Heat is +3% fire damage per
-   point and bleeds away unfed; a chant is the longest tell there is.
-5. **The boil** (Sparhand Mavet, enrages) — at 10 Heat the next Fireball is a
+**The Tempering — three duels with fire in hand**, drilling Heat:
+
+4. **The chant** (Sparhand Derrin, a hardcaster) — feed the fire and keep
+   feeding it; a chant is the longest tell there is.
+5. **The marriage** (Sparhand Oreth, ponderous — his tell is always open) —
+   read, *then* Fireball into the Opening: extra Smolder and a bonus point of
+   Heat. The two systems taught as one motion.
+6. **The boil** (Sparhand Mavet, enrages) — at 10 Heat the next Fireball is a
    Blaze that pierces the line, *then Heat crashes to 0*. Vale's lesson, and
    the class thesis: **nobody masters the Weave; you ride it.**
 
@@ -96,7 +106,17 @@ The camp is pure meta-script (`src/ui/slice/camp.ts` + the Expedition): duels
 run through the engine's `startFight({enemyIds, sparring})` seam — sparring
 pays XP and Standing but banks no loot, advances no kill-quests, and clears the
 field without a loot screen. Camp progress persists per-slot; pre-camp saves
-migrate as graduates with Fireball intact.
+migrate as graduates with Fireball intact. **Every new character runs the yard**:
+creating a character erases the slot's save, profile *and* expedition first, so
+nobody inherits a previous conscript's Standing or graduation.
+
+### 3.1 Offered, then learned
+
+Standing *offers* a working; it never grants one mid-fight. Only the First
+Weaving is automatic. Every later crossing raises a quiet toast and a **badge on
+the Talents rail**, where the offer waits until the player learns it in their own
+time — alongside the Grace ladder and the level-up talent points. The Expedition
+persists what has actually been `learned`; `pendingLearns` is the difference.
 
 ---
 
@@ -105,8 +125,10 @@ migrate as graduates with Fireball intact.
 ```
         ┌──────────────────────────────────────────────────────┐
         ▼                                                      │
-  THE FIELD BOARD — 3–4 sightings, stats laid bare             │
+  THE FIELD — 4–6 sightings scattered across the ground        │
         │  pick your fight (rarity: common/uncommon/rare/apex) │
+        │  anything inside the aggro ring comes with it        │
+        │  Space walks on for a fresh scatter                  │
         ▼                                                      │
   COMBAT — strike + Focus timing + the fire kit                │
         │  clear → loot the corpses → the board rotates ───────┘
@@ -116,9 +138,13 @@ migrate as graduates with Fireball intact.
   Quests (Orders) per front · materials · gear · talents · gold
 ```
 
-- **The field board** is the exploration layer: every rotation might surface a
-  champion or the front's **apex** world-boss. Grinders chase XP, questers wait
-  for their quarry, boss-hunters watch for the apex.
+- **The field** is the exploration layer, played on the ground itself: groups
+  stand where they stand, each mob with its own portrait, each group bundled in
+  its formation under one plate. Two groups standing too close (inside
+  `AGGRO_RADIUS`) are **one fight** — the ring and the wires between them show
+  the price before it is paid. Every rotation might surface a champion or the
+  front's **apex** world-boss. Grinders chase XP, questers wait for their
+  quarry, boss-hunters watch for the apex.
 - **Fronts** (8 regions, Lv 1–24) open by Grace tier on the **Map** — the
   Legion deploys you as it trusts you. The three deep war-fronts (Emberwall
   Breach, Stormharrow Line, Gravecall Barrows) open at the top tier.
@@ -129,9 +155,10 @@ migrate as graduates with Fireball intact.
 ## 5. Combat, in one paragraph
 
 Pure deterministic engine at 20 ticks/s: packs of 1–3 free-standing enemy
-figures with swing-arc rings, dormant until aggro. The **Strike** auto-swings
-your staff; **Focus (Space)** is one universal timing read on any swing about
-to land — theirs (deflect + Expose) or yours (Sharpen). The War-Weaver builds
+figures with swing-arc rings, dormant until aggro. The **Strike** is your
+staff on **Q** — one called blow at a time; **Focus (Space)** is one universal
+timing read on any swing about to land — theirs (deflect + Expose) or yours
+(Sharpen). The War-Weaver builds
 **Smolder** (aging fuel; inert until the *Lingering Flame* talent lights it),
 rides **Heat** (+3%/point, bleeds unfed, crashes after the Blaze), and chooses
 its moment. Full detail: `COMBAT.md`.

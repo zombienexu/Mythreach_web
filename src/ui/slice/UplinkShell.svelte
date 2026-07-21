@@ -10,12 +10,13 @@
   import Vignette from '../components/Vignette.svelte'
   import type { Game, View } from '../game.svelte'
   import { loadSettings } from '../profile'
-  import { GRADUATION_SEND_OFF } from './camp'
+  import { GRADUATION_SEND_OFF, HEAT_LECTURE } from './camp'
   import { FACTION, FIRST_ORDER, SERGEANT } from './content'
   import ArenaView from './views/ArenaView.svelte'
   import CodexView from './views/CodexView.svelte'
   import DossierView from './views/DossierView.svelte'
   import MapView from './views/MapView.svelte'
+  import TalentsView from './views/TalentsView.svelte'
 
   let { game, onexit }: { game: Game; onexit: () => void } = $props()
 
@@ -31,13 +32,18 @@
   const NAV: { id: View; label: string; hint: string }[] = [
     { id: 'arena', label: 'Arena', hint: 'the front' },
     { id: 'map', label: 'Map', hint: 'fronts · difficulty' },
+    { id: 'talents', label: 'Talents', hint: 'the weave · honing' },
     { id: 'dossier', label: 'Dossier', hint: 'standing · loadout · charges' },
     { id: 'codex', label: 'Codex', hint: 'research · recovery' },
   ]
 
+  // Vale's Heat lecture: the beat between the proving and the First Weaving —
+  // you are told what the fire *is* before you are handed any of it.
+  const lecture = $derived(ex.justLecture)
   // teaching ceremony — the Fireball teach is the First Weaving: the camp's
-  // big moment, dressed grander than any later rite.
-  const teaching = $derived(ex.justTaught)
+  // big moment, dressed grander than any later rite. It waits behind the
+  // lecture, so the explanation always lands before the gift.
+  const teaching = $derived(lecture ? null : ex.justTaught)
   const teachNames = $derived((teaching ?? []).map((id) => ABILITIES[id]?.name ?? id))
   const firstWeaving = $derived(teaching?.includes('fireball') ?? false)
   // graduation — Vale's send-off and the classic first order
@@ -69,6 +75,11 @@
         <span class="dest-hint">{locked ? 'opens at graduation' : n.hint}</span>
         {#if n.id === 'codex' && ex.pendingTransmits > 0}
           <span class="badge mono">{ex.pendingTransmits}</span>
+        {/if}
+        {#if n.id === 'talents' && game.pendingLearns.length > 0}
+          <span class="badge mono learn-badge" title="War-Weaving offered — learn it when you have the quiet">
+            {game.pendingLearns.length}
+          </span>
         {/if}
       </button>
     {/each}
@@ -129,6 +140,8 @@
           <ArenaView {game} />
         {:else if game.view === 'map'}
           <MapView {game} />
+        {:else if game.view === 'talents'}
+          <TalentsView {game} />
         {:else if game.view === 'dossier'}
           <DossierView {game} />
         {:else}
@@ -172,6 +185,21 @@
   {/key}
 {/if}
 
+<!-- The Heat lecture: Vale explains the fire before anyone hands it over.
+     Clearing it lets the First Weaving ceremony behind it come through. -->
+{#if lecture}
+  <button class="ceremony" onclick={() => ex.clearLecture()} aria-label="Acknowledge">
+    <div class="rite console-panel ticked">
+      <span class="readout">the kindle yard · before the fire</span>
+      <h2 class="brief-name">{HEAT_LECTURE.speaker}</h2>
+      <span class="lecture-title readout ember">{HEAT_LECTURE.title}</span>
+      <p class="rite-blurb">{HEAT_LECTURE.body}</p>
+      <p class="rite-learn mono">next: the first weaving</p>
+      <span class="rite-hint readout">click or press Space to continue</span>
+    </div>
+  </button>
+{/if}
+
 <!-- Teaching ceremony: the Legion trusts you with new War-Weaving. The very
      first — Fireball, the First Weaving — is the camp's big moment and wears
      a grander dress than every rite after it. -->
@@ -210,7 +238,7 @@
           learned: {teachNames.join(' · ')}
         </p>
       {/if}
-      <span class="rite-hint readout">click to continue</span>
+      <span class="rite-hint readout">click or press Space to continue</span>
     </div>
   </button>
 {/if}
@@ -231,7 +259,7 @@
         </div>
       {/if}
       <p class="rite-learn mono">the map and the field are open — the world is yours to hunt</p>
-      <span class="rite-hint readout">click to take the field</span>
+      <span class="rite-hint readout">click or press Space to take the field</span>
     </div>
   </button>
 {/if}
@@ -246,7 +274,7 @@
         The full Codex is home. The Institute logs the first art of a lost world — Tier I. The
         Recovery advances.
       </p>
-      <span class="rite-hint readout">click to continue</span>
+      <span class="rite-hint readout">click or press Space to continue</span>
     </div>
   </button>
 {/if}
@@ -362,6 +390,22 @@
     display: grid;
     place-items: center;
     box-shadow: 0 0 10px oklch(0.72 0.19 45 / 0.6);
+  }
+
+  /* the learn badge burns warm — it is an offer, not a chore */
+  .badge.learn-badge {
+    background: var(--ember-glow);
+    box-shadow: 0 0 12px oklch(0.72 0.19 45 / 0.8);
+    animation: badge-throb 2s ease-in-out infinite;
+  }
+  @keyframes badge-throb {
+    50% {
+      transform: scale(1.12);
+    }
+  }
+
+  .lecture-title {
+    letter-spacing: 0.1em;
   }
 
   .recovery {
@@ -663,6 +707,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .scan,
+    .badge.learn-badge,
     .carrier,
     .view,
     .rite,

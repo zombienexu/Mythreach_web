@@ -9,8 +9,8 @@ Shared spine (all classes): 20 ticks/s, GCD 1.2 s, mana + regen, level cap
 15, one talent point per level from 2, gear with power/stamina/spirit/crit.
 Each kit gets 6–7 abilities (a level-1 opener through a level-11 capstone)
 and six talents (the Arcanist carries a seventh — Lingering Flame). Every
-hero also auto-swings their weapon (the Strike) and owns the universal Focus
-timing read. Every class must pass the same balance smoke test: a fresh
+hero also carries the Strike (their weapon's basic attack, swung on **Q**) and
+the universal Focus timing read. Every class must pass the same balance smoke test: a fresh
 level-1 hero on the test-only auto-driver survives and progresses in the
 starting region.
 

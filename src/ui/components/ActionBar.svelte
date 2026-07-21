@@ -1,14 +1,24 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import { ABILITIES, GCD_TICKS, type AbilityId, type CastSnapshot, type School } from '../../engine'
+  import {
+    ABILITIES,
+    GCD_TICKS,
+    type AbilityId,
+    type CastSnapshot,
+    type School,
+    type StrikeSnapshot,
+  } from '../../engine'
   import { cooldownLabel, ticksToSeconds } from '../format'
   import AbilityIcon from './icons/AbilityIcon.svelte'
 
-  /** What the hub offers right now. `focus` is combat: read the foe (Space). */
-  export type HubMode = 'summon' | 'focus' | 'collect' | 'fallen'
+  /** What the hub offers right now. `focus` is combat: read the foe (Space).
+   *  `advance` is the field lull: walk on to the next screen of sightings. */
+  export type HubMode = 'summon' | 'advance' | 'focus' | 'collect' | 'fallen'
 
   let {
     readouts,
+    strike = null,
+    onstrike,
     abilityIds,
     cast,
     queued,
@@ -28,6 +38,10 @@
     onactivate,
     onhub,
   }: {
+    /** The staff's wind-up, or null when there is nothing to swing at. The
+     *  basic attack is not automatic: it holds the first seat, worn on Q. */
+    strike?: StrikeSnapshot | null
+    onstrike?: () => void
     /** The active class's kit, in kit order — socket i wears key i+1. */
     abilityIds: readonly AbilityId[]
     cast: CastSnapshot | null
@@ -100,11 +114,13 @@
   const hubLabel = $derived(
     hub === 'summon'
       ? 'Engage'
-      : hub === 'collect'
-        ? 'Loot all'
-        : hub === 'fallen'
-          ? 'Fallen'
-          : 'Focus',
+      : hub === 'advance'
+        ? 'Walk on'
+        : hub === 'collect'
+          ? 'Loot all'
+          : hub === 'fallen'
+            ? 'Fallen'
+            : 'Focus',
   )
   const hubDisabled = $derived(hub === 'fallen')
 </script>
@@ -115,6 +131,59 @@
   {/if}
 
   <div class="row">
+    <!-- the staff: the one attack that was never given to you by the Legion,
+         and the only one that answers to a key of its own. Nothing swings on
+         its own clock — this seat is the whole basic attack. -->
+    <div class="cell staff-cell" style:--i={0}>
+      <button
+        class="tile staff"
+        class:unusable={!strike?.ready}
+        class:swinging={strike?.swinging}
+        class:armed={strike?.sharpenReady}
+        class:pressed={pressedKeys.has('q')}
+        onclick={() => onstrike?.()}
+        aria-label="Staff strike (key Q)"
+        aria-keyshortcuts="Q"
+        aria-disabled={!strike?.ready}
+      >
+        <span class="key num">Q</span>
+        <span class="face">
+          <span class="glow" aria-hidden="true"></span>
+          <span class="icon staff-glyph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+              <path d="M5.5 19.5 L17 8" stroke-linecap="round" />
+              <path d="M14.6 5.4 a3.4 3.4 0 1 1 4.8 4.8 a3.4 3.4 0 1 1 -4.8 -4.8 Z" />
+              <path d="M17 7.8 l0.1 0.1" stroke-linecap="round" />
+            </svg>
+          </span>
+        </span>
+        {#if strike?.swinging}
+          <span class="windup" style:height="{strike.progress * 100}%"></span>
+        {/if}
+      </button>
+      <span class="name">Staff</span>
+
+      <div class="tip" role="tooltip" style:--sh="82">
+        <div class="tip-head">
+          <span class="tip-name">Staff</span>
+          <span class="tip-key num">Q</span>
+        </div>
+        <div class="tip-tags"><span class="tag school">Wood &amp; gilt</span></div>
+        <div class="tip-stats">
+          <span class="stat"><span class="stat-k">Damage</span><span class="stat-v num">{strike ? `${strike.dmgMin}–${strike.dmgMax}` : '—'}</span></span>
+          <span class="stat"><span class="stat-k">Wind-up</span><span class="stat-v num">1.8s</span></span>
+        </div>
+        <p class="tip-desc">
+          The blow you were issued on day one. It swings when you call it and never before —
+          press <b>Space</b> late in the wind-up to Sharpen the landing blow.
+        </p>
+        <div class="tip-foot {strike?.swinging ? 'cast' : strike?.ready ? 'ready' : 'cd'}">
+          <span class="foot-dot"></span>
+          {strike?.sharpenReady ? 'Sharpened — let it land' : strike?.swinging ? 'Winding up…' : strike?.ready ? 'Ready' : 'Nothing to swing at'}
+        </div>
+      </div>
+    </div>
+
     {#each abilityIds as id, i (id)}
       {@const def = ABILITIES[id]}
       {@const known = unlocked.includes(id)}
@@ -122,7 +191,7 @@
       {@const onCd = cd > 0}
       {@const oom = mana < def.manaCost}
       {@const st = known ? status(id) : null}
-      <div class="cell" style:--i={i}>
+      <div class="cell" style:--i={i + 1}>
         {#if known}
           <button
             class="tile"
@@ -205,18 +274,25 @@
     {/each}
 
     <!-- the hub: the one action Space always answers -->
-    <div class="cell hub-cell" style:--i={abilityIds.length}>
+    <div class="cell hub-cell" style:--i={abilityIds.length + 1}>
       <button
         class="hub {hub}"
         class:ready={hub === 'focus' && focusReady}
         disabled={hubDisabled}
         onclick={() => onhub?.()}
         aria-label={hubLabel}
-        title={hub === 'summon' ? 'Engage the marked sighting (Space)' : hub === 'collect' ? 'Collect every spoil (Space or R)' : hub === 'focus' ? 'Focus — read the foe and crack it open (Space)' : 'Fallen — waiting to revive'}
+        title={hub === 'summon' ? 'Engage the marked sighting (Space)' : hub === 'advance' ? 'Walk on — turn the field over for a fresh screen of sightings (Space)' : hub === 'collect' ? 'Collect every spoil (Space or R)' : hub === 'focus' ? 'Focus — read the foe and crack it open (Space)' : 'Fallen — waiting to revive'}
       >
         {#if hub === 'summon'}
           <svg class="hub-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6 L14.3 9.7 L21.4 12 L14.3 14.3 L12 21.4 L9.7 14.3 L2.6 12 L9.7 9.7 Z" fill="currentColor" /></svg>
           <span class="hub-word">Engage</span>
+          <span class="hub-key num">Space</span>
+        {:else if hub === 'advance'}
+          <svg class="hub-glyph" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 12 h11" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
+            <path d="M13.5 7.5 L19 12 L13.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+          </svg>
+          <span class="hub-word">Walk on</span>
           <span class="hub-key num">Space</span>
         {:else if hub === 'collect'}
           <svg class="hub-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 L13.8 10.2 L21 12 L13.8 13.8 L12 21 L10.2 13.8 L3 12 L10.2 10.2 Z" fill="currentColor" /></svg>
@@ -516,6 +592,49 @@
   }
   .cell:hover .name {
     color: var(--text);
+  }
+
+  /* ---- the staff seat: wood and gilt, not ether ---------------------- */
+  .staff-cell {
+    margin-right: 6px;
+  }
+  .staff-cell::after {
+    /* a hairline that separates the issued weapon from the taught workings */
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 22px;
+    right: -9px;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, oklch(0.78 0.08 82 / 0.28), transparent);
+  }
+  .tile.staff {
+    --tone: oklch(0.78 0.09 85);
+    border-color: oklch(0.78 0.09 85 / 0.34);
+  }
+  .staff-glyph svg {
+    width: 100%;
+    height: 100%;
+  }
+  .tile.staff.swinging {
+    border-color: color-mix(in oklch, var(--tone) 70%, transparent);
+  }
+  .tile.staff.armed {
+    border-color: var(--ember-glow, oklch(0.8 0.16 55));
+    box-shadow: 0 0 22px -6px oklch(0.72 0.19 45 / 0.85);
+  }
+  .tile.staff.armed .icon {
+    color: var(--ember-glow, oklch(0.8 0.16 55));
+  }
+  /* the wind-up fills the tile from the floor up — the swing you called for */
+  .windup {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 2;
+    background: linear-gradient(0deg, color-mix(in oklch, var(--tone) 34%, transparent), transparent);
+    border-top: 1px solid color-mix(in oklch, var(--tone) 65%, transparent);
+    pointer-events: none;
+    transition: height 60ms linear;
   }
 
   /* sealed kit seat */
@@ -818,6 +937,10 @@
   .hub.collect {
     color: var(--gilt);
     border-color: oklch(0.78 0.1 85 / 0.5);
+  }
+  .hub.advance {
+    color: oklch(0.84 0.08 205);
+    border-color: oklch(0.8 0.09 205 / 0.45);
   }
   .hub.summon,
   .hub.collect {

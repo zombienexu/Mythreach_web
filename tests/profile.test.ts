@@ -3,6 +3,7 @@ import type { Storagelike } from '../src/ui/persistence'
 import {
   DEFAULT_SETTINGS,
   eraseSlot,
+  expeditionKeyFor,
   loadSettings,
   profileKeyFor,
   readProfile,
@@ -88,13 +89,17 @@ describe('save slots', () => {
     expect(storage.getItem(profileKeyFor(3))).toBeNull()
   })
 
-  it('eraseSlot takes the save and the profile together', () => {
+  it('eraseSlot takes the save, the profile, and the expedition together', () => {
     const storage = fakeStorage()
     storage.setItem(saveKeyFor(2), JSON.stringify({ level: 3 }))
     writeProfile(storage, 2, PROFILE)
+    // The slice's expedition shares the slot — a stale one left behind would
+    // let a new conscript inherit "already briefed" meta and skip the camp.
+    storage.setItem(expeditionKeyFor(2), JSON.stringify({ standing: 500, briefed: true }))
     eraseSlot(storage, 2)
     expect(storage.getItem(saveKeyFor(2))).toBeNull()
     expect(readProfile(storage, 2)).toBeNull()
+    expect(storage.getItem(expeditionKeyFor(2))).toBeNull()
   })
 })
 

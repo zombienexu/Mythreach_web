@@ -53,8 +53,11 @@ export class PlayerUnit {
   respawnIn = 0
 
   // ── the staff's basic attack ──
-  /** Ticks into the current wind-up. Advances only with a live target and no
-   *  cast in flight; the landing blow resets it. */
+  /** A swing is in flight. Nothing sets this but the player's own Q — the staff
+   *  never swings on its own clock. */
+  striking = false
+  /** Ticks into the current wind-up. Advances only while swinging at a live
+   *  target with no cast in flight; the landing blow resets it. */
   strikeElapsed = 0
   /** A Focus read banked into your own wind-up: the next landing blow is
    *  Sharpened. Consumed when the strike lands. */
@@ -120,6 +123,7 @@ export class PlayerUnit {
     this.cast = null
     this.queued = null
     this.gcd = 0
+    this.striking = false
     this.strikeElapsed = 0
     this.sharpenReady = false
     this.heat = 0

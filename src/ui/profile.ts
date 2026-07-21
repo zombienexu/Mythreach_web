@@ -104,11 +104,15 @@ export function touchProfile(storage: Storagelike, slot: SlotId): void {
   if (p) writeProfile(storage, slot, { ...p, playedAt: Date.now() })
 }
 
-/** Erase a slot outright: save and profile both. Title-screen use only —
- *  a *running* game must go through Game's wipe guard instead. */
+/** Erase a slot outright: the engine save, the profile, **and** the slice's
+ *  expedition (Standing / Codex / Kindle Yard progress). All three share the
+ *  slot; leaving the expedition behind lets a new character inherit an old
+ *  one's "already briefed" meta and skip the camp. Title-screen use only — a
+ *  *running* game must go through Game's wipe guard instead. */
 export function eraseSlot(storage: Storagelike, slot: SlotId): void {
   storage.removeItem(saveKeyFor(slot))
   storage.removeItem(profileKeyFor(slot))
+  storage.removeItem(expeditionKeyFor(slot))
 }
 
 /* ---- Settings ----------------------------------------------------------- */

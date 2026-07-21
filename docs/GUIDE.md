@@ -8,15 +8,18 @@ see `CLASSES.md`.*
 
 ## How combat works, whoever you are
 
-- **Fights are yours to start.** The field board turns up 3–4 sightings — size
-  them up, engage one (`Space`), and the pack spawns. When the last one falls,
-  their corpses hold gold, materials and items — loot per card, or sweep the
-  field with `R`. Clear it and the board rotates. (There is no auto-battle;
+- **Fights are yours to start.** The field scatters 4–6 sightings across the
+  ground — mark one with `Tab` (or hover it), engage with `Enter` or a click,
+  and the pack spawns. Anything standing **inside the aggro ring** of what you
+  pull comes with it, so read the ring before you commit. Nothing worth
+  fighting? `Space` walks on and turns the whole screen over. When the last foe
+  falls, their corpses hold gold, materials and items — loot per card, or sweep
+  the field with `R`. Clear it and the field rotates. (There is no auto-battle;
   absence is respected, not simulated.)
-- **Your weapon swings itself.** The staff auto-attacks your target every
-  1.8 s (`2 + level + ⌊staff ilvl/2⌋` damage, +4 spread, power- and
-  crit-scaled). Casting holds the swing; a dormant pack holds it poised until
-  you loose the first blow.
+- **Your weapon is yours to swing.** The staff is the basic attack on **`Q`**:
+  one blow per press, a 1.8 s wind-up (`2 + level + ⌊staff ilvl/2⌋` damage, +4
+  spread, power- and crit-scaled). Nothing swings on its own. Casting holds the
+  wind-up; against a dormant pack your first Q is the free opening blow.
 - **Focus (`Space`) is the timing read.** On a foe's wind-up: deflect the blow
   and crack them **Exposed** (+30% taken, 3 s). Late in **your own** wind-up:
   **Sharpen** the landing strike (+50%). Nothing open: a 1.5 s whiff lockout.
@@ -36,10 +39,14 @@ see `CLASSES.md`.*
   anything already slain still pays out.
 - **Targeting:** click a card or press `Tab`. Front-row enemies are retargeted
   first when your target dies.
+- **New workings are learned when you choose.** Earning Standing *offers* a
+  spell; it never interrupts a fight to hand one over. A badge appears on the
+  **Talents** rail and it waits there until you learn it. (The one exception is
+  **Fireball**, pressed into your hands at the camp's First Weaving ceremony.)
 
 You earn **one talent point per level from level 2** (14 by the cap of 15).
-Each calling has six talents — the Arcanist carries a seventh. A respec costs
-50 gold.
+Each calling has six talents — the Arcanist carries a seventh; both the points
+and the Grace ladder live on the **Talents** screen. A respec costs 50 gold.
 
 ---
 
@@ -68,7 +75,8 @@ cast/rank), Searing Flames (+8% fire/rank), **Lingering Flame** (Smolder burns
 each second, ×rank, 3 ranks), Critical Mass (+2% crit/rank), Fortitude (+6%
 health/rank), Meditation (+12% regen/rank).
 
-**How it plays:** the staff swings underneath everything. Focus the foe's tell
+**How it plays:** the staff fills the gaps between casts, one `Q` at a time.
+Focus the foe's tell
 (deflect + Expose) or your own late wind-up (Sharpen). Fireball into Openings,
 stack Smolder, let it ripen to Volatile, Detonate at the peak — and keep the
 Heat fed, because the moment you stop weaving it starts leaving. Full detail:

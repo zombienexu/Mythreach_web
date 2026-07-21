@@ -1,14 +1,11 @@
 <script lang="ts">
-  import { ABILITIES } from '../../../engine'
-  import AbilityIcon from '../../components/icons/AbilityIcon.svelte'
   import ItemTile from '../../components/ItemTile.svelte'
   import type { Game } from '../../game.svelte'
-  import { GRACE_TIERS, SERGEANT, STANDING_PER_CHARGE } from '../content'
+  import { SERGEANT, STANDING_PER_CHARGE } from '../content'
 
   let { game }: { game: Game } = $props()
 
   const ex = $derived(game.expedition)
-  const taught = $derived(new Set(game.taught))
 
   const SLOTS = ['staff', 'hood', 'robe', 'ring', 'trinket'] as const
   const SLOT_LABEL: Record<(typeof SLOTS)[number], string> = {
@@ -59,41 +56,8 @@
     </p>
   </section>
 
-  <!-- ── Teaching (the Grace ladder) ──────────────────────── -->
-  <section class="panel console-panel ticked">
-    <header class="phead">
-      <span class="readout">war-weaving · taught by grace</span>
-      <span class="phead-sub">access, not level — power still comes from the fight</span>
-    </header>
-    <ol class="ladder">
-      {#each GRACE_TIERS as tier, i (tier.key)}
-        {@const reached = ex.tierIndex >= i}
-        <li class="tier" class:reached class:current={ex.tierIndex === i}>
-          <div class="tier-mark">
-            <span class="node" class:on={reached}></span>
-            {#if i < GRACE_TIERS.length - 1}<span class="wire" class:on={ex.tierIndex > i}></span>{/if}
-          </div>
-          <div class="tier-body">
-            <div class="tier-top">
-              <span class="tier-name">{tier.name}</span>
-              <span class="tier-at mono">{tier.at === 0 ? 'start' : `${tier.at} standing`}</span>
-            </div>
-            <div class="teaches">
-              {#each tier.teaches as id (id)}
-                {@const known = taught.has(id)}
-                <div class="spell" class:known>
-                  <span class="ic" style:--tone="var(--tone-{id})"><AbilityIcon {id} /></span>
-                  <span class="sname">{ABILITIES[id]?.name ?? id}</span>
-                  {#if !known}<span class="lock readout">sealed</span>{/if}
-                </div>
-              {/each}
-            </div>
-          </div>
-        </li>
-      {/each}
-    </ol>
-  </section>
-
+  <!-- The Grace ladder itself now lives on the Talents screen, where the
+       workings are actually taken up — the Dossier only points at it. -->
   <!-- ── Loadout ──────────────────────────────────────────── -->
   <section class="panel console-panel ticked">
     <header class="phead">
@@ -233,103 +197,6 @@
     font-size: 12.5px;
     line-height: 1.6;
     color: var(--text-dim);
-  }
-
-  /* ── ladder ── */
-  .ladder {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
-  .tier {
-    display: grid;
-    grid-template-columns: 26px 1fr;
-    gap: 12px;
-  }
-  .tier-mark {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .node {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    border: 1.5px solid var(--console-edge);
-    margin-top: 4px;
-    flex: none;
-  }
-  .node.on {
-    background: var(--ember-war);
-    border-color: var(--ember-glow);
-    box-shadow: 0 0 10px oklch(0.72 0.19 45 / 0.6);
-  }
-  .wire {
-    width: 1.5px;
-    flex: 1;
-    min-height: 22px;
-    background: var(--console-line);
-  }
-  .wire.on {
-    background: linear-gradient(180deg, var(--ember-glow), var(--console-line));
-  }
-  .tier-body {
-    padding-bottom: 16px;
-  }
-  .tier-top {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-  .tier-name {
-    font-family: var(--font-display);
-    font-size: 15px;
-    color: var(--text-dim);
-  }
-  .tier.reached .tier-name {
-    color: var(--text);
-  }
-  .tier.current .tier-name {
-    color: var(--ember-glow);
-  }
-  .tier-at {
-    font-size: 10px;
-    color: var(--signal-dim);
-  }
-  .teaches {
-    display: flex;
-    gap: 14px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-  }
-  .spell {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    opacity: 0.4;
-    filter: grayscale(0.7);
-  }
-  .spell.known {
-    opacity: 1;
-    filter: none;
-  }
-  .ic {
-    width: 30px;
-    height: 30px;
-    display: grid;
-    place-items: center;
-    border-radius: var(--radius-sm);
-    color: var(--tone);
-    border: 1px solid oklch(0.72 0.19 45 / 0.25);
-    background: oklch(0.72 0.19 45 / 0.06);
-  }
-  .sname {
-    font-size: 12.5px;
-    color: var(--text);
-  }
-  .lock {
-    font-size: 8px;
-    color: var(--signal-dim);
   }
 
   /* ── loadout ── */

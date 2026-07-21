@@ -8,8 +8,9 @@
 import type { AbilityId, CombatEvent, GameSim } from '../../engine'
 import type { Storagelike } from '../persistence'
 import { expeditionKeyFor, type SlotId } from '../profile'
-import { CAMP_DUELS, bonusForStep, inCamp } from './camp'
+import { CAMP_DUELS, PROVING_DUELS, bonusForStep, inCamp } from './camp'
 import {
+  AUTO_LEARNED,
   CODEX,
   GRACE_TIERS,
   STANDING_PER_CHARGE,
@@ -28,6 +29,8 @@ interface ExpeditionSave {
   briefed?: boolean
   /** Kindle Yard steps completed (absent on pre-camp saves). */
   camp?: number
+  /** Workings actually taken up (absent on saves that predate learning). */
+  learned?: AbilityId[]
 }
 
 export class Expedition {
@@ -42,16 +45,27 @@ export class Expedition {
    *  conscript has graduated and the world proper is open. */
   camp = $state(0)
 
+  /** The workings actually in your hands (persisted). Standing *offers* a
+   *  War-Weaving; you take it up at leisure from the Talents screen. This — not
+   *  Standing — is what arms the sim. */
+  learned = $state<AbilityId[]>([])
+
   /** bumps every time Standing is earned — drives the telemetry pulse */
   standingPulse = $state(0)
   /** newly taught abilities awaiting a teaching ceremony, or null */
   justTaught: AbilityId[] | null = $state(null)
+  /** newly *offered* workings awaiting a quiet toast — never a modal, because
+   *  Standing is usually crossed with a foe still swinging at you. */
+  justOffered: AbilityId[] | null = $state(null)
   /** set once when the last chapter transmits — the art is recovered */
   justRecovered = $state(false)
   /** the conscript has arrived and been mustered (persisted) */
   briefed = $state(false)
   /** set once, the moment the final duel graduates the conscript */
   justGraduated = $state(false)
+  /** set once, the moment the proving is won: Vale's Heat lecture is owed
+   *  before the Fireball ceremony can run. */
+  justLecture = $state(false)
 
   private readonly ctx: CodexCtx = { enraged: new Set() }
   private prevTier = 0
@@ -83,9 +97,33 @@ export class Expedition {
     const floor = this.tier.at
     return Math.min(1, (this.standing - floor) / (next.at - floor))
   }
-  /** the full set of abilities the world has taught so far */
-  taughtIds(): AbilityId[] {
+  /** Everything the Legion's trust has unlocked — offered, not necessarily taken. */
+  offeredIds(): AbilityId[] {
     return taughtFor(this.standing)
+  }
+  /** The workings you actually carry. This is what arms the sim. */
+  taughtIds(): AbilityId[] {
+    return [...this.learned]
+  }
+  /** Offered but not yet taken up — waiting on the Talents screen. */
+  get pendingLearns(): AbilityId[] {
+    return this.offeredIds().filter((id) => !this.learned.includes(id))
+  }
+  get hasPendingLearns(): boolean {
+    return this.pendingLearns.length > 0
+  }
+  /** How many workings are waiting to be taken up — the nav badge. */
+  get pendingLearnCount(): number {
+    return this.pendingLearns.length
+  }
+
+  /** Take up an offered working. Returns false for anything not on offer (or
+   *  already carried); the caller re-arms the sim on true. */
+  learn(id: AbilityId): boolean {
+    if (!this.pendingLearns.includes(id)) return false
+    this.learned = [...this.learned, id]
+    this.save()
+    return true
   }
 
   /** True once the given front's Grace tier has been reached. */
@@ -100,18 +138,23 @@ export class Expedition {
   }
 
   /** A camp duel was won: advance the script and pay any boundary bonus (the
-   *  proving crossing Blooded is what teaches Fireball). Returns any freshly
-   *  taught abilities so the caller can re-arm the sim. */
+   *  proving crossing Blooded is what teaches Fireball). The proving's last win
+   *  also owes Vale's Heat lecture, which the UI shows *before* the ceremony.
+   *  Returns any freshly learned abilities so the caller can re-arm the sim. */
   advanceCamp(): AbilityId[] | null {
     if (!this.inCamp) return null
     this.camp++
+    if (this.camp === PROVING_DUELS) this.justLecture = true
     if (this.camp >= CAMP_DUELS.length) this.justGraduated = true
-    const taught = this.gainStanding(bonusForStep(this.camp))
+    const learnt = this.gainStanding(bonusForStep(this.camp))
     this.save()
-    return taught
+    return learnt
   }
   clearGraduated(): void {
     this.justGraduated = false
+  }
+  clearLecture(): void {
+    this.justLecture = false
   }
 
   /** Mark the arrival muster done. */
@@ -178,26 +221,36 @@ export class Expedition {
     return gained > 0 ? this.gainStanding(gained) : null
   }
 
-  /** Add Standing and, if it crosses one or more Grace thresholds, teach the
-   *  War-Weaving between them and return it (so the caller can re-arm the sim).
+  /** Add Standing and, if it crosses one or more Grace thresholds, *offer* the
+   *  War-Weavings between them. Only AUTO_LEARNED workings (the camp's Fireball)
+   *  land in your hands on the spot and raise the teaching ceremony — the rest
+   *  wait quietly on the Talents screen, because a tier is usually crossed with
+   *  a foe still mid-swing and a modal there is an assassination.
+   *  Returns the freshly *learned* ids so the caller can re-arm the sim.
    *  The single place Standing ever grows — kills, turn-ins, and rare-clear
    *  bonuses all funnel through here. */
   private gainStanding(amount: number): AbilityId[] | null {
     if (amount <= 0) return null
     this.standing += amount
     this.standingPulse++
-    let taught: AbilityId[] | null = null
+    let learnt: AbilityId[] | null = null
     const t = tierIndexFor(this.standing)
     if (t > this.prevTier) {
-      // one or more tiers crossed at once — teach everything between
+      // one or more tiers crossed at once — offer everything between
       const fresh: AbilityId[] = []
       for (let i = this.prevTier + 1; i <= t; i++) fresh.push(...GRACE_TIERS[i]!.teaches)
       this.prevTier = t
-      this.justTaught = fresh
-      taught = fresh
+      const auto = fresh.filter((id) => AUTO_LEARNED.includes(id) && !this.learned.includes(id))
+      const offered = fresh.filter((id) => !auto.includes(id) && !this.learned.includes(id))
+      if (auto.length > 0) {
+        this.learned = [...this.learned, ...auto]
+        this.justTaught = auto
+        learnt = auto
+      }
+      if (offered.length > 0) this.justOffered = offered
     }
     this.save()
-    return taught
+    return learnt
   }
 
   /** Bonus Standing for felling a rarer sighting — a champion or the apex. */
@@ -227,6 +280,9 @@ export class Expedition {
   clearTeaching(): void {
     this.justTaught = null
   }
+  clearOffered(): void {
+    this.justOffered = null
+  }
   clearRecovered(): void {
     this.justRecovered = false
   }
@@ -241,6 +297,7 @@ export class Expedition {
         transmitted: [...this.transmitted],
         briefed: this.briefed,
         camp: this.camp,
+        learned: [...this.learned],
       }
       this.storage.setItem(this.key, JSON.stringify(data))
     } catch {
@@ -265,6 +322,17 @@ export class Expedition {
         if (this.briefed && this.standing < GRACE_TIERS[1]!.at) this.standing = GRACE_TIERS[1]!.at
       } else {
         this.camp = Math.max(0, Math.min(data.camp, CAMP_DUELS.length))
+      }
+      // Learning migration: a save from before workings were taken up by hand
+      // carried everything its Standing had reached — never take a spell away
+      // from someone who already had it. Otherwise trust the stored list, but
+      // clamp it to what this Standing actually offers, and make sure the camp's
+      // First Weaving is in hand if it was ever handed over.
+      const offered = taughtFor(this.standing)
+      this.learned =
+        data.learned === undefined ? [...offered] : data.learned.filter((id) => offered.includes(id))
+      for (const id of AUTO_LEARNED) {
+        if (offered.includes(id) && !this.learned.includes(id)) this.learned.push(id)
       }
     } catch {
       // corrupt — start the expedition fresh

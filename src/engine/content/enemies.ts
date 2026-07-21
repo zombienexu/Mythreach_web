@@ -898,6 +898,16 @@ const DEFS: EnemyDef[] = [
     ],
   },
   {
+    id: 'sparhand-oreth',
+    name: 'Sparhand Oreth',
+    intro: 'Sparhand Oreth lifts a staff twice the weight of yours, slowly, on purpose.',
+    // Deliberately ponderous: a long wind-up is a wide-open tell, so the marriage
+    // duel (Read the swing, then Fireball into the Opening) always has a door.
+    level: 2, rank: 'normal', hp: 140, swingTicks: 56, dmgMin: 5, dmgMax: 9,
+    xp: 23, goldMin: 0, goldMax: 0, dropPct: 0,
+    portrait: { family: 'revenant', hue: 28 }, mechanics: [],
+  },
+  {
     id: 'sparhand-mavet',
     name: 'Sparhand Mavet',
     intro: 'Sparhand Mavet does not warm up. Mavet is always warm.',

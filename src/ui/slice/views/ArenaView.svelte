@@ -5,7 +5,7 @@
   import EnemyFigure from '../../components/EnemyFigure.svelte'
   import FloatLayer from '../../components/FloatLayer.svelte'
   import PlayerHud from '../../components/PlayerHud.svelte'
-  import FieldBoard from '../../components/FieldBoard.svelte'
+  import FieldScreen from '../../components/FieldScreen.svelte'
   import { ABILITIES } from '../../../engine'
   import { ticksToSeconds } from '../../format'
   import type { Game, Impact } from '../../game.svelte'
@@ -31,8 +31,19 @@
 
   const IDLE_IMPACT: Impact = { n: 0, power: 1, crit: false }
 
+  // The heart of the wheel says what Space does right now: sweep the spoils,
+  // step into the circle (camp), walk on to the next scatter of sightings
+  // (the field), or read the foe mid-fight.
   const hub: HubMode = $derived(
-    !game.combat.player.alive ? 'fallen' : looting ? 'collect' : shown.length === 0 ? 'summon' : 'focus',
+    !game.combat.player.alive
+      ? 'fallen'
+      : looting
+        ? 'collect'
+        : shown.length > 0
+          ? 'focus'
+          : inCamp
+            ? 'summon'
+            : 'advance',
   )
 
   // The Arcanist's Heat, 0–1 — it deepens the orange glow washing the whole page.
@@ -73,13 +84,13 @@
     </header>
   {/if}
 
-  <div class="field" class:solo class:dormant>
+  <div class="field" class:solo class:dormant class:scatter={shown.length === 0 && !inCamp}>
     {#if shown.length > 0}
       {#if dormant}
         <div class="ambush" role="status">
           <span class="ambush-word">they haven't seen you yet</span>
           <span class="ambush-hint">
-            <kbd>click</kbd> or <kbd>Tab</kbd> to pick your mark — your first strike is free, then the field wakes
+            <kbd>click</kbd> or <kbd>Tab</kbd> to pick your mark — <kbd>Q</kbd> swings first and free, then the field wakes
           </span>
         </div>
       {/if}
@@ -126,13 +137,12 @@
         onengage={() => game.engageCampDuel()}
       />
     {:else}
-      <FieldBoard
-        offers={game.field.offers}
-        selectedId={game.field.selectedId}
-        rerolls={game.field.rerolls}
+      <FieldScreen
+        field={game.field}
         intro={region?.intro}
         onselect={(id) => game.selectOffer(id)}
         onengage={(id) => game.engageOffer(id)}
+        onnext={() => game.nextScreen()}
       />
     {/if}
   </div>
@@ -154,6 +164,8 @@
       />
 
       <ActionBar
+      strike={game.combat.player.strike}
+      onstrike={() => game.strike()}
       abilityIds={game.kitIds}
       cast={game.combat.cast}
       queued={game.combat.queued}
@@ -189,14 +201,19 @@
             <!-- the staff's basic attack: the wind-up bar, with the Sharpen
                  window burning in its last stretch. Space inside it whets the
                  landing blow; the whole bar goes gold once a Sharpen is banked. -->
-            <div class="strike" class:armed={strike.sharpenReady} class:open={strike.windowOpen}>
+            <div
+              class="strike"
+              class:armed={strike.sharpenReady}
+              class:open={strike.windowOpen && strike.swinging}
+              class:idle={!strike.swinging}
+            >
               <span class="strike-name">Staff</span>
               <span class="strike-track">
                 <span class="strike-window" aria-hidden="true"></span>
-                <span class="strike-fill" style:width="{strike.progress * 100}%"></span>
+                <span class="strike-fill" style:width="{strike.swinging ? strike.progress * 100 : 0}%"></span>
               </span>
               <span class="strike-tag mono">
-                {#if strike.sharpenReady}sharpened{:else if strike.windowOpen}Space ▸ sharpen{:else}{strike.dmgMin}–{strike.dmgMax}{/if}
+                {#if !strike.swinging}Q ▸ strike · {strike.dmgMin}–{strike.dmgMax}{:else if strike.sharpenReady}sharpened{:else if strike.windowOpen}Space ▸ sharpen{:else}{strike.dmgMin}–{strike.dmgMax}{/if}
               </span>
             </div>
           {/if}
@@ -324,6 +341,12 @@
     justify-content: center;
     padding: 10px 6% 0;
     z-index: 1;
+  }
+  /* the scattered field wants the whole ground, not a centred island */
+  .field.scatter {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 4px 0 0;
   }
   .foes {
     position: relative;
@@ -529,6 +552,13 @@
     border-radius: 10px;
     background: linear-gradient(180deg, oklch(0.17 0.03 300 / 0.6), oklch(0.11 0.035 305 / 0.7));
     border: 1px solid color-mix(in oklch, var(--wood) 32%, oklch(0.85 0.03 260 / 0.16));
+  }
+  /* at rest the bar is only a prompt: the staff waits on your hand */
+  .strike.idle {
+    opacity: 0.72;
+  }
+  .strike.idle .strike-window {
+    opacity: 0.35;
   }
   .strike.open {
     border-color: color-mix(in oklch, var(--wood) 65%, transparent);

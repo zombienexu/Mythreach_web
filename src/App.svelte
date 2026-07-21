@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Game } from './ui/game.svelte'
-  import { applyMotion, loadSettings, writeProfile, type SlotId } from './ui/profile'
+  import { applyMotion, eraseSlot, loadSettings, writeProfile, type SlotId } from './ui/profile'
   import Arrival from './ui/slice/Arrival.svelte'
   import { SLICE_IDENTITY, type WorldOption } from './ui/slice/content'
   import OpeningSequence from './ui/slice/OpeningSequence.svelte'
@@ -44,8 +44,13 @@
     mount(slot)
   }
 
-  /** Begin naming a fresh conscript into an empty slot. */
+  /** Begin naming a fresh conscript into an empty slot. Clear any residual
+   *  state in the slot first — chiefly an orphaned expedition (Standing /
+   *  Codex / Kindle Yard progress) left by a prior character — so the new
+   *  conscript truly starts at the camp gate and never inherits an old run's
+   *  "already briefed" meta, which would skip the yard and pre-grant Fireball. */
   function create(slot: SlotId): void {
+    eraseSlot(localStorage, slot)
     creatingSlot = slot
     draftName = ''
     screen = 'creation'

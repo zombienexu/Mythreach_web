@@ -293,6 +293,7 @@ export class GameSim {
   private resetFightState(): void {
     const p = this.player
     p.cheatedDeath = false
+    p.striking = false
     p.strikeElapsed = 0
     p.sharpenReady = false
     p.heat = 0
@@ -486,17 +487,18 @@ export class GameSim {
       }
     }
 
-    // The staff's basic attack: auto-swings at the target whenever you are in
-    // a fight and not mid-cast (weaving holds the swing; the GCD does not).
-    // Against a dormant pack the wind-up holds poised at the top instead of
-    // landing — the first blow stays yours to loose (a spell, or the strike
-    // released by provoking the field).
-    if ((this.phase === 'combat' || this.phase === 'assault') && p.cast === null && this.target) {
-      if (!this.engaged && p.strikeElapsed >= STRIKE_SWING_TICKS - 1) {
-        p.strikeElapsed = STRIKE_SWING_TICKS - 1
-      } else {
+    // The staff's basic attack: nothing swings on its own. A wind-up exists
+    // only once the player has loosed one (Q — see {@link strike}), and a cast
+    // in flight holds it where it stands: weaving stalls the swing, the GCD
+    // does not. Lose the target — or the fight — and the swing is dropped.
+    if (p.striking) {
+      if ((this.phase !== 'combat' && this.phase !== 'assault') || this.target === null) {
+        p.striking = false
+        p.strikeElapsed = 0
+      } else if (p.cast === null) {
         p.strikeElapsed++
         if (p.strikeElapsed >= STRIKE_SWING_TICKS) {
+          p.striking = false
           p.strikeElapsed = 0
           this.resolveStrike()
         }
@@ -1006,6 +1008,27 @@ export class GameSim {
     return [min, min + STRIKE_SPREAD]
   }
 
+  /** Would a swing be accepted this instant? Off-limits while dead, out of a
+   *  fight, without a living target, mid-cast (both hands are in the fire), or
+   *  with a blow already in flight. */
+  private canStrike(): boolean {
+    const p = this.player
+    if (!p.alive || p.striking || p.cast !== null) return false
+    if (this.phase !== 'combat' && this.phase !== 'assault') return false
+    return this.target !== null
+  }
+
+  /** Q — swing the staff. The blow is the player's to loose: a wind-up begins
+   *  here and nowhere else, so a hero who never presses Q never swings.
+   *  Refused (false) when {@link canStrike} says the hands aren't free. */
+  strike(): boolean {
+    if (!this.canStrike()) return false
+    const p = this.player
+    p.striking = true
+    p.strikeElapsed = 0
+    return true
+  }
+
   /** A wind-up completes: the staff lands on the target. Power and crit scale
    *  it; a banked Sharpen (Focus read into your own swing) pays out here. */
   private resolveStrike(): void {
@@ -1028,7 +1051,7 @@ export class GameSim {
 
   /** Focus — the universal timing read (heart of the wheel / Space), on any
    *  swing about to land, theirs or yours. A foe's open tell wins: deflect the
-   *  committed blow and crack them Exposed. Failing that, your own wind-up
+   *  committed blow and crack them Exposed. Failing that, a swing of your own
    *  deep in its final stretch Sharpens the landing strike. Nothing readable —
    *  a whiff and a short lockout. Returns false only when Focus itself can't
    *  act (dead, on cooldown). */
@@ -1054,6 +1077,7 @@ export class GameSim {
     const t = this.target
     if (
       t &&
+      p.striking &&
       !p.sharpenReady &&
       p.cast === null &&
       p.strikeElapsed / STRIKE_SWING_TICKS >= STRIKE_TELL_FROM
@@ -2119,13 +2143,16 @@ export class GameSim {
     }
   }
 
-  /** The live strike view, or null when nothing is being swung at. */
+  /** The live strike view, or null when there is nothing to swing at. Present
+   *  even at rest, so the bar can sit idle prompting the Q that looses it. */
   private strikeSnapshot(): StrikeSnapshot | null {
     if ((this.phase !== 'combat' && this.phase !== 'assault') || this.target === null) return null
     const p = this.player
     const [dmgMin, dmgMax] = this.strikeRange()
-    const progress = Math.min(1, p.strikeElapsed / STRIKE_SWING_TICKS)
+    const progress = p.striking ? Math.min(1, p.strikeElapsed / STRIKE_SWING_TICKS) : 0
     return {
+      swinging: p.striking,
+      ready: this.canStrike(),
       progress,
       windowOpen: progress >= STRIKE_TELL_FROM,
       sharpenReady: p.sharpenReady,
@@ -2356,6 +2383,10 @@ export class GameSim {
       if (this.restIn === 0 && p.cast === null) this.startFight()
       return
     }
+
+    // The staff waits on the player's hand now, so the headless drive must be
+    // that hand: keep a swing in flight whenever nothing is already winding up.
+    if (!p.striking) this.strike()
 
     if (p.cast !== null || p.gcd > 0 || p.queued !== null) {
       // Off-GCD reactions still fire mid-cast.

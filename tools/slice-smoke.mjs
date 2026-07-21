@@ -1,7 +1,7 @@
 // End-to-end smoke for the Threshold slice + the Kindle Yard opening.
 // Verifies: projection, arrival at the recruitment camp, the sparring circle
-// (staff-only basic attack + Focus), camp progress persisting, and — on a
-// seeded graduated save — the field board, the Map atlas, and Heat climbing.
+// (the Q-swung staff + Focus), camp progress persisting, and — on a seeded
+// graduated save — the scattered field, the Map atlas, and Heat climbing.
 // Fails on any console/page error.
 import { mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -65,19 +65,22 @@ const results = {}
     .catch(() => false)
   await page.screenshot({ path: `${OUT}/b2-kindle-yard.png`, fullPage: true })
 
-  // Step into the circle (Space) — the staff auto-swings: the strike bar
-  // appears and the bout runs on basic attacks + Focus alone (no spells yet).
+  // Step into the circle (Space). The staff no longer swings itself: the bar
+  // shows the Q prompt, and every blow in the bout is one the player called.
   await page.keyboard.press(' ')
   await page.waitForTimeout(900)
   results.strikeBar = (await page.getByText(/^Staff$/).count()) > 0
+  results.qPrompt = (await page.getByText(/Q ▸ strike/).count()) > 0
   await page.screenshot({ path: `${OUT}/b3-first-duel.png` })
 
-  // Fight the proving the way a player does: Space is the whole tutorial —
-  // the Sharpen on your own wind-up, the read on theirs, the next bout.
-  const deadline = Date.now() + 50_000
+  // Fight the proving the way a player does: Q swings, Space reads — the
+  // Sharpen on your own wind-up, the deflect on theirs, then the next bout.
+  const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
+    await page.keyboard.press('q')
+    await page.waitForTimeout(320)
     await page.keyboard.press(' ')
-    await page.waitForTimeout(420)
+    await page.waitForTimeout(340)
   }
   const state = await page.evaluate(() => {
     const raw = localStorage.getItem('mythreach-expedition-v1')
@@ -97,7 +100,16 @@ const results = {}
     // conscript; a crit trinket to make the fight vivid.
     localStorage.setItem(
       'mythreach-expedition-v1',
-      JSON.stringify({ standing: 900, progress: {}, transmitted: [], briefed: true, camp: 5 }),
+      // Graduated (the yard is six bouts now), with two workings already taken
+      // up — so the Talents screen has real offers waiting to be learned.
+      JSON.stringify({
+        standing: 900,
+        progress: {},
+        transmitted: [],
+        briefed: true,
+        camp: 6,
+        learned: ['fireball', 'detonate'],
+      }),
     )
     localStorage.setItem(
       'mythreach-save-v1',
@@ -129,15 +141,34 @@ const results = {}
   results.atlas = (await page.getByText(/warfront atlas/i).count()) > 0
   await page.screenshot({ path: `${OUT}/b4-map-atlas.png`, fullPage: true })
 
-  await page.getByRole('button', { name: 'Arena' }).click()
+  // The Talents screen: the Legion's offers wait here to be taken up, and the
+  // rail wears a badge while any of them do.
+  await page.getByRole('button', { name: /^Talents/ }).click()
   await page.waitForTimeout(500)
-  await page.keyboard.press(' ') // engage the marked sighting
+  results.talents = (await page.getByText(/taught by grace/i).count()) > 0
+  const learnBtns = await page.getByRole('button', { name: /Learn it/ }).count()
+  results.offers = learnBtns
+  if (learnBtns > 0) {
+    await page.getByRole('button', { name: /Learn it/ }).first().click()
+    await page.waitForTimeout(500)
+  }
+  await page.screenshot({ path: `${OUT}/b4b-talents.png`, fullPage: true })
+
+  await page.getByRole('button', { name: 'Arena' }).click()
+  await page.waitForTimeout(700)
+  // The scattered field: sightings stand on the ground, each with its plate.
+  results.scatter = (await page.getByText(/sightings scattered/i).count()) > 0
+  await page.screenshot({ path: `${OUT}/b4c-field-scatter.png`, fullPage: true })
+  // Space walks on to a fresh scatter, then Enter engages the marked sighting.
+  await page.keyboard.press(' ')
+  await page.waitForTimeout(600)
+  await page.keyboard.press('Enter')
 
   // Ride the Heat by hand: Fireball (1) and Kindle (3) feed it; chaining casts
   // parks the decay clock. Poll for the band crossing into Empowered/the Boil.
   let heatClimbed = false
   for (let i = 0; i < 80; i++) {
-    await page.keyboard.press(i % 4 === 3 ? '3' : '1')
+    await page.keyboard.press(i % 7 === 6 ? 'q' : i % 4 === 3 ? '3' : '1')
     await page.waitForTimeout(260)
     if (i % 5 === 4) await page.keyboard.press(' ') // Focus: the read
     const empowered = await page.getByText(/Empowered|The Boil/).count()
@@ -162,8 +193,12 @@ console.log('arrival at the camp shown:', results.briefed)
 console.log('kindle yard circle shown:', results.camp)
 console.log('map locked in camp:', results.mapLocked)
 console.log('strike bar shown in the duel:', results.strikeBar)
+console.log('staff prompts for Q (no auto-swing):', results.qPrompt)
 console.log('camp progress:', JSON.stringify(results.grind))
 console.log('warfront atlas (graduated):', results.atlas)
+console.log('talents screen (grace ladder):', results.talents)
+console.log('workings offered to learn:', results.offers)
+console.log('field scattered across the ground:', results.scatter)
 console.log('heat climbed a band:', results.heatClimbed)
 console.log('errors:', errors.length ? errors : 'none')
 console.log('shots in:', OUT)
@@ -177,9 +212,12 @@ const ok =
   results.camp === true &&
   results.mapLocked === true &&
   results.strikeBar === true &&
+  results.qPrompt === true &&
   duelsWon >= 1 &&
   standing > 0 &&
   results.atlas === true &&
+  results.talents === true &&
+  results.scatter === true &&
   results.heatClimbed === true
 
 console.log(ok ? '\n✅ PASS — the fresh start turns end to end' : '\n❌ FAIL — see above')
