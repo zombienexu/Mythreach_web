@@ -146,7 +146,7 @@
     {/if}
 
     <div class="art">
-      <EnemyPortrait family={enemy.portrait.family} hue={enemy.portrait.hue} name={enemy.name} enraged={!dead && enemy.enraged} />
+      <EnemyPortrait family={enemy.portrait.family} hue={enemy.portrait.hue} name={enemy.name} enraged={!dead && enemy.enraged} alive={!dead} />
     </div>
 
     {#if !dead && enemy.smolder}

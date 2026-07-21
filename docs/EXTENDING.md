@@ -106,7 +106,7 @@ exists in `ABILITIES` but sits in no kit never reaches an action bar — and
 owned by that class, hotkeys are unique per class, and every class has a
 level-1 button. Forget the kit and `npm test` fails. Good.
 
-**`sim.ts`** — the auto-battle rotation. Each calling has its own priority
+**`sim.ts`** — the test-only auto-driver's rotation. Each calling has its own priority
 list (`autoArcanist()`, `autoGravewright()`, … near the bottom of the file),
 read top to bottom; the first ability that `canUse()` wins:
 
@@ -684,7 +684,7 @@ a shield held) is read from the snapshot. Get this backwards and you either miss
 effects or leak emitters that never stop.
 
 **Tints are symbolic.** Write `'tone'`, never `0xff7a2f`. It is what lets one
-shared recipe come out orange for Fireball and violet for Ignite.
+shared recipe come out orange for Fireball and gold for the staff's strike.
 
 **One weight drives everything.** The director turns a damage number into a
 single `scale`, and that one value multiplies particle size, shockwave reach,

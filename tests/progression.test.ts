@@ -20,7 +20,7 @@ describe('leveling', () => {
     const sim = makeSim({
       content: testContent({ hp: 1, xp: 60, swingTicks: 30, dmgMin: 8, dmgMax: 8 }),
     })
-    sim.autoBattle = true
+    sim.autoDrive = true
     const events: ReturnType<typeof advance> = []
     for (let i = 0; i < 3000 && eventsOf(events, 'levelUp').length === 0; i++) {
       events.push(...sim.tick())
@@ -38,7 +38,7 @@ describe('leveling', () => {
 
   it('XP stops at the cap', () => {
     const sim = makeSim({ level: 15, content: testContent({ hp: 1, xp: 10_000 }) })
-    sim.autoBattle = true
+    sim.autoDrive = true
     advance(sim, 300)
     const progress = sim.progressSnapshot()
     expect(progress.level).toBe(15)

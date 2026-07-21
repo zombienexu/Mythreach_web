@@ -641,6 +641,271 @@ const DEFS: EnemyDef[] = [
       { kind: 'venom', name: 'Doomsong', everyTicks: 300, tickDamage: 7, intervalTicks: 20, tickCount: 6 },
     ],
   },
+
+  // ── Zone 6: Emberwall Breach (lv 16–18) ─────────────────────────────
+  {
+    id: 'breach-cinderling',
+    name: 'Breach Cinderling',
+    intro: 'A Breach Cinderling gutters up out of the molten rubble.',
+    level: 16, rank: 'normal', hp: 320, swingTicks: 40, dmgMin: 9, dmgMax: 13,
+    xp: 60, goldMin: 10, goldMax: 16, dropPct: 6,
+    portrait: { family: 'wisp', hue: 30 }, mechanics: [],
+  },
+  {
+    id: 'emberwall-legionary',
+    name: 'Emberwall Legionary',
+    intro: 'An Emberwall Legionary sets his shield in the gap and dares you.',
+    level: 16, rank: 'normal', hp: 660, swingTicks: 36, dmgMin: 16, dmgMax: 22,
+    xp: 130, goldMin: 22, goldMax: 33, dropPct: 16,
+    portrait: { family: 'revenant', hue: 25 }, mechanics: [],
+  },
+  {
+    id: 'molten-sapper',
+    name: 'Molten Sapper',
+    intro: 'A Molten Sapper drags a trail of slag toward the breach.',
+    level: 17, rank: 'normal', hp: 700, swingTicks: 46, dmgMin: 15, dmgMax: 21,
+    xp: 138, goldMin: 23, goldMax: 35, dropPct: 18,
+    portrait: { family: 'golem', hue: 35 },
+    mechanics: [
+      { kind: 'venom', name: 'Slagburn', everyTicks: 260, tickDamage: 8, intervalTicks: 20, tickCount: 5 },
+    ],
+  },
+  {
+    id: 'pyre-chaplain',
+    name: 'Pyre Chaplain',
+    intro: 'A Pyre Chaplain lifts both hands and the air begins to glow.',
+    level: 17, rank: 'normal', hp: 640, swingTicks: 52, dmgMin: 14, dmgMax: 19,
+    xp: 138, goldMin: 23, goldMax: 35, dropPct: 18,
+    portrait: { family: 'wisp', hue: 40 },
+    mechanics: [
+      { kind: 'hardcast', name: 'Immolate', castTicks: 64, cooldownTicks: 260, dmgMin: 30, dmgMax: 40 },
+    ],
+  },
+  {
+    id: 'siege-colossus',
+    name: 'Siege Colossus',
+    intro: 'A Siege Colossus grinds up to the wall on legs of hot iron.',
+    level: 18, rank: 'normal', hp: 820, swingTicks: 56, dmgMin: 22, dmgMax: 30,
+    xp: 146, goldMin: 24, goldMax: 37, dropPct: 16,
+    portrait: { family: 'golem', hue: 20 }, mechanics: [],
+  },
+  {
+    id: 'wallbreaker-ajmol',
+    name: 'Ajmol the Wallbreaker',
+    intro: 'AJMOL THE WALLBREAKER steps through the fire he set.',
+    level: 18, rank: 'elite', hp: 1500, swingTicks: 46, dmgMin: 25, dmgMax: 33,
+    xp: 460, goldMin: 70, goldMax: 100, dropPct: 50,
+    portrait: { family: 'titan', hue: 25 },
+    mechanics: [{ kind: 'enrage', hpPct: 30, swingMult: 0.65, dmgMult: 1.4 }],
+  },
+
+  // ── Zone 7: Stormharrow Line (lv 19–21) ─────────────────────────────
+  {
+    id: 'harrow-wisp',
+    name: 'Harrow Wisp',
+    intro: 'A Harrow Wisp crackles in off the surf.',
+    level: 19, rank: 'normal', hp: 390, swingTicks: 38, dmgMin: 11, dmgMax: 15,
+    xp: 78, goldMin: 12, goldMax: 18, dropPct: 6,
+    portrait: { family: 'wisp', hue: 200 }, mechanics: [],
+  },
+  {
+    id: 'drowned-reaver',
+    name: 'Drowned Reaver',
+    intro: 'A Drowned Reaver hauls itself over the parapet, streaming brine.',
+    level: 19, rank: 'normal', hp: 850, swingTicks: 34, dmgMin: 22, dmgMax: 29,
+    xp: 150, goldMin: 26, goldMax: 38, dropPct: 16,
+    portrait: { family: 'revenant', hue: 210 }, mechanics: [],
+  },
+  {
+    id: 'stormcaller-adept',
+    name: 'Stormcaller Adept',
+    intro: 'A Stormcaller Adept starts the chant that brings the lightning.',
+    level: 20, rank: 'normal', hp: 800, swingTicks: 52, dmgMin: 18, dmgMax: 24,
+    xp: 158, goldMin: 27, goldMax: 40, dropPct: 18,
+    portrait: { family: 'wisp', hue: 215 },
+    mechanics: [
+      { kind: 'hardcast', name: 'Chain Lightning', castTicks: 60, cooldownTicks: 240, dmgMin: 34, dmgMax: 46 },
+    ],
+  },
+  {
+    id: 'tempest-drake',
+    name: 'Tempest Drake',
+    intro: 'A Tempest Drake banks out of the squall, trailing static.',
+    level: 20, rank: 'normal', hp: 880, swingTicks: 44, dmgMin: 20, dmgMax: 27,
+    xp: 158, goldMin: 27, goldMax: 40, dropPct: 18,
+    portrait: { family: 'drake', hue: 205 },
+    mechanics: [
+      { kind: 'hardcast', name: 'Gale Breath', castTicks: 56, cooldownTicks: 260, dmgMin: 32, dmgMax: 44 },
+    ],
+  },
+  {
+    id: 'harrowcliff-warden',
+    name: 'Harrowcliff Warden',
+    intro: 'A Harrowcliff Warden plants itself where the path is narrowest.',
+    level: 21, rank: 'normal', hp: 1000, swingTicks: 56, dmgMin: 26, dmgMax: 35,
+    xp: 166, goldMin: 28, goldMax: 42, dropPct: 16,
+    portrait: { family: 'titan', hue: 230 }, mechanics: [],
+  },
+  {
+    id: 'tideturner-vael',
+    name: 'Vael, the Tideturner',
+    intro: 'VAEL, THE TIDETURNER, raises the sea like a wall behind her.',
+    level: 21, rank: 'elite', hp: 1750, swingTicks: 46, dmgMin: 30, dmgMax: 40,
+    xp: 520, goldMin: 85, goldMax: 120, dropPct: 50,
+    portrait: { family: 'drake', hue: 200 },
+    mechanics: [
+      { kind: 'enrage', hpPct: 30, swingMult: 0.65, dmgMult: 1.4 },
+      { kind: 'hardcast', name: 'Maelstrom', castTicks: 64, cooldownTicks: 320, dmgMin: 40, dmgMax: 54 },
+    ],
+  },
+
+  // ── Zone 8: Gravecall Barrows (lv 22–24) ────────────────────────────
+  {
+    id: 'barrow-mote',
+    name: 'Barrow Mote',
+    intro: 'A Barrow Mote peels off the grave-mist, cold and curious.',
+    level: 22, rank: 'normal', hp: 450, swingTicks: 36, dmgMin: 14, dmgMax: 18,
+    xp: 88, goldMin: 14, goldMax: 20, dropPct: 6,
+    portrait: { family: 'void', hue: 290 }, mechanics: [],
+  },
+  {
+    id: 'gravecall-thrall',
+    name: 'Gravecall Thrall',
+    intro: 'A Gravecall Thrall answers a draft-order it never signed.',
+    level: 22, rank: 'normal', hp: 1100, swingTicks: 40, dmgMin: 28, dmgMax: 37,
+    xp: 170, goldMin: 30, goldMax: 44, dropPct: 16,
+    portrait: { family: 'revenant', hue: 285 }, mechanics: [],
+  },
+  {
+    id: 'plaguebound-carrier',
+    name: 'Plaguebound Carrier',
+    intro: 'A Plaguebound Carrier shambles closer, and the air turns.',
+    level: 23, rank: 'normal', hp: 1150, swingTicks: 44, dmgMin: 26, dmgMax: 35,
+    xp: 178, goldMin: 31, goldMax: 46, dropPct: 18,
+    portrait: { family: 'spider', hue: 280 },
+    mechanics: [
+      { kind: 'venom', name: 'Barrow Plague', everyTicks: 240, tickDamage: 10, intervalTicks: 20, tickCount: 6 },
+    ],
+  },
+  {
+    id: 'bone-choirmaster',
+    name: 'Bone Choirmaster',
+    intro: 'A Bone Choirmaster raises a baton of fused vertebrae.',
+    level: 23, rank: 'normal', hp: 1050, swingTicks: 52, dmgMin: 24, dmgMax: 32,
+    xp: 178, goldMin: 31, goldMax: 46, dropPct: 18,
+    portrait: { family: 'void', hue: 300 },
+    mechanics: [
+      { kind: 'hardcast', name: 'Dirge', castTicks: 64, cooldownTicks: 260, dmgMin: 40, dmgMax: 54 },
+    ],
+  },
+  {
+    id: 'barrow-colossus',
+    name: 'Barrow Colossus',
+    intro: 'A Barrow Colossus stands, and a hundred graves stand with it.',
+    level: 24, rank: 'normal', hp: 1300, swingTicks: 58, dmgMin: 33, dmgMax: 44,
+    xp: 186, goldMin: 32, goldMax: 48, dropPct: 16,
+    portrait: { family: 'revenant', hue: 270 }, mechanics: [],
+  },
+  {
+    id: 'gravecaller-mourne',
+    name: 'Mourne, the Gravecaller',
+    intro: 'MOURNE, THE GRAVECALLER, reads your name off a list of the dead.',
+    level: 24, rank: 'elite', hp: 2200, swingTicks: 46, dmgMin: 38, dmgMax: 50,
+    xp: 600, goldMin: 100, goldMax: 140, dropPct: 50,
+    portrait: { family: 'void', hue: 285 },
+    mechanics: [
+      { kind: 'enrage', hpPct: 30, swingMult: 0.65, dmgMult: 1.4 },
+      { kind: 'venom', name: 'Deathgrip Rot', everyTicks: 240, tickDamage: 12, intervalTicks: 20, tickCount: 6 },
+    ],
+  },
+
+  // ── Apex world-bosses: the rare sighting on each new front ───────────
+  {
+    id: 'ember-warlord',
+    name: 'The Kindled Warlord',
+    intro: 'THE KINDLED WARLORD walks the breach he burned, and the fire kneels.',
+    level: 19, rank: 'boss', hp: 3400, swingTicks: 44, dmgMin: 26, dmgMax: 35,
+    xp: 1500, goldMin: 260, goldMax: 360, dropPct: 100,
+    portrait: { family: 'titan', hue: 22 },
+    mechanics: [
+      { kind: 'enrage', hpPct: 30, swingMult: 0.7, dmgMult: 1.35 },
+      { kind: 'hardcast', name: 'Wall of Fire', castTicks: 70, cooldownTicks: 340, dmgMin: 44, dmgMax: 58 },
+    ],
+  },
+  {
+    id: 'tempest-sovereign',
+    name: 'The Tempest Sovereign',
+    intro: 'THE TEMPEST SOVEREIGN rises on the storm she commands.',
+    level: 22, rank: 'boss', hp: 4200, swingTicks: 44, dmgMin: 30, dmgMax: 40,
+    xp: 1900, goldMin: 320, goldMax: 440, dropPct: 100,
+    portrait: { family: 'drake', hue: 205 },
+    mechanics: [
+      { kind: 'enrage', hpPct: 30, swingMult: 0.7, dmgMult: 1.35 },
+      { kind: 'hardcast', name: 'Thunderhead', castTicks: 74, cooldownTicks: 350, dmgMin: 50, dmgMax: 66 },
+    ],
+  },
+  {
+    id: 'barrow-king',
+    name: 'The Barrow-King',
+    intro: 'THE BARROW-KING reads the roll of the dead, and your name is on it.',
+    level: 25, rank: 'boss', hp: 5200, swingTicks: 44, dmgMin: 36, dmgMax: 48,
+    xp: 2500, goldMin: 420, goldMax: 560, dropPct: 100,
+    portrait: { family: 'void', hue: 285 },
+    mechanics: [
+      { kind: 'enrage', hpPct: 30, swingMult: 0.7, dmgMult: 1.4 },
+      { kind: 'venom', name: 'Grave Chill', everyTicks: 260, tickDamage: 14, intervalTicks: 20, tickCount: 6 },
+      { kind: 'hardcast', name: 'Dirge of the Drafted', castTicks: 80, cooldownTicks: 360, dmgMin: 60, dmgMax: 80 },
+    ],
+  },
+
+  // ── The Kindle Yard: sparring partners ──────────────────────────────
+  // Fellow conscripts in the training camp. They belong to no region's
+  // encounter tables — the camp script spawns them by id, as sparring matches
+  // (XP and Standing, no loot). Tuned for a staff-armed level-1 hero.
+  {
+    id: 'trainee-pell',
+    name: 'Trainee Pell',
+    intro: 'Trainee Pell squares up, grinning like this was his idea.',
+    level: 1, rank: 'normal', hp: 40, swingTicks: 44, dmgMin: 2, dmgMax: 4,
+    xp: 10, goldMin: 0, goldMax: 0, dropPct: 0,
+    portrait: { family: 'revenant', hue: 42 }, mechanics: [],
+  },
+  {
+    id: 'trainee-okka',
+    name: 'Trainee Okka',
+    intro: 'Trainee Okka rolls her shoulders and plants her staff.',
+    level: 1, rank: 'normal', hp: 48, swingTicks: 38, dmgMin: 2, dmgMax: 5,
+    xp: 12, goldMin: 0, goldMax: 0, dropPct: 0,
+    portrait: { family: 'revenant', hue: 48 }, mechanics: [],
+  },
+  {
+    id: 'trainee-varn',
+    name: 'Trainee Varn',
+    intro: 'Trainee Varn comes in fast — he always comes in fast.',
+    level: 1, rank: 'normal', hp: 55, swingTicks: 32, dmgMin: 3, dmgMax: 5,
+    xp: 14, goldMin: 0, goldMax: 0, dropPct: 0,
+    portrait: { family: 'revenant', hue: 36 }, mechanics: [],
+  },
+  {
+    id: 'sparhand-derrin',
+    name: 'Sparhand Derrin',
+    intro: 'Sparhand Derrin salutes with two fingers and starts a chant.',
+    level: 2, rank: 'normal', hp: 90, swingTicks: 36, dmgMin: 3, dmgMax: 6,
+    xp: 20, goldMin: 0, goldMax: 0, dropPct: 0,
+    portrait: { family: 'revenant', hue: 30 },
+    mechanics: [
+      { kind: 'hardcast', name: 'Ember Feint', castTicks: 60, cooldownTicks: 200, dmgMin: 8, dmgMax: 12 },
+    ],
+  },
+  {
+    id: 'sparhand-mavet',
+    name: 'Sparhand Mavet',
+    intro: 'Sparhand Mavet does not warm up. Mavet is always warm.',
+    level: 2, rank: 'normal', hp: 200, swingTicks: 34, dmgMin: 4, dmgMax: 7,
+    xp: 26, goldMin: 0, goldMax: 0, dropPct: 0,
+    portrait: { family: 'revenant', hue: 25 },
+    mechanics: [{ kind: 'enrage', hpPct: 35, swingMult: 0.7, dmgMult: 1.3 }],
+  },
 ]
 
 export const ENEMIES: Record<string, EnemyDef> = Object.fromEntries(DEFS.map((d) => [d.id, d]))

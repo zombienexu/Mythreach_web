@@ -74,13 +74,30 @@ describe('smolder ages and falls off', () => {
     expect(targetOf(sim)?.smolder).toBeNull()
   })
 
-  it('the lingering burn ticks damage over time', () => {
+  it('untrained Smolder is inert pressure — no free burn ticks', () => {
     const sim = makeSim({ content: testContent({ hp: 100_000 }) })
     advanceToSpawn(sim)
     sim.useAbility('fireball')
     advance(sim, 50)
-    const ev = advance(sim, 45) // a couple of 20-tick burn cadences
-    expect(eventsOf(ev, 'damage').some((e) => e.source === 'smolder')).toBe(true)
+    const ev = advance(sim, 45)
+    expect(eventsOf(ev, 'damage').some((e) => e.source === 'smolder')).toBe(false)
+  })
+
+  it('Lingering Flame ranks light the burn, fiercer per rank', () => {
+    const burnOver = (rank: number): number => {
+      const sim = makeSim({
+        content: testContent({ hp: 100_000 }),
+        save: { talents: rank > 0 ? { lingeringFlame: rank } : {} },
+      })
+      advanceToSpawn(sim)
+      sim.useAbility('fireball')
+      advance(sim, 50)
+      return eventsOf(advance(sim, 45), 'damage')
+        .filter((e) => e.source === 'smolder')
+        .reduce((s, e) => s + e.amount, 0)
+    }
+    expect(burnOver(1)).toBeGreaterThan(0)
+    expect(burnOver(3)).toBeGreaterThan(burnOver(1))
   })
 })
 

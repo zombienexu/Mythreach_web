@@ -84,10 +84,23 @@ describe('enrage', () => {
   })
 
   it('speeds up and hardens swings', () => {
-    const sim = makeSim({ level: 15, identity: gw, content: enrageContent() })
+    // Meatier than enrageContent: the auto-strike must not kill it during the
+    // 45-tick observation, or the second enraged swing never lands.
+    const sim = makeSim({
+      level: 15,
+      identity: gw,
+      content: testContent({
+        hp: 300,
+        swingTicks: 40,
+        dmgMin: 10,
+        dmgMax: 10,
+        mechanics: [{ kind: 'enrage', hpPct: 30, swingMult: 0.5, dmgMult: 2 }],
+      }),
+    })
     advanceToSpawn(sim)
     // Chip it below 30% HP without a lingering burn that would finish it off.
-    for (let i = 0; i < 8 && targetOf(sim) && !targetOf(sim)!.enraged; i++) {
+    // (Strikes hold during casts, so the chip is nearly all gravebolt.)
+    for (let i = 0; i < 14 && targetOf(sim) && !targetOf(sim)!.enraged; i++) {
       sim.useAbility('gravebolt')
       advance(sim, 44)
     }
@@ -155,7 +168,9 @@ describe('between-pack recovery', () => {
     // A single mob that hits but has few HP: clear it, then recover in the lull.
     const sim = makeSim({ content: testContent({ hp: 1, swingTicks: 20, dmgMin: 15, dmgMax: 15 }) })
     advanceToSpawn(sim)
-    advance(sim, 40) // eat a swing or two
+    // Sample after its swing at +20 but before the auto-strike kills it at
+    // +36 — the clear-heal would otherwise mend the wound before we read it.
+    advance(sim, 30)
     const hurt = sim.combatSnapshot().player.hp
     expect(hurt).toBeLessThan(sim.combatSnapshot().player.maxHp)
     // Kill the mob; the clear-heal + breather regen lift HP above the low.

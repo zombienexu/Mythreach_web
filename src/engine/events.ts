@@ -6,6 +6,8 @@ export type DamageSource =
   | 'enemyCast'
   | 'venom'
   | 'companion'
+  /** The staff's basic attack landing. */
+  | 'strike'
   /** The Arcanist's lingering Smolder ticking (not any one ability). */
   | 'smolder'
   /** A raised ally's blade (Exhume, Afterimage). */
@@ -88,7 +90,11 @@ export type CombatEvent =
   | { kind: 'smolderDetonated'; iid: number; stacks: number; band: SmolderBand }
   /** A foe came Exposed — from a read Focus (`viaFocus`) or from Flashpoint. */
   | { kind: 'openingCreated'; iid: number; viaFocus: boolean }
-  /** Focus resolved: `success` = it read a real tell and made an Opening. */
-  | { kind: 'focusUsed'; success: boolean; iid: number | null }
+  /** Focus resolved. `read` answered a foe's tell (deflect + Expose); `sharpen`
+   *  read your own wind-up (the landing strike hits harder); `whiff` found
+   *  nothing and eats the short lockout. `success` = not a whiff. */
+  | { kind: 'focusUsed'; success: boolean; mode: 'read' | 'sharpen' | 'whiff'; iid: number | null }
+  /** The staff's basic attack landed (`sharpened` = a banked Focus paid out). */
+  | { kind: 'strikeLanded'; iid: number; sharpened: boolean }
   /** A tell just opened on a foe — the moment to consider Focus. */
   | { kind: 'tellOpened'; iid: number }

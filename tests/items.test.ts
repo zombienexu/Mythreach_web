@@ -101,7 +101,7 @@ describe('equip and sell', () => {
       save: { inventory: bagFiller, nextUid: 500 },
       content: testContent({ hp: 1, dropPct: 100 }),
     })
-    sim.autoBattle = true
+    sim.autoDrive = true
     const events = advance(sim, 200)
     const drops = eventsOf(events, 'lootDropped')
     expect(drops.length).toBeGreaterThanOrEqual(1)
@@ -112,7 +112,7 @@ describe('equip and sell', () => {
 
   it('kills can drop loot into the bags', () => {
     const sim = makeSim({ content: testContent({ hp: 1, dropPct: 100 }) })
-    sim.autoBattle = true
+    sim.autoDrive = true
     const events = advance(sim, 200)
     const drops = eventsOf(events, 'lootDropped')
     expect(drops.length).toBeGreaterThanOrEqual(1)

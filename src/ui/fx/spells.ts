@@ -34,6 +34,8 @@ export type FxSource =
   | 'smolder'
   /** Focus — the read-the-foe deflection (FX-only). */
   | 'focus'
+  /** The staff's basic attack landing (FX-only, not an ability). */
+  | 'strike'
   /** Absorb shields wear this look, keyed by the shared 'barrier' buff. */
   | 'barrier'
 
@@ -269,6 +271,23 @@ export const SPELL_FX: Record<FxSource, SpellFx> = {
       { fx: 'hitStop', hold: 0.04 },
     ],
     sfx: { release: 'interrupt' },
+  },
+
+  // The Strike: a staff blow — wood and weight, not weave. Deliberately duller
+  // than any spell so the first Fireball reads as the revelation it is.
+  strike: {
+    tone: 0xd8b96a,
+    deep: 0x9a7440,
+    css: 'oklch(0.78 0.09 85)',
+    impact: [
+      { fx: 'flash', tint: 'tone', size: 30, life: 0.12, alpha: 0.5 },
+      { fx: 'burst', count: 5, speed: [60, 200], size: [4, 9], life: [0.2, 0.4], tint: 'mix', gravity: 240, drag: 1.3, endScale: 0.3, tex: 'shard' },
+    ],
+    crit: [
+      { fx: 'ring', tint: 'tone', from: 16, to: 110, life: 0.25, alpha: 0.7 },
+      { fx: 'shake', amp: 3, dur: 0.18 },
+    ],
+    sfx: { impact: 'hit', crit: 'crit' },
   },
 
   // Barrier: absorb-shield look, shared by every calling's shield (FX-only).

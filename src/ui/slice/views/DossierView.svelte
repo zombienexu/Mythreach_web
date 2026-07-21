@@ -3,28 +3,12 @@
   import AbilityIcon from '../../components/icons/AbilityIcon.svelte'
   import ItemTile from '../../components/ItemTile.svelte'
   import type { Game } from '../../game.svelte'
-  import { FRONTS, GRACE_TIERS, SERGEANT, STANDING_PER_CHARGE } from '../content'
+  import { GRACE_TIERS, SERGEANT, STANDING_PER_CHARGE } from '../content'
 
   let { game }: { game: Game } = $props()
 
   const ex = $derived(game.expedition)
   const taught = $derived(new Set(game.taught))
-
-  // Deployments: fronts open as Grace rises. Join each to its live region view.
-  const fronts = $derived(
-    FRONTS.map((f) => {
-      const region = game.progress.regions.find((r) => r.id === f.regionId)
-      return {
-        ...f,
-        name: region?.name ?? f.regionId,
-        epithet: region?.epithet ?? '',
-        band: region ? `Lv ${region.minLevel}–${region.maxLevel}` : '',
-        open: ex.frontOpen(f.tierIndex),
-        current: region?.current ?? false,
-        opensAt: GRACE_TIERS[f.tierIndex]?.name ?? '',
-      }
-    }),
-  )
 
   const SLOTS = ['staff', 'hood', 'robe', 'ring', 'trinket'] as const
   const SLOT_LABEL: Record<(typeof SLOTS)[number], string> = {
@@ -47,7 +31,7 @@
       .filter((q) => q.regionId === game.progress.regionId)
       .sort((a, b) => (STATE_ORDER[a.state] ?? 9) - (STATE_ORDER[b.state] ?? 9)),
   )
-  const currentFront = $derived(fronts.find((f) => f.current))
+  const currentRegion = $derived(game.progress.regions.find((r) => r.current))
 </script>
 
 <div class="dossier">
@@ -144,36 +128,10 @@
     </div>
   </section>
 
-  <!-- ── Deployments (fronts, gated by Grace) ─────────────── -->
-  <section class="panel console-panel ticked">
-    <header class="phead">
-      <span class="readout">deployments · fronts open as the legion trusts you</span>
-    </header>
-    <div class="fronts">
-      {#each fronts as f (f.regionId)}
-        <button
-          class="front"
-          class:current={f.current}
-          class:locked={!f.open}
-          disabled={!f.open || f.current}
-          onclick={() => game.enterRegion(f.regionId)}
-        >
-          <div class="front-top">
-            <span class="front-name">{f.name}</span>
-            {#if f.current}<span class="front-tag now">deployed</span>
-            {:else if !f.open}<span class="front-tag lock">opens · {f.opensAt}</span>
-            {:else}<span class="front-tag go">deploy ▸</span>{/if}
-          </div>
-          <span class="front-sub">{f.open ? f.epithet : '████████'} · {f.band}</span>
-        </button>
-      {/each}
-    </div>
-  </section>
-
   <!-- ── Orders (charges, scoped to the current front) ────── -->
   <section class="panel console-panel ticked">
     <header class="phead">
-      <span class="readout">orders · {SERGEANT} · {currentFront?.name ?? 'the front'}</span>
+      <span class="readout">orders · {SERGEANT} · {currentRegion?.name ?? 'the front'}</span>
       <span class="phead-sub">{activeCount}/3 underway — each pays standing &amp; coin</span>
     </header>
     <div class="charges">
@@ -438,73 +396,6 @@
   .sell:hover {
     border-color: var(--ember);
     color: var(--ember);
-  }
-
-  /* ── deployments ── */
-  .fronts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 8px;
-  }
-  .front {
-    text-align: left;
-    padding: 10px 12px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--console-line);
-    background: oklch(0.5 0.02 230 / 0.03);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    transition:
-      border-color var(--dur-fast),
-      transform var(--dur-fast);
-  }
-  .front:not(:disabled):hover {
-    border-color: var(--ember-war);
-    transform: translateY(-2px);
-  }
-  .front.current {
-    border-color: var(--ember-war);
-    background: oklch(0.72 0.19 45 / 0.06);
-    cursor: default;
-  }
-  .front.locked {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .front-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .front-name {
-    font-family: var(--font-display);
-    font-size: 14px;
-    color: var(--text);
-  }
-  .front.current .front-name {
-    color: var(--ember-glow);
-  }
-  .front-tag {
-    font-family: var(--font-mono);
-    font-size: 8px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .front-tag.now {
-    color: var(--ember-glow);
-  }
-  .front-tag.lock {
-    color: var(--signal-dim);
-  }
-  .front-tag.go {
-    color: var(--signal);
-  }
-  .front-sub {
-    font-size: 10.5px;
-    color: var(--text-dim);
   }
 
   /* ── charges ── */

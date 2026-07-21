@@ -1,11 +1,11 @@
 # Mythreach — Combat System Guide
 
-> The Fire Mage should not feel like a character executing a memorized rotation.
-> Combat should feel like a **duel**: watch the enemy, build pressure, choose the
-> perfect moment to unleash it.
+> The War-Weaver should not feel like a character executing a memorized rotation.
+> Combat should feel like a **duel**: watch the enemy, watch *yourself*, build
+> pressure, choose the perfect moment to unleash it.
 
-This document explains the redesigned combat system: the **universal** layer that
-every calling shares (Openings & Focus) and the **Fire Mage (Arcanist)** built on
+This document explains the combat system: the **universal** layer every calling
+shares (the Strike, Openings & Focus) and the **War-Weaver (Arcanist)** built on
 top of it (Smolder, Heat, and its six-spell kit).
 
 All timings are given in seconds and in **ticks** — the engine runs at **20 ticks
@@ -15,287 +15,305 @@ per second** (1 tick = 50 ms). The global cooldown (GCD) is **24 ticks / 1.2 s**
 
 ## 1. Design philosophy
 
-The Fire Mage is a **pressure-builder**. It does not overwhelm with constant
+The War-Weaver is a **pressure-builder**. It does not overwhelm with constant
 spam — it creates *inevitable* destruction. Every fight follows the same
 emotional arc:
 
 ```
-Create opportunity  →  Ignite  →  Feed the flames  →  Build pressure
-                                          ↓
-        Detonate   ←   Wait for the right moment
+Swing the staff  →  Read the moment  →  Ignite  →  Feed the flames
+                                                        ↓
+                    Detonate   ←   Wait for the right moment
 ```
 
-The depth comes from three simple systems **interacting**, not from a longer
+The depth comes from four simple systems **interacting**, not from a longer
 button sequence:
 
 | System | Lives on | One-line role |
 |---|---|---|
-| **Openings** | the enemy | Read the foe; a tell you answer with **Focus** to expose them. |
+| **The Strike** | you | The staff's auto-swing — always fighting, even spell-less. |
+| **Openings** | both sides | A timing read on **any swing about to land** — theirs *or yours* — answered with **Focus**. |
 | **Smolder** | the enemy | Lingering fire you stack and let *age*, then consume. |
-| **Heat** | you | Accumulated fire that *evolves* your Fireball as it climbs. |
+| **Heat** | you | Riding momentum: every point burns hotter, unfed it bleeds away. |
 
-Approachable at level 1 with a single spell; deep at level 10 through how the
-systems feed each other.
+Approachable at level 1 with a wooden staff and no spells at all; deep at level
+10 through how the systems feed each other.
 
 ---
 
-## 2. The universal layer — Openings & Focus
+## 2. The universal layer — the Strike
 
-Every enemy in the game — for every class — cycles through **combat states** you
-can read on its figure:
+Every hero swings their weapon. The staff **auto-attacks your target** on its own
+clock, League-style: you commit to a fight and the swings flow.
+
+- **Cadence:** one swing per **1.8 s** (36 ticks), shown as a wind-up bar in the
+  combat helm (and it can **crit** ×1.75).
+- **Damage:** `2 + level + ⌊staff ilvl / 2⌋` to that +4, scaled by **power**.
+  Bare hands still swing; a staff just swings harder. Every fresh conscript is
+  issued a **Wooden Training Staff** (ilvl 1, stat-less — it exists to be swung).
+- **Casting holds the swing.** A hardcast in flight parks the wind-up where it
+  is; it resumes the moment your hands are free. The GCD does *not* stop it.
+- **Dormant packs hold your strike poised** at the top of the wind-up — the
+  first blow stays yours to loose (any cast, or **Space** to release the strike).
+  When it lands, the field wakes (aggro).
+
+**Constants:** `STRIKE_SWING_TICKS=36`, `STRIKE_BASE=2`, `STRIKE_SPREAD=4`
+(in `src/engine/abilities.ts`). Resolution: `GameSim.resolveStrike()`.
+
+---
+
+## 3. The universal layer — Openings & Focus
+
+Every enemy cycles through **combat states** you can read on its figure:
 
 | State | What it means | Shown as |
 |---|---|---|
 | `guarded` | Neutral. Nothing to exploit. | (no special marker) |
-| `telegraph` | **Winding up** — a tell is open. | *"WINDING UP — FOCUS"* under the foe, totem pulses orange |
-| `exposed` | An **Opening** is live. | *"Exposed"*, foe glows gold, pool brightens |
+| `telegraph` | **Winding up** — a tell is open. | *"WINDING UP — FOCUS"*, totem pulses orange |
+| `exposed` | An **Opening** is live. | *"Exposed"*, foe glows gold |
 | `recovering` | Just committed a swing; briefly safe. | (no special marker) |
 
-### The tell
+And **you have a tell too**: the last **40%** of your own staff wind-up is the
+**Sharpen stretch** (the strike bar brightens through it).
 
-A foe becomes **readable** (`telegraph`) in the last **40%** of its swing wind-up
-(`swingProgress ≥ 0.6`) **or** any time it is hard-casting a spell. This is the
-only moment Focus bites.
+### Focus — the universal timing read (Space / the heart of the wheel)
 
-### Focus — the universal action
+One non-damaging action, three outcomes, priority top-down:
 
-Every character has one non-damaging combat action bound to the **heart of the
-ability wheel** and the **Spacebar**: **Focus**.
+1. **The read** — a foe is telegraphing (last 40% of its wind-up, or any
+   hardcast): you **deflect the incoming blow** (its swing resets; a hardcast is
+   *interrupted*) and the foe is **Exposed for 3 s**. This is the defensive
+   timing: Focus *right before their attack lands*.
+2. **The Sharpen** — no enemy tell, but your own swing is deep in its wind-up:
+   the landing blow is **Sharpened, +50%**. This is the offensive timing: Focus
+   *right before your own attack lands*.
+3. **The whiff** — nothing readable: a short **1.5 s** lockout so it can't be
+   mashed.
 
-- **Read (success):** press Focus while a foe is telegraphing → you **deflect the
-  incoming blow** (reset its swing; a hard-cast is *interrupted*), and the foe
-  becomes **Exposed for 3 s** (60 ticks). Focus then goes on a **2.5 s** cooldown.
-- **Whiff:** press Focus with no tell open → nothing happens and you eat a shorter
-  **1.5 s** lockout (so it can't be mashed).
-
-Focus prefers your current target if *it* is telegraphing; otherwise it reads
-whichever foe is winding up (so it works on a back-row caster mid-chant).
+A successful read or Sharpen costs the full **2.5 s** Focus cooldown.
 
 ### What an Opening is worth
 
-While a foe is **Exposed**:
+While a foe is **Exposed**: it takes **+30% damage** from everything you do,
+Fireball into it lays an extra Smolder and banks an extra Heat, Kindle lays 2.
 
-- It takes **+30% damage** from *everything* you do to it.
-- **Fireball** cast into it lays an **extra Smolder** (2 instead of 1) and banks
-  an **extra Heat** (+2 instead of +1).
-- **Kindle** lays **2** Smolder instead of 1.
-
-> **The core level-1 loop:** watch the foe → Focus its tell → Fireball into the
-> Opening. Even with one offensive spell you are making decisions and reacting to
-> the enemy.
+> **The staff-only loop (the training camp):** let the staff swing → Space late
+> in *your* wind-up to Sharpen → Space on *their* wind-up to deflect and Expose.
+> Zero spells, and you are already playing a timing duel from both sides.
 
 **Constants:** `OPENING_TICKS=60`, `OPENING_DMG_PCT=30`, `FOCUS_CD_TICKS=50`,
-`FOCUS_WHIFF_CD_TICKS=30`, `TELL_FROM_PROGRESS=0.6` (in `src/engine/abilities.ts`).
-Focus itself is `GameSim.focus()` (`src/engine/sim.ts`) — deliberately **not** an
+`FOCUS_WHIFF_CD_TICKS=30`, `TELL_FROM_PROGRESS=0.6`, `STRIKE_TELL_FROM=0.6`,
+`STRIKE_SHARPEN_PCT=50`. Focus is `GameSim.focus()` — deliberately **not** an
 ability id, so it never competes for a wheel seat or a hotkey.
 
 ---
 
-## 3. The Fire Mage — Smolder
+## 4. The War-Weaver — Smolder
 
 **Smolder** is the Arcanist's setup mechanic: lingering fire attached to a foe,
 shown as a row of embers above its figure.
 
-- **Max 5 stacks** per foe.
-- **Each stack ages on its own clock** and grows fiercer as it matures.
+- **Max 5 stacks** per foe; **each stack ages on its own clock**.
 - A lone stack **falls off after 11 s** if untended.
-- Every **1 s**, all stacks together deal a small **lingering burn** (damage
-  source `smolder`).
-- Stacks are **consumed** by Detonate and Inferno.
+- Stacks are **consumed** by Detonate and Inferno — that is their purpose.
+- **Untrained, Smolder deals no damage on its own.** It is *pressure*: fuel you
+  bank and cash in. The free burn tick was deliberately moved out of the level-1
+  kit — it made the opening levels play themselves.
+- The **Lingering Flame** talent (3 ranks) lights the burn: with it, every stack
+  burns each second — fiercer as it ages, and again per rank.
 
 ### Aging bands
 
-| Band | Age | Lingering burn / stack / s | Detonate value / stack | Feel |
+| Band | Age | Burn / stack / s *(per Lingering Flame rank)* | Detonate value / stack | Feel |
 |---|---|---|---|---|
-| **Fresh** | 0–2 s (0–40t) | 1 | 6 | Just laid. Weakest. |
-| **Heated** | 2–5 s (40–100t) | 2 | 11 | Settling in. |
-| **Volatile** | 5 s+ (100t→) | 3 | 18 | **Ripe.** Flares visibly. Detonate *now.* |
+| **Fresh** | 0–2 s | 1 | 6 | Just laid. Weakest. |
+| **Heated** | 2–5 s | 2 | 11 | Settling in. |
+| **Volatile** | 5 s+ | 3 | 18 | **Ripe.** Flares visibly. Detonate *now.* |
 
 *(Values scale with your spell power before landing.)*
 
-This creates the central decision: **detonate now, or let it ripen?** A field of
-five Fresh stacks is a moderate hit; the same field left to go Volatile is a
-bomb — but stacks **expire at 11 s**, so waiting too long loses them. The Volatile
-window (5 s → 11 s) is a wide-but-finite 6-second sweet spot.
-
-Because Fireball has a 2.2 s cast, Fireball alone tops out around 3–4 concurrent
-stacks (older ones age off as you cast). **Kindle** (instant) and **Wildfire**
-(seeds the pack) are how you actually reach 5.
+The central decision is unchanged: **detonate now, or let it ripen?** A field of
+five Fresh stacks is a moderate hit; the same field gone Volatile is a bomb —
+but stacks expire at 11 s, so the Volatile window (5 s → 11 s) is wide but finite.
 
 **Constants:** `SMOLDER_MAX=5`, `SMOLDER_DURATION_TICKS=220`,
 `SMOLDER_HEATED_AT=40`, `SMOLDER_VOLATILE_AT=100`, `SMOLDER_TICK_TICKS=20`,
-`SMOLDER_BURN`, `DETONATE_PER_STACK`.
+`SMOLDER_BURN` (per rank), `DETONATE_PER_STACK`; the burn gate is the
+`smolderBurn` class mod from the `lingeringFlame` talent.
 
 ---
 
-## 4. The Fire Mage — Heat
+## 5. The War-Weaver — Heat
 
-**Heat** is accumulated fire *in you* (0–10). It is **not** a mana replacement and
-does **not** add flat damage. Instead it **changes what Fireball does** as it
-climbs — a far more interesting reward than a percentage.
+**Heat** is riding momentum (0–10). *"Nobody masters the Weave. You chase the
+boil your whole life."* — it is designed so you can never sit on a full bar.
 
+- **Every point of Heat burns your fire +3% hotter** — a visible, immediate ramp.
 - Banked by offensive fire: **+1** per Fireball, **+2** per Detonate, **+1** per
   Kindle (**+1 extra** when Fireball is loosed into an Opening).
-- **Resets to 0 between fights** — every fight rebuilds the spark-to-blaze arc.
-- Caps at **10** and never overflows.
-- Spent all at once by **Flashpoint** and **Inferno**.
+- **Unfed Heat bleeds away:** −1 every 3 s your hands are idle. A cast in flight
+  counts as feeding it (the decay clock parks while you're casting).
+- **The Boil (10):** your next Fireball is a **Blaze** — it pierces the whole
+  pack at full damage and Smolders everything — *and then the fire slips your
+  grip*: **Heat crashes to 0** and the climb begins again.
+- Resets between fights. Never persists. Never mastered.
 
 ### Heat evolves the Fireball
 
 | Heat | Band | Fireball becomes |
 |---|---|---|
-| 0–4 | **Building** | Single target. Your bread and butter. |
+| 0–4 | **Riding** | Single target, +3%/point. |
 | 5–9 | **Empowered** | **Splashes** up to 2 other foes for 40% + a lick of Smolder each. |
-| 10 | **Overheat** | **Pierces the whole pack** at full damage, Smolders them all — burning ground. |
-
-The gauge beside the wheel reads the band live (*"Building Heat" / "Empowered:
-Fireball splashes the pack" / "Overheat: Fireball pierces the line"*) and climbing
-into a hotter band gives a flash and a sound (`heatChanged` event, `crossedUp`).
+| 10 | **The Boil** | The **Blaze**: pierces the whole pack, Smolders them all — then crashes to 0. |
 
 **Constants:** `HEAT_MAX=10`, `HEAT_EMPOWERED_AT=5`, `HEAT_OVERHEAT_AT=10`,
-`HEAT_PER_FIREBALL=1`, `HEAT_PER_DETONATE=2`, `HEAT_PER_KINDLE=1`,
-`HEAT_OPENING_BONUS=1`, `FIREBALL_SPLASH_PCT=40`.
+`HEAT_FIRE_PCT_PER_POINT=3`, `HEAT_DECAY_TICKS=60`, `HEAT_PER_FIREBALL=1`,
+`HEAT_PER_DETONATE=2`, `HEAT_PER_KINDLE=1`, `HEAT_OPENING_BONUS=1`,
+`FIREBALL_SPLASH_PCT=40`.
 
 ---
 
-## 5. The kit — spell by spell
+## 6. The kit — spell by spell
 
-Six seats on the wheel (hotkeys 1–6), plus universal Focus on the heart / Space.
-Everything is fire school. Damage scales with **power** (`3 × (level−1) + gear`),
-school bonuses, and crit (**×1.75**).
+Six seats on the wheel (hotkeys 1–6), plus universal Focus on the heart / Space
+and the staff swinging underneath it all. Everything is fire school. Damage
+scales with **power** (`3 × (level−1) + gear`), school bonuses, Heat, and crit
+(**×1.75**).
 
-### 1 · Fireball — *unlocks L1*
+### 1 · Fireball — *taught at Blooded (the First Weaving)*
 `14 mana · 2.2 s cast · no cooldown`
 
-Your workhorse. Deals a base fire hit (**16–24** + power), lays **1 Smolder**, and
-banks **1 Heat**. Its behaviour evolves with Heat (see §4). Cast into an Opening:
-**+1 Smolder, +1 Heat**, and the hit itself gets the Exposed **+30%**.
+Your workhorse. Deals a base fire hit (**16–24** + power + Heat), lays
+**1 Smolder**, banks **1 Heat**. Its behaviour evolves with Heat (see §5). Cast
+into an Opening: **+1 Smolder, +1 Heat**, and the hit gets the Exposed **+30%**.
 
-### 2 · Detonate — *unlocks L3*
+### 2 · Detonate — *taught at Hardened*
 `12 mana · instant · 3 s cooldown` — *requires ≥1 Smolder on the target*
 
 Sets off **every** Smolder stack at once. Damage = the sum of each stack's band
-value (Fresh 6 / Heated 11 / Volatile 18), then power- and crit-scaled. Banks
-**2 Heat**. The first major decision of the class: cash a small Fresh field now for
+value (Fresh 6 / Heated 11 / Volatile 18), then power/Heat/crit-scaled. Banks
+**2 Heat**. The first major decision of the class: cash a Fresh field now for
 tempo, or wait for Volatile and hit like a landslide.
 
-### 3 · Kindle — *unlocks L5*
+### 3 · Kindle — *taught at Trusted*
 `10 mana · instant · 5 s cooldown`
 
 Instantly lays **1 Smolder** — **2** if the target is Exposed. Banks **1 Heat**.
-The fast way to build pressure without a cast, and the tool that lets you actually
-reach 5 stacks. Kindling into an Opening is a strong tempo play.
+The fast way to build pressure without a cast (and to keep Heat fed between casts).
 
-### 4 · Wildfire — *unlocks L7*
+### 4 · Wildfire — *taught at Sworn of the Ember*
 `20 mana · instant · 15 s cooldown`
 
 Two things at once:
-- **Active:** seeds **2 Smolder** on **every** living foe — an instant field-wide setup.
-- **Passive (while learned):** whenever you **consume** Smolder (Detonate/Inferno),
-  living fire **leaps to the rest of the pack** — each other foe takes **45%** of
-  the detonation as splash and catches **1 Smolder** (2 if the consumed field was
-  Volatile).
+- **Active:** seeds **2 Smolder** on **every** living foe.
+- **Passive (while learned):** whenever you **consume** Smolder, living fire
+  **leaps to the rest of the pack** — each other foe takes **45%** of the
+  detonation as splash and catches **1 Smolder** (2 if the field was Volatile).
 
-This is where the Fire Mage graduates from single-target to **battlefield control**
-and target prioritisation.
-
-### 5 · Flashpoint — *unlocks L9*
+### 5 · Flashpoint — *taught at Ember-Lord*
 `14 mana · instant · 20 s cooldown` — *requires ≥1 Heat*
 
-**Manufacture your own moment.** Spends **all** your Heat to force a **guaranteed
-Opening** on the target — Exposed for `max(3 s, Heat × 0.4 s)`, so a full 10 Heat
-buys a **4 s** Opening. Agency: stop waiting for enemy mistakes and make one.
+**Manufacture your own moment.** Spends **all** your Heat to force a guaranteed
+Opening — Exposed for `max(3 s, Heat × 0.4 s)`.
 
-### 6 · Inferno — *unlocks L11 (capstone)*
+### 6 · Inferno — *taught at Pyre-Sovereign (capstone)*
 `26 mana · instant · 25 s cooldown` — *requires Heat or Smolder to spend*
 
-The apocalypse. Spends **all** your Heat **and** every Smolder across the field in
-one bloom. Per-foe damage = `Heat × 4 + (age-weighted Smolder) × 9`, where Smolder
-is weighted by band (Volatile ×2, Heated ×1.5, Fresh ×1), then power/crit scaled.
-The greed-vs-safety payoff: *do I Detonate now, or keep building toward Inferno?*
+The apocalypse. Spends **all** your Heat **and** every Smolder across the field
+in one bloom. Per-foe damage = `Heat × 4 + (age-weighted Smolder) × 9`
+(Volatile ×2, Heated ×1.5, Fresh ×1), then power/crit scaled.
 
 ### Quick reference
 
-| # | Spell | Unlock | Mana | Cast | CD | Consumes | Builds |
+| # | Spell | Grace | Mana | Cast | CD | Consumes | Builds |
 |---|---|---|---|---|---|---|---|
-| 1 | Fireball | L1 | 14 | 2.2 s | — | — | 1 Smolder, 1 Heat |
-| 2 | Detonate | L3 | 12 | instant | 3 s | all Smolder | 2 Heat |
-| 3 | Kindle | L5 | 10 | instant | 5 s | — | 1–2 Smolder, 1 Heat |
-| 4 | Wildfire | L7 | 20 | instant | 15 s | — | 2 Smolder (all foes) + spread |
-| 5 | Flashpoint | L9 | 14 | instant | 20 s | all Heat | guaranteed Opening |
-| 6 | Inferno | L11 | 26 | instant | 25 s | all Heat + all Smolder | massive AoE |
-| ♦ | **Focus** | L1 | — | instant | 2.5 s | — | an Opening (Space / heart) |
+| — | **The Strike** | issued at the gate | — | 1.8 s swing | — | — | (auto-attack) |
+| ♦ | **Focus** | issued at the gate | — | instant | 2.5 s | — | an Opening / a Sharpen |
+| 1 | Fireball | Blooded (45) | 14 | 2.2 s | — | — | 1 Smolder, 1 Heat |
+| 2 | Detonate | Hardened (140) | 12 | instant | 3 s | all Smolder | 2 Heat |
+| 3 | Kindle | Trusted (300) | 10 | instant | 5 s | — | 1–2 Smolder, 1 Heat |
+| 4 | Wildfire | Sworn (520) | 20 | instant | 15 s | — | 2 Smolder (all foes) + spread |
+| 5 | Flashpoint | Ember-Lord (780) | 14 | instant | 20 s | all Heat | guaranteed Opening |
+| 6 | Inferno | Pyre-Sovereign (1080) | 26 | instant | 25 s | all Heat + all Smolder | massive AoE |
 
 ---
 
-## 6. Talents
+## 7. Talents
 
-Nine points by level 10 (one per level from 2). The Arcanist tree
-(`src/engine/content/talents.ts`):
+Points come one per level from 2. The Arcanist tree
+(`src/engine/content/talents.ts`) — seven talents:
 
 | Talent | Max | Per rank |
 |---|---|---|
 | Improved Fireball | 5 | −0.1 s Fireball cast |
 | Quickened Flame | 5 | −0.1 s Fireball cast |
 | Searing Flames | 5 | +8% fire damage |
+| **Lingering Flame** | 3 | Smolder burns each second, ×rank |
 | Critical Mass | 5 | +2% crit |
 | Fortitude | 5 | +6% max health |
 | Meditation | 5 | +12% mana regen |
 
-The bundled level-10 save pours its 9 points into **Improved Fireball 3 /
-Searing Flames 3 / Critical Mass 3** for a snappy, hard-hitting, crit-happy feel.
+**Lingering Flame is the old free burn, relocated.** At rank 1 it restores
+exactly the pre-rework burn; ranks 2–3 grow it — a real build choice instead of
+a level-1 freebie.
 
 ---
 
-## 7. How the kit unlocks
+## 8. How the kit unlocks — Grace, and the Kindle Yard
 
-In the slice, access is **Grace** (the Legion's trust — `Standing`), not raw
-level; power still scales with level. Grace tiers
-(`src/ui/slice/content.ts`) teach the kit in order:
+Access is **Grace** (the Legion's trust — Standing), not raw level; power still
+scales with level. A recruit is taught **nothing**: the staff and Focus are the
+whole level-1 kit, and the training camp (see `docs/GDD.md` §3) teaches them
+before the first spell is ever granted.
 
 | Tier | Standing | Teaches |
 |---|---|---|
-| Recruit | 0 | Fireball |
-| Blooded | 45 | Detonate |
-| Hardened | 140 | Kindle |
-| Trusted | 300 | Wildfire |
-| Sworn of the Ember | 520 | Flashpoint |
-| Ember-Lord | 780 | Inferno |
+| Recruit | 0 | — (a staff, a bunk, and a name) |
+| Blooded | 45 | Fireball *(the proving crosses this — the First Weaving)* |
+| Hardened | 140 | Detonate *(the boar order lands you here)* |
+| Trusted | 300 | Kindle |
+| Sworn of the Ember | 520 | Wildfire |
+| Ember-Lord | 780 | Flashpoint |
+| Pyre-Sovereign | 1080 | Inferno |
 
 *(The raw `unlockLevel`s — 1/3/5/7/9/11 — govern the level-up banner and the
 legacy level gate; the capstone lands at 11, an invariant the tests enforce.)*
 
 ---
 
-## 8. Playing it — the loop at each stage
+## 9. Playing it — the loop at each stage
 
-**Level 1 (Fireball + Focus).** Watch the foe. When it winds up, **Space** to
-Focus its tell → **Fireball** into the Opening (extra Smolder, extra Heat, +30%).
-Repeat. Already a reactive duel.
+**The Kindle Yard (no spells).** The staff swings itself; you play the timing.
+Space late in your own wind-up → Sharpened blow. Space on their wind-up →
+deflect + Expose. The whole game in miniature, with one button.
 
-**Mid game (+ Detonate, Kindle).** Build a Smolder field — Fireball lays it,
-Kindle stacks it fast, Focus-Openings make Kindle lay two. Let it **age to
-Volatile**, then **Detonate** at the peak. Watch your Heat climb Fireball into its
-**Empowered** splash.
+**Blooded (Fireball).** Watch the foe. Focus its tell → Fireball into the
+Opening (extra Smolder, extra Heat, +30%). The staff keeps swinging between
+casts. Heat starts mattering: every point is +3%, and stopping bleeds it.
 
-**Level 10 (full kit).** Open with **Wildfire** to seed the whole pack, ride
-**Heat** to **Overheat** so Fireball pierces the line, **Flashpoint** to
-manufacture an Opening when the enemy won't give one — then decide: **Detonate**
-now for tempo (and let Wildfire spread the fire), or hold and dump everything into
-**Inferno** for a field-clearing bloom.
+**Mid game (+ Detonate, Kindle).** Build a Smolder field, let it **age to
+Volatile**, **Detonate** at the peak. Ride Heat into **Empowered** so Fireball
+splashes. Spend a talent point on **Lingering Flame** if you want the field to
+gnaw while it ripens.
 
-Every action feeds another system. You are always balancing five questions:
-**When can I strike? (Openings) · How much pressure have I built? (Smolder) · Is
-it ripe? (age) · Should I spend or save? (Heat) · Can I spread it further?
-(enemy count)**
+**Full kit.** Open with **Wildfire**, ride Heat to **the Boil** and spend the
+Blaze through the whole line, **Flashpoint** to manufacture an Opening when the
+enemy won't give one — then decide: **Detonate** now for tempo (Wildfire spreads
+it), or hold and dump everything into **Inferno**.
+
+You are always balancing six questions: **When do they strike? (their tell) ·
+When do I? (my wind-up) · How much pressure is banked? (Smolder) · Is it ripe?
+(age) · Am I riding or bleeding? (Heat) · Spend or save? (the boil)**
 
 ---
 
-## 9. Cheat sheet
+## 10. Cheat sheet
 
 ```
-SPACE / heart   Focus  — deflect a tell, Expose the foe (2.5 s CD)
-1  Fireball     cast; lay Smolder, build Heat; evolves at 5 / 10 Heat
+(auto)  Staff       swings every 1.8 s; casts hold it; crits happen
+SPACE   Focus       their tell → deflect + Expose (+30%)
+                    your late wind-up → Sharpen the landing blow (+50%)
+                    nothing open → whiff (1.5 s lockout)
+1  Fireball     cast; lay Smolder, build Heat; splashes at 5, Blazes at 10
 2  Detonate     blow the field — older stacks hit far harder
 3  Kindle       instant Smolder (2 if Exposed)
 4  Wildfire     seed the pack + fire spreads on every consume
@@ -304,27 +322,29 @@ SPACE / heart   Focus  — deflect a tell, Expose the foe (2.5 s CD)
 
 Openings :  read the "WINDING UP — FOCUS" tell → +30% dmg while Exposed
 Smolder  :  Fresh → Heated (2s) → Volatile (5s) → falls off (11s); max 5
-Heat     :  0–4 single · 5–9 splash · 10 pierce+ground; resets per fight
+            inert until Lingering Flame is talented — fuel, not a faucet
+Heat     :  +3%/point · −1 per idle 3 s · at 10 the Blaze fires, then crash
 ```
 
 ---
 
-## 10. Where it lives (for maintainers)
+## 11. Where it lives (for maintainers)
 
 | Concern | File |
 |---|---|
 | Constants (all tunables) | `src/engine/abilities.ts` |
 | Ability defs & effects | `src/engine/abilities.ts` |
 | Kit & talents | `src/engine/content/classes.ts`, `content/talents.ts` |
-| Smolder / Heat / Openings / Focus resolution | `src/engine/sim.ts` |
+| Strike / Smolder / Heat / Openings / Focus resolution | `src/engine/sim.ts` |
 | Per-enemy Smolder & combat state | `src/engine/enemyUnit.ts` |
-| Events | `src/engine/events.ts` (`heatChanged`, `smolderApplied`, `smolderDetonated`, `openingCreated`, `focusUsed`, `tellOpened`) |
+| Strike & Sharpen state | `src/engine/playerUnit.ts` (snapshot via `StrikeSnapshot`) |
+| Events | `src/engine/events.ts` (`strikeLanded`, `heatChanged`, `smolderApplied`, `smolderDetonated`, `openingCreated`, `focusUsed`, `tellOpened`) |
 | Heat gauge widget | `src/ui/slice/WeaveHeat.svelte` |
+| Strike bar (wind-up + Sharpen stretch) | `src/ui/slice/views/ArenaView.svelte` |
 | Smolder pips + tell/Exposed visuals | `src/ui/components/EnemyFigure.svelte` |
-| Space → Focus wiring | `src/ui/game.svelte.ts` (`hubAction` / `focus`) |
-| FX recipes | `src/ui/fx/spells.ts`, `palette.ts`, `director.ts` |
-| Tests | `tests/spells.test.ts`, `tests/heat.test.ts` |
+| Space wiring (provoke / Focus / engage) | `src/ui/game.svelte.ts` (`hubAction`) |
+| FX recipes (incl. the strike's thwack) | `src/ui/fx/spells.ts`, `palette.ts`, `director.ts` |
+| Tests | `tests/strike.test.ts`, `tests/spells.test.ts`, `tests/heat.test.ts` |
 
 Tuning is data: nearly every feel decision is a constant at the top of
-`abilities.ts` (durations, band thresholds, per-stack values, Heat gains, Opening
-damage). Change the number, run `npm test`.
+`abilities.ts`. Change the number, run `npm test`.

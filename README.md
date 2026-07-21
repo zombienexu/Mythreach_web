@@ -2,19 +2,23 @@
 
 **An RPG you actually play — and your absence is simply respected.**
 
-Mythreach is a dashboard RPG with the clean presentation of the incremental
-genre's best — and a combat system you actually *play*: an MMO-style action bar
-with cast times, cooldowns, a global cooldown with spell queueing, interrupts,
-and healing decisions under pressure. It is **active-only**: no away-from-game
-progression, no passive accrual. When you step away, the world simply waits for
-you.
+Mythreach is a dashboard action-RPG wrapped in a science-fiction frame: you are
+a far-future **Fieldworker** whose consciousness is projected into a lost
+magical past to *recover* a dead art by living it. Combat is real — an
+MMO-style kit with cast times, cooldowns, spell queueing, interrupts, an
+auto-swinging weapon, and one universal timing read (**Focus**) that rewards
+watching both your foe's wind-up and your own. It is **active-only**: no
+away-from-game progression, no passive accrual. When you step away, the world
+simply waits for you.
 
-The current build is a complete single-player game: a title screen with three
-save slots and a character-creation ceremony, five free-choice hunting regions,
-thirty-five enemies fought as discrete pack encounters, seven abilities, mana,
-crits, XP and levels, loot with rarities, crafting materials, fifteen traveler
-quests, talents, achievements, a persistent world boss, a hireling companion,
-auto-battle, and local saves — all driven by one deterministic, pure engine.
+The current build is a complete single-player slice: a title screen with three
+save slots, a five-beat onboarding (naming → lore → the Projection Station →
+arrival), **the Kindle Yard** — a WoW-style recruitment-camp opening where you
+duel fellow trainees with a wooden staff before the Legion teaches you your
+first spell — then eight war-fronts (levels 1–24), a field board of rolled
+sightings with rare champions and apex world-bosses, quests, talents, loot,
+materials, a Standing → Grace teaching ladder, a research Codex, and local
+saves — all driven by one deterministic, pure engine.
 
 ![The title screen](docs/shot-title.png)
 
@@ -36,9 +40,10 @@ Design pillars:
    detonate. Fire clings to what it burns. The presentation is austere by
    design and violent on purpose.
 3. **Hands-on combat is the differentiator.** The dashboard audience wants
-   moments of mastery. Active play (rotations, cooldown usage, interrupt timing)
-   meaningfully beats passive play without being mandatory — the auto-battle
-   echo runs a sensible priority, but it doesn't burst bosses like you do.
+   moments of mastery. Rotations, cooldown usage, and above all *timing* — the
+   Focus read on any swing about to land, theirs or yours — are the skill
+   expression. There is no auto-battle; the staff swings itself, but every
+   decision is the player's.
 4. **Respect absence — don't simulate it.** The game is active-only: no
    away-from-game catch-up and no passive accrual. Close the tab and nothing
    happens; your absence is respected by the world simply waiting for you.
@@ -54,78 +59,41 @@ time is your own.**
 
 ## The game
 
-The game opens on the title screen: three save slots, a settings panel (sound,
-screen shake, reduced motion), and — on an unwritten page — the
-**character-creation ceremony**: name your hero (or let fate write it), choose
-a calling, an origin, and the constellation you were born under.
+The app opens on the title screen: three save slots and a settings panel. A
+fresh slot runs the onboarding — name your conscript, watch the Institute's
+briefing, choose the one open world at the **Projection Station**, and arrive
+at **the Kindle Yard**, the Ember Legion's recruitment camp.
 
-![Character creation](docs/shot-create.png)
+**The camp is the tutorial, diegetically.** You start with a Wooden Training
+Staff and no magic at all. Your staff **auto-attacks** (League-style basic
+attacks with a visible wind-up bar); **Focus (Space)** is the one universal
+action — pressed on a foe's tell it deflects the blow and cracks them Exposed,
+pressed late in *your own* wind-up it Sharpens the landing strike. Three
+staff-only duels against fellow trainees teach exactly that. Winning them earns
+the **First Weaving** — a full-screen ceremony where the Legion teaches
+**Fireball** — then two more duels teach **Heat** (momentum: +3% fire per
+point, bleeding away unfed, crashing to cold after the overheat Blaze — never
+mastered, only ridden). Graduation hands you the oldest first quest in the
+genre: **kill six boars**, and the world opens.
 
-**All six callings are playable**, each with its own kit, talents, resource
-and auto-battle brain: the **Arcanist** (the classic rotation), the
-**Gravewright** (kills become ledger pages; pages become pets, heals, or one
-enormous Final Chapter), the **Hourwarden** (everything is instant, everything
-is borrowed, and every 16 seconds the Reckoning collects), the **Cartomancer**
-(a visible hand of fate cards, with control valves for the variance), the
-**Thornspeaker** (a briar that grows every tick — let it ride or harvest it),
-and the **Riftblade** (build rift charges with fast strikes, spend them all on
-one edge; lock a pack outside a Doorway Duel). Origins lean (+XP, +HP, +gold,
-+regen) and birth signs intervene — the Tower turns one killing blow per fight
-into 1 HP. Design notes per class live in `docs/CLASSES.md`; mechanics live in
-the engine (`src/engine/content/classes.ts`, `identity.ts`), while the lore
-and constellation art stay UI-side (`src/ui/content/identity.ts`).
+Beyond the gate the loop is: the **field board** rolls 3–4 sightings per
+rotation (common packs, rare champions, an occasional **apex** world-boss) —
+pick your fight, clear it, loot the corpses, the board rotates. Kills and
+quest turn-ins earn **Standing**; Standing crosses **Grace tiers** where the
+Legion teaches the next spell (Detonate → Kindle → Wildfire → Flashpoint →
+Inferno); the **Codex** fills by *witnessing the magic behave* (crits,
+detonations, interrupts, enraged kills) and transmits home as the Recovery
+percentage. Eight fronts ladder from Hollowroot Cavern (Lv 1–3) to the
+Gravecall Barrows (Lv 22–24), the deep three gated behind the Legion's fullest
+trust. Quests, gear with rarities, materials, seven data-driven talents, a
+persistent world boss, and a hireling companion round out the world.
 
-In the world, your hero hunts across **five free-choice regions** —
-Hollowroot Cavern to the Ruined Spire, level bands 1–3 up to 13–15, all open
-from the start, none gated. Combat comes as **discrete, player-started
-fights**: press Start fight (or let auto-battle chain them) and a pack of one
-to three mobs spawns — a lone brute, a pair, or a vanguard of minions screening
-something meaner casting in the back row. Click a card (or Tab) to switch
-targets; Counterspell only reads *your target's* lips, so the caster hiding
-behind its whelps is your problem to solve. When the pack falls, the fight ends
-in a **looting phase**: each corpse banks its own gold, materials and items —
-collect per card, or sweep the field with `R`.
-
-**The spellbook** (keys `1`–`7`, unlocked by level):
-
-| Key | Ability | Type | What it does |
-|-----|---------|------|--------------|
-| `1` | Fireball | 2.2 s cast | 16–24 fire damage, the filler |
-| `2` | Ignite | Instant, 8 s CD | burn: 5/s for 6 s, refreshable |
-| `3` | Renew (Lv 2) | 1.8 s cast, 5 s CD | heals 20–28, scales with spirit |
-| `4` | Pyroblast (Lv 4) | 3.5 s cast, 12 s CD | 48–64 fire damage |
-| `5` | Counterspell (Lv 6) | Instant, off-GCD, 15 s CD | interrupts your target's hardcast — switch to the caster first |
-| `6` | Arcane Barrier (Lv 8) | Instant, 20 s CD | absorb shield, 25 + 5/level |
-| `7` | Combustion (Lv 11) | Instant, 30 s CD | 12 s: +25% fire damage, +20% crit |
-
-Combat runs on a 1.2 s global cooldown with a forgiving spell queue: press
-anything during a cast or GCD and it fires the moment it legally can. Mana
-regenerates on a spirit-scaled clock and is the throttle on your burst. Spells
-crit for 175%. Cooldowns start when an ability *resolves*; casts whose target
-died mid-flight fizzle and refund their mana.
-
-**Enemies fight back with mechanics**: elites and bosses *enrage* below 30%
-HP (faster, harder swings), casters wind up interruptible *hardcasts*, and
-venomous creatures stack damage-over-time on you.
-
-**Progression**: XP → levels 1–15 (new spells, talent points, full restore),
-gold, and generated items in four rarities across five slots — power, stamina,
-spirit, and crit budgets that scale with item level. Six talents with five
-ranks each shape your build; respec costs 50 gold. Ten **crafting materials**
-drop by region tier — inert for now, they stack, sell, and wait for a crafting
-system. Seventeen achievements track your deeds.
-
-**Quests**: fifteen one-shot traveler quests on the Quests board — kill or
-collect objectives tied to a region, up to three underway at once, paying XP,
-gold, and sometimes gear. Each giver speaks in their own voice; abandon freely,
-turn in when the traveler pays up.
-
-**Scaffolds of the multiplayer future**: systems shipped single-player for
-features a server would someday own. **The Rift Colossus** is a world boss with
-a persistent HP pool that survives across assaults, banking your damage each
-time and paying out when felled. **Records** track world-boss fells and best
-assault damage. And you can **hire a companion** — a sellsword who fights at
-your side on her own timer.
+The engine still carries **six full callings** (Arcanist, Gravewright,
+Hourwarden, Cartomancer, Thornspeaker, Riftblade) — the slice ships the
+Arcanist as the Ember Legion's War-Weaving; the other worlds on the Projection
+Station are the roadmap. Design docs: `docs/GDD.md` (the game),
+`docs/COMBAT.md` (the combat system), `docs/GUIDE.md` (the player handbook),
+`docs/CLASSES.md` (calling design), `docs/EXTENDING.md` (the content cookbook).
 
 ### Run it
 
@@ -138,9 +106,9 @@ npm run dev
 |--------|--------------|
 | `npm run dev` | dev server with HMR |
 | `npm run build` / `preview` | production build / serve it |
-| `npm test` | the contract — 175 Vitest cases incl. an engine-purity guard and a progression balance envelope |
+| `npm test` | the contract — ~270 Vitest cases incl. an engine-purity guard and a progression balance envelope |
 | `npm run check` | svelte-check + tsc, strict mode |
-| `npm run shots` | build + headless Playwright screenshots into `docs/` (first run: `npx playwright install chromium`) |
+| `npm run smoke` | build + headless Playwright drive of the real opening, camp and combat (first run: `npx playwright install chromium`) |
 
 ## Architecture
 
@@ -192,7 +160,7 @@ Everything else follows from a few load-bearing ideas:
   rolls, and encounter picks all flow through it, which is why the balance
   suite can Monte-Carlo the entire arc headlessly. A `purity.test.ts` reads
   every engine source and fails the build on any ambient global, `Date.now`, or
-  reach into the UI world. Saves are **v4** (v1–v3 saves still load, their dead
+  reach into the UI world. Saves are **v5** (v1–v4 saves still load, their dead
   fields ignored); live fight state is never persisted — reload and the field
   is clear.
 - **Active-only, by construction.** There is no away-from-game path.
@@ -202,7 +170,8 @@ Everything else follows from a few load-bearing ideas:
 ### The UI: a 60 fps view of a 20 Hz truth
 
 The app opens on a **title screen** (`src/App.svelte` is a small screen
-machine: title → character creation → game). Three **save slots** live in
+machine: title → naming → opening lore → world select → arrival → game).
+Three **save slots** live in
 `src/ui/profile.ts` — slot 1 keeps the original save key, so pre-title-screen
 characters surface on it unmigrated — alongside per-slot identity profiles
 (name, class, origin, birth sign) and shared settings (sound, screen shake,
@@ -217,12 +186,11 @@ store that owns the sim for one slot, publishes snapshots, and autosaves to
 a fireball's damage is dealt on the tick the sim says so, but it isn't *shown*
 until the bolt lands.
 
-Seven views hang off a sidebar: **Combat** (the pack in formation up top, your
-card above the action bar), **Character** (stats, paper-doll, bags with
-stat-delta compare, materials), **Talents**, **Regions** (free travel and the
-Rift Colossus panel), **Quests** (the traveler board), **Chronicle** (lifetime
-stats, records, achievements), and **Settings** (identity, save management,
-return to title). The sim never pauses while you shop.
+Four destinations hang off the uplink rail: **Arena** (the camp's sparring
+circle pre-graduation, then the field board and the fight itself), **Map**
+(the warfront atlas — locked until graduation), **Dossier** (standing,
+loadout, orders), and **Codex** (research chapters and the Recovery). The sim
+never pauses while you shop.
 
 ### The combat FX: effects as data
 
@@ -326,7 +294,7 @@ boss announces itself, and a reduced-motion player downloads neither.
 
 ### The tests: the contract
 
-`tests/` holds 175 cases across twenty-two files: an **engine-purity guard**
+`tests/` holds ~270 cases across twenty-nine files (incl. `strike.test.ts` — the auto-swinging weapon and the Focus Sharpen — and `camp.test.ts` — the Kindle Yard script and the sparring seam): an **engine-purity guard**
 that fails the build on any ambient global or wall-clock in the engine, the
 unit rules (combatant, DoT, RNG), every ability's exact timing (GCD, queueing,
 fizzle refunds, cooldown-at-resolve), enemy mechanics and encounters on custom
@@ -345,13 +313,10 @@ minutes at level 1. Balance changes that break the feel break the build.
 ## Where this goes next
 
 The loop is proven and the content pack, the FX layer, the talents and the
-class kits are all data, so new spells, enemies, regions and even callings are
-cheap. With all six classes live, the candidates are: class-flavored quests
-and achievements, crafting over the material bags, prestige/rebirth, more
-enemy mechanics that interact with the class kits (dispellable buffs, adds
-worth burying), gear enchanting as a gold sink, and cloud saves. See
-`HANDOFF.md` for the working state of the codebase and `docs/CLASSES.md` for
-the class design notes.
+class kits are all data, so new spells, enemies, regions and even worlds are
+cheap. The roadmap lives in `docs/GDD.md` §8: camp polish first, then the
+second world (a new calling, camp, Grace ladder and Codex), then crafting over
+the material economy and a genuinely shared world boss.
 
 ## More shots
 

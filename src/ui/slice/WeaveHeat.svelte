@@ -1,15 +1,25 @@
 <script lang="ts">
-  /** The Arcanist's Heat gauge: ten rungs of accumulated fire that evolve the
-   *  Fireball as they climb. A full-width bar that sits directly above the
-   *  abilities. The heat it carries washes the whole page in a deepening orange
+  /** The Arcanist's Heat gauge: ten rungs of riding momentum. Every point
+   *  burns your fire +3% hotter; unfed Heat bleeds away; at ten the next
+   *  Fireball is a Blaze that pierces the line — and then the fire slips your
+   *  grip back to cold. The heat washes the whole page in a deepening orange
    *  glow (driven from the arena, not here). */
+  import { HEAT_FIRE_PCT_PER_POINT } from '../../engine'
+
   let { heat }: { heat: number; focusReady?: boolean; focusCd?: number } = $props()
 
   const heatf = $derived(Math.max(0, Math.min(1, heat / 10)))
   const band = $derived(heat >= 10 ? 'overheat' : heat >= 5 ? 'empowered' : 'cold')
-  const state = $derived(heat >= 10 ? 'Overheat' : heat >= 5 ? 'Empowered' : 'Building Heat')
+  const state = $derived(heat >= 10 ? 'The Boil' : heat >= 5 ? 'Empowered' : 'Riding Heat')
+  const bonus = $derived(heat * HEAT_FIRE_PCT_PER_POINT)
   const hint = $derived(
-    heat >= 10 ? 'Fireball pierces the whole line + burning ground' : heat >= 5 ? 'Fireball splashes the pack' : 'stoke fire to empower Fireball',
+    heat >= 10
+      ? 'next Fireball pierces the line — then the fire slips your grip'
+      : heat >= 5
+        ? `+${bonus}% fire · Fireball splashes the pack`
+        : heat > 0
+          ? `+${bonus}% fire · feed it or it bleeds away`
+          : 'weave to build Heat — every point burns hotter',
   )
 </script>
 

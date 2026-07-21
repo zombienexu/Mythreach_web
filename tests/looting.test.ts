@@ -201,7 +201,7 @@ describe('loot is never destroyed', () => {
 describe('the discrete loop end to end', () => {
   it('auto-battle plays the whole loop alone', () => {
     const sim = makeSim({ level: 15, content: testContent({ hp: 1 }) })
-    sim.autoBattle = true
+    sim.autoDrive = true
     const events = advance(sim, 600)
     expect(eventsOf(events, 'enemySpawned').length).toBeGreaterThanOrEqual(1)
     expect(eventsOf(events, 'encounterCleared').length).toBeGreaterThanOrEqual(1)

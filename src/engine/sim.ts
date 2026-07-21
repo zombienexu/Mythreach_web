@@ -24,13 +24,21 @@ import {
   REWIND_HEAL_PCT,
   RIFT_TEAR_SPLASH_PCT,
   STASIS_FREEZE_TICKS,
+  // ── the staff's basic attack ──
+  STRIKE_BASE,
+  STRIKE_SHARPEN_PCT,
+  STRIKE_SPREAD,
+  STRIKE_SWING_TICKS,
+  STRIKE_TELL_FROM,
   // ── the Arcanist's fire ──
   DETONATE_PER_STACK,
   FIREBALL_SPLASH_PCT,
   FLASHPOINT_TICKS_PER_HEAT,
   FOCUS_CD_TICKS,
   FOCUS_WHIFF_CD_TICKS,
+  HEAT_DECAY_TICKS,
   HEAT_EMPOWERED_AT,
+  HEAT_FIRE_PCT_PER_POINT,
   HEAT_MAX,
   HEAT_OPENING_BONUS,
   HEAT_OVERHEAT_AT,
@@ -95,6 +103,7 @@ import type {
   SaveData,
   School,
   SmolderBand,
+  StrikeSnapshot,
   TalentId,
 } from './types'
 import {
@@ -121,6 +130,25 @@ export interface SimOptions {
   /** Who this hero is. Defaults to a signless, originless Arcanist — every
    *  save that predates the callings. */
   identity?: HeroIdentity
+}
+
+/** Picks a *specific* encounter for {@link GameSim.startFight}. All fields are
+ *  optional; an omitted or out-of-range field falls back to the random roll. */
+export interface FightSpec {
+  /** Draw from the normal or the elite table (default: weighted random roll). */
+  table?: 'normal' | 'elite'
+  /** Index into the chosen table's encounter list (default: weighted pick). */
+  index?: number
+  /** Spawn exactly this roster of enemy defIds — the seam the field board uses
+   *  to compose a sighting (e.g. a lone apex world-boss). Takes precedence over
+   *  table/index. Every id must exist in the content pack. */
+  enemyIds?: readonly string[]
+  /** Spawn the pack already provoked — an ambush, with no free first strike. */
+  engaged?: boolean
+  /** A sparring match (the training camp): kills pay XP and Standing but bank
+   *  no loot, advance no kill-quests, and the field clears itself on the win —
+   *  you do not strip your comrades' corpses. */
+  sparring?: boolean
 }
 
 /** The whole game: pure, synchronous, integer-tick simulation of combat AND
@@ -160,7 +188,9 @@ export class GameSim {
     worldBossFells: 0,
     bestAssaultDamage: 0,
   }
-  autoBattle = false
+  /** test-only auto-driver; no player-facing surface. Tests set this to make
+   *  the sim play itself so combat can be exercised headlessly. */
+  autoDrive = false
 
   /** Grace-gated teaching (the redesign): when non-null, an ability is usable
    *  only if the world has *taught* it — access is decoupled from level, which
@@ -178,6 +208,10 @@ export class GameSim {
    *  player gets a free first strike, and only once damage lands ("pulling
    *  aggro") does every mob on the field wake and begin attacking. */
   private engaged = false
+
+  /** Is the current fight a sparring match (the training camp)? Sparring pays
+   *  XP and Standing but banks no loot and advances no kill-quests. */
+  private sparring = false
 
   // ── world boss (scaffold) ──
   private worldBossHp = WORLD_BOSS_MAX_HP
@@ -209,6 +243,19 @@ export class GameSim {
     const first = this.content.regions[0]
     if (!first) throw new Error('content pack has no regions')
     this.region = first
+    // Every conscript is issued a wooden training staff. Stat-less — it only
+    // feeds the strike formula — so derived stats are untouched by it. A
+    // loaded save replaces the whole equipped record with its own gear.
+    this.equipped = {
+      staff: {
+        uid: this.nextUid++,
+        name: 'Wooden Training Staff',
+        slot: 'staff',
+        ilvl: 1,
+        rarity: 'common',
+        stats: {},
+      },
+    }
     this.stats = deriveStats(this.identity, this.level, this.talents, this.equipped)
     this.player = new PlayerUnit(this.stats)
   }
@@ -246,7 +293,10 @@ export class GameSim {
   private resetFightState(): void {
     const p = this.player
     p.cheatedDeath = false
+    p.strikeElapsed = 0
+    p.sharpenReady = false
     p.heat = 0
+    p.heatIdle = 0
     p.focusCd = 0
     p.lastHitTaken = 0
     p.debt = 0
@@ -257,20 +307,42 @@ export class GameSim {
   }
 
   /** Start the next fight: mostly a normal encounter, occasionally an elite.
-   *  Spawns immediately — the click is the countdown. */
-  startFight(): boolean {
+   *  Spawns immediately — the click is the countdown.
+   *
+   *  Called bare, it rolls a random encounter (the auto-driver and the old hub
+   *  path). Given a {@link FightSpec}, it instead spawns a *chosen* encounter —
+   *  the seam the field board uses so the player decides which sighting to face
+   *  (a table pick, or an explicit roster like a lone apex world-boss). An
+   *  out-of-range or empty spec falls back to the random roll, so a stale board
+   *  can never wedge it. */
+  startFight(spec?: FightSpec): boolean {
     if (this.phase !== 'idle' || !this.player.alive) return false
-    const elite = this.region.eliteEncounters.length > 0 && rollPct(this.rng, 12)
-    const table = elite ? this.region.eliteEncounters : this.region.encounters
-    const slots: EncounterSlot[] = pickWeighted(
-      this.rng,
-      table.map((e) => ({ value: e.slots, weight: e.weight })),
-    )
+    let slots: EncounterSlot[]
+    if (spec?.enemyIds && spec.enemyIds.length > 0) {
+      slots = spec.enemyIds.map((enemyId) => ({ enemyId }))
+    } else {
+      const table =
+        spec?.table === 'elite' && this.region.eliteEncounters.length > 0
+          ? this.region.eliteEncounters
+          : spec?.table === 'normal'
+            ? this.region.encounters
+            : this.region.eliteEncounters.length > 0 && rollPct(this.rng, 12)
+              ? this.region.eliteEncounters
+              : this.region.encounters
+      slots =
+        spec?.index !== undefined && spec.index >= 0 && spec.index < table.length
+          ? table[spec.index]!.slots
+          : pickWeighted(
+              this.rng,
+              table.map((e) => ({ value: e.slots, weight: e.weight })),
+            )
+    }
     this.enemies = slots.map(
       (s) => new EnemyUnit(this.enemyDef(s.enemyId), this.nextIid++, s.row ?? 'front'),
     )
     this.phase = 'combat'
-    this.engaged = false
+    this.engaged = spec?.engaged ?? false
+    this.sparring = spec?.sparring ?? false
     this.resetFightState()
     this.autoTarget()
     for (const e of this.enemies) {
@@ -411,6 +483,35 @@ export class GameSim {
         this.startAbility(q)
       } else if (!this.queueStillValid(q)) {
         p.queued = null
+      }
+    }
+
+    // The staff's basic attack: auto-swings at the target whenever you are in
+    // a fight and not mid-cast (weaving holds the swing; the GCD does not).
+    // Against a dormant pack the wind-up holds poised at the top instead of
+    // landing — the first blow stays yours to loose (a spell, or the strike
+    // released by provoking the field).
+    if ((this.phase === 'combat' || this.phase === 'assault') && p.cast === null && this.target) {
+      if (!this.engaged && p.strikeElapsed >= STRIKE_SWING_TICKS - 1) {
+        p.strikeElapsed = STRIKE_SWING_TICKS - 1
+      } else {
+        p.strikeElapsed++
+        if (p.strikeElapsed >= STRIKE_SWING_TICKS) {
+          p.strikeElapsed = 0
+          this.resolveStrike()
+        }
+      }
+    }
+
+    // Unfed Heat bleeds away — the fire is momentum, never a possession. A
+    // cast in flight counts as feeding it: your hands are in the fire, so the
+    // decay clock only runs while they are idle.
+    if (this.kit.id === 'arcanist' && p.heat > 0 && p.cast === null) {
+      p.heatIdle++
+      if (p.heatIdle >= HEAT_DECAY_TICKS) {
+        p.heatIdle = 0
+        p.heat--
+        this.push({ kind: 'heatChanged', heat: p.heat, band: this.heatBand(p.heat), crossedUp: false })
       }
     }
 
@@ -595,7 +696,7 @@ export class GameSim {
   }
 
   private autoThenDrain(): CombatEvent[] {
-    if (this.autoBattle) this.autoAct()
+    if (this.autoDrive) this.autoAct()
     return this.drain()
   }
 
@@ -742,6 +843,8 @@ export class GameSim {
     let amount = Math.round((this.rollRange(min, max) * (100 + this.stats.power)) / 100)
     let pct = 100 + (this.stats.schoolBonusPct[school] ?? 0)
     if (school === 'fire' && this.player.combustion > 0) pct += COMBUSTION_FIRE_BONUS_PCT
+    // Heat is momentum: every point you are riding burns the fire hotter.
+    if (school === 'fire') pct += this.player.heat * HEAT_FIRE_PCT_PER_POINT
     amount = Math.round((amount * pct) / 100)
     // A Hot Streak Pyroblast is a guaranteed crit — consumed here, once.
     let crit = rollPct(this.rng, this.critChance(school))
@@ -769,10 +872,12 @@ export class GameSim {
     return 'cold'
   }
 
-  /** Bank Heat (capped at 10), announcing the moment it climbs a band. */
+  /** Bank Heat (capped at 10), announcing the moment it climbs a band.
+   *  Feeding the fire also resets the unfed-decay clock. */
   private heatGain(n: number): void {
     const p = this.player
     if (n <= 0 || this.kit.id !== 'arcanist') return
+    p.heatIdle = 0
     const before = p.heat
     p.heat = Math.min(HEAT_MAX, p.heat + n)
     if (p.heat === before) return
@@ -803,8 +908,10 @@ export class GameSim {
     if (added > 0) this.push({ kind: 'smolderApplied', iid: e.iid, stacks: e.smolder.length, spread })
   }
 
-  /** Age a foe's Smolder one tick: mature the stacks, drop the burned-out ones,
-   *  and deal the lingering burn on cadence. Returns true if the foe died. */
+  /** Age a foe's Smolder one tick: mature the stacks, drop the burned-out
+   *  ones, and — once Lingering Flame is talented — deal the lingering burn on
+   *  cadence. Untalented Smolder is inert pressure: fuel for Detonate, no free
+   *  damage. Returns true if the foe died. */
   private tickSmolder(e: EnemyUnit): boolean {
     for (let i = e.smolder.length - 1; i >= 0; i--) {
       e.smolder[i]!++
@@ -814,11 +921,13 @@ export class GameSim {
       e.smolderBurnTimer = 0
       return false
     }
+    const rank = this.stats.mods.smolderBurn ?? 0
+    if (rank <= 0) return false
     e.smolderBurnTimer++
     if (e.smolderBurnTimer < SMOLDER_TICK_TICKS) return false
     e.smolderBurnTimer = 0
     let base = 0
-    for (const age of e.smolder) base += SMOLDER_BURN[smolderBandOf(age)]
+    for (const age of e.smolder) base += SMOLDER_BURN[smolderBandOf(age)] * rank
     const amount = Math.max(1, Math.round((base * (100 + this.stats.power)) / 100))
     this.damageEnemyUnit(e, amount, false, 'smolder')
     return !e.combatant.alive
@@ -881,12 +990,48 @@ export class GameSim {
         this.applySmolder(o, 1)
       }
     }
-    this.heatGain(HEAT_PER_FIREBALL + (exposed ? HEAT_OPENING_BONUS : 0))
+    // The Blaze spends itself: an overheat Fireball pierces the line, and then
+    // the fire slips your grip — Heat crashes to cold. Never mastered.
+    if (band === 'overheat') this.spendAllHeat()
+    else this.heatGain(HEAT_PER_FIREBALL + (exposed ? HEAT_OPENING_BONUS : 0))
   }
 
-  /** Focus — the universal read-the-foe action (heart of the wheel / Space).
-   *  Answer a tell and the foe comes Exposed; whiff and you eat a short lockout.
-   *  Returns false only when Focus itself can't act (dead, on cooldown). */
+  // ═══════════════ The Strike: the staff's basic attack ═══════════════
+
+  /** The strike's damage roll bounds: level, plus the equipped staff's heft.
+   *  Bare-handed still swings — a staff just swings harder. */
+  private strikeRange(): [number, number] {
+    const staff = this.equipped.staff
+    const min = STRIKE_BASE + this.level + (staff ? Math.floor(staff.ilvl / 2) : 0)
+    return [min, min + STRIKE_SPREAD]
+  }
+
+  /** A wind-up completes: the staff lands on the target. Power and crit scale
+   *  it; a banked Sharpen (Focus read into your own swing) pays out here. */
+  private resolveStrike(): void {
+    const e = this.target
+    if (!e) return
+    const p = this.player
+    const [min, max] = this.strikeRange()
+    let amount = Math.round((this.rollRange(min, max) * (100 + this.stats.power)) / 100)
+    const sharpened = p.sharpenReady
+    if (sharpened) {
+      p.sharpenReady = false
+      amount = Math.round((amount * (100 + STRIKE_SHARPEN_PCT)) / 100)
+    }
+    // A staff blow is not a fire spell — it rolls the base crit lane.
+    const crit = rollPct(this.rng, this.critChance('arcane'))
+    if (crit) amount = Math.round((amount * 7) / 4)
+    this.push({ kind: 'strikeLanded', iid: e.iid, sharpened })
+    this.damageEnemyUnit(e, Math.max(1, amount), crit, 'strike')
+  }
+
+  /** Focus — the universal timing read (heart of the wheel / Space), on any
+   *  swing about to land, theirs or yours. A foe's open tell wins: deflect the
+   *  committed blow and crack them Exposed. Failing that, your own wind-up
+   *  deep in its final stretch Sharpens the landing strike. Nothing readable —
+   *  a whiff and a short lockout. Returns false only when Focus itself can't
+   *  act (dead, on cooldown). */
   focus(): boolean {
     const p = this.player
     if (!p.alive || p.focusCd > 0) return false
@@ -902,12 +1047,25 @@ export class GameSim {
       p.focusCd = FOCUS_CD_TICKS
       this.setTarget(e.iid)
       this.push({ kind: 'openingCreated', iid: e.iid, viaFocus: true })
-      this.push({ kind: 'focusUsed', success: true, iid: e.iid })
+      this.push({ kind: 'focusUsed', success: true, mode: 'read', iid: e.iid })
+      return true
+    }
+    // Your own tell: deep in the wind-up, the blow can still be turned.
+    const t = this.target
+    if (
+      t &&
+      !p.sharpenReady &&
+      p.cast === null &&
+      p.strikeElapsed / STRIKE_SWING_TICKS >= STRIKE_TELL_FROM
+    ) {
+      p.sharpenReady = true
+      p.focusCd = FOCUS_CD_TICKS
+      this.push({ kind: 'focusUsed', success: true, mode: 'sharpen', iid: t.iid })
       return true
     }
     // A whiff: nothing to read. Short lockout so it can't be mashed.
     p.focusCd = FOCUS_WHIFF_CD_TICKS
-    this.push({ kind: 'focusUsed', success: false, iid: null })
+    this.push({ kind: 'focusUsed', success: false, mode: 'whiff', iid: null })
     return true
   }
 
@@ -1439,8 +1597,10 @@ export class GameSim {
     }
 
     this.addXp(def.xp)
-    e.loot = this.rollBundle(def)
-    this.questKillProgress(def)
+    // Sparring pays in experience and Standing only — you do not loot your
+    // comrades, and a training bout hunts nobody's quarry.
+    e.loot = this.sparring ? null : this.rollBundle(def)
+    if (!this.sparring) this.questKillProgress(def)
 
     this.checkAchievement('first-blood', true)
     this.checkAchievement('kills-100', this.lifetime.kills >= 100)
@@ -1488,6 +1648,8 @@ export class GameSim {
     this.phase = 'looting'
     // Clearing a pack mends a quarter of your health — the reward for a clean win.
     if (p.alive) p.combatant.heal(Math.round((p.combatant.maxHp * 25) / 100))
+    // A sparring circle holds no spoils: the field clears itself on the win.
+    if (this.sparring) this.clearField()
   }
 
   /** ~35% of kills cough up a stack of one of the current region's materials.
@@ -1853,6 +2015,7 @@ export class GameSim {
     this.phase = 'assault'
     // A world boss you march up to is hostile on arrival — no dormant grace.
     this.engaged = true
+    this.sparring = false
     this.resetFightState()
     const def: EnemyDef = { ...WORLD_BOSS, hp: this.worldBossHp }
     const unit = new EnemyUnit(def, this.nextIid++)
@@ -1956,12 +2119,27 @@ export class GameSim {
     }
   }
 
+  /** The live strike view, or null when nothing is being swung at. */
+  private strikeSnapshot(): StrikeSnapshot | null {
+    if ((this.phase !== 'combat' && this.phase !== 'assault') || this.target === null) return null
+    const p = this.player
+    const [dmgMin, dmgMax] = this.strikeRange()
+    const progress = Math.min(1, p.strikeElapsed / STRIKE_SWING_TICKS)
+    return {
+      progress,
+      windowOpen: progress >= STRIKE_TELL_FROM,
+      sharpenReady: p.sharpenReady,
+      dmgMin,
+      dmgMax,
+    }
+  }
+
   combatSnapshot(): Readonly<CombatSnapshot> {
     const p = this.player
     return {
       tick: this.tickCount,
       phase: this.phase,
-      player: p.snapshot(this.stats),
+      player: p.snapshot(this.stats, this.strikeSnapshot()),
       enemies: this.enemies.map((e) => e.snapshot()),
       engaged: this.engaged,
       target: this.targetIid,
@@ -1976,7 +2154,6 @@ export class GameSim {
       queued: p.queued,
       cooldowns: { ...p.cooldowns },
       gcdRemaining: p.gcd,
-      autoBattle: this.autoBattle,
       resource: this.resourceSnapshot(),
       echo: p.echo
         ? {
@@ -2086,7 +2263,6 @@ export class GameSim {
       worldBossHp: this.worldBossHp,
       companionId: this.companionId,
       ledgerPages: this.player.pages,
-      autoBattle: this.autoBattle,
     }
   }
 
@@ -2149,7 +2325,6 @@ export class GameSim {
     }
     sim.worldBossHp = (data.worldBossHp as number | undefined) ?? WORLD_BOSS_MAX_HP
     sim.companionId = (data.companionId as string | null | undefined) ?? null
-    sim.autoBattle = data.autoBattle ?? false
     // Resolve the region: regionId (v3+) or zoneId (v1/v2), mapped through the
     // legacy table when needed; an unknown id falls back to the first region.
     const saved = (raw.regionId as string | undefined) ?? (raw.zoneId as string | undefined) ?? ''
@@ -2163,7 +2338,7 @@ export class GameSim {
     return sim
   }
 
-  // ─────────────────────── auto-battle ───────────────────────
+  // ─────────── test-only auto-driver (no player-facing surface) ───────────
 
   private autoAct(): void {
     const p = this.player

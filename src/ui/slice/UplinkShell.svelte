@@ -10,10 +10,12 @@
   import Vignette from '../components/Vignette.svelte'
   import type { Game, View } from '../game.svelte'
   import { loadSettings } from '../profile'
+  import { GRADUATION_SEND_OFF } from './camp'
   import { FACTION, FIRST_ORDER, SERGEANT } from './content'
   import ArenaView from './views/ArenaView.svelte'
   import CodexView from './views/CodexView.svelte'
   import DossierView from './views/DossierView.svelte'
+  import MapView from './views/MapView.svelte'
 
   let { game, onexit }: { game: Game; onexit: () => void } = $props()
 
@@ -28,19 +30,18 @@
   const ex = $derived(game.expedition)
   const NAV: { id: View; label: string; hint: string }[] = [
     { id: 'arena', label: 'Arena', hint: 'the front' },
+    { id: 'map', label: 'Map', hint: 'fronts · difficulty' },
     { id: 'dossier', label: 'Dossier', hint: 'standing · loadout · charges' },
     { id: 'codex', label: 'Codex', hint: 'research · recovery' },
   ]
 
-  // teaching ceremony
+  // teaching ceremony — the Fireball teach is the First Weaving: the camp's
+  // big moment, dressed grander than any later rite.
   const teaching = $derived(ex.justTaught)
   const teachNames = $derived((teaching ?? []).map((id) => ABILITIES[id]?.name ?? id))
-  // arrival briefing
-  const firstOrder = $derived(game.progress.quests.find((q) => q.id === FIRST_ORDER))
-  function toOrders(): void {
-    ex.clearBriefing()
-    game.setView('dossier')
-  }
+  const firstWeaving = $derived(teaching?.includes('fireball') ?? false)
+  // graduation — Vale's send-off and the classic first order
+  const boarOrder = $derived(game.progress.quests.find((q) => q.id === FIRST_ORDER))
 </script>
 
 <Background hue={FACTION.hue} />
@@ -55,14 +56,17 @@
       <span class="readout">uplink</span>
     </div>
     {#each NAV as n (n.id)}
+      {@const locked = n.id === 'map' && ex.inCamp}
       <button
         class="dest"
         class:on={game.view === n.id}
+        class:locked
+        disabled={locked}
         onclick={() => game.setView(n.id)}
         aria-current={game.view === n.id}
       >
         <span class="dest-label">{n.label}</span>
-        <span class="dest-hint">{n.hint}</span>
+        <span class="dest-hint">{locked ? 'opens at graduation' : n.hint}</span>
         {#if n.id === 'codex' && ex.pendingTransmits > 0}
           <span class="badge mono">{ex.pendingTransmits}</span>
         {/if}
@@ -110,9 +114,6 @@
       </div>
 
       <div class="tele ctrls">
-        <button class="tog" class:on={game.auto} onclick={() => game.toggleAuto()} title="Field automation (A)">
-          <span class="readout">auto</span>
-        </button>
         <button class="tog" class:on={!game.muted} onclick={() => game.toggleMute()} title="Audio">
           <span class="readout">{game.muted ? 'muted' : 'audio'}</span>
         </button>
@@ -126,6 +127,8 @@
       <div class="view">
         {#if game.view === 'arena'}
           <ArenaView {game} />
+        {:else if game.view === 'map'}
+          <MapView {game} />
         {:else if game.view === 'dossier'}
           <DossierView {game} />
         {:else}
@@ -169,47 +172,66 @@
   {/key}
 {/if}
 
-<!-- Teaching ceremony: the Legion trusts you with new War-Weaving -->
+<!-- Teaching ceremony: the Legion trusts you with new War-Weaving. The very
+     first — Fireball, the First Weaving — is the camp's big moment and wears
+     a grander dress than every rite after it. -->
 {#if teaching && teaching.length > 0}
-  <button class="ceremony" onclick={() => ex.clearTeaching()} aria-label="Acknowledge">
-    <div class="rite console-panel ticked">
-      <span class="readout">the ember legion teaches you · {ex.tier.name}</span>
+  <button
+    class="ceremony"
+    class:weaving={firstWeaving}
+    onclick={() => ex.clearTeaching()}
+    aria-label="Acknowledge"
+  >
+    <div class="rite console-panel ticked" class:grand={firstWeaving}>
+      {#if firstWeaving}
+        <span class="readout ember">the first weaving</span>
+        <h2 class="rec-title">Fireball</h2>
+      {:else}
+        <span class="readout">the ember legion teaches you · {ex.tier.name}</span>
+      {/if}
       <div class="glyphs">
         {#each teaching as id (id)}
           <div class="glyph">
-            <span class="ic" style:--tone="var(--tone-{id})"><AbilityIcon {id} /></span>
-            <span class="gname">{ABILITIES[id]?.name ?? id}</span>
+            <span class="ic" class:blaze={firstWeaving} style:--tone="var(--tone-{id})"><AbilityIcon {id} /></span>
+            {#if !firstWeaving}<span class="gname">{ABILITIES[id]?.name ?? id}</span>{/if}
           </div>
         {/each}
       </div>
-      <p class="rite-blurb">{ex.tier.blurb}</p>
-      <p class="rite-learn mono">
-        learned: {teachNames.join(' · ')}
-      </p>
+      {#if firstWeaving}
+        <p class="rite-blurb">
+          Vale takes your staff hand and turns it palm-up. “You proved the hands. Now feel what they
+          were for.” Something old and patient kindles behind your knuckles — the first spark of a
+          lost art, alive, and yours to feed.
+        </p>
+        <p class="rite-learn mono">recorded to the codex · war-weaving, first working</p>
+      {:else}
+        <p class="rite-blurb">{ex.tier.blurb}</p>
+        <p class="rite-learn mono">
+          learned: {teachNames.join(' · ')}
+        </p>
+      {/if}
       <span class="rite-hint readout">click to continue</span>
     </div>
   </button>
 {/if}
 
-<!-- Arrival: the sergeant hands the conscript their first orders -->
-{#if ex.justBriefed}
-  <button class="ceremony briefing" onclick={toOrders} aria-label="Acknowledge orders">
+<!-- Graduation: the yard is done with you — the classic first order -->
+{#if ex.justGraduated}
+  <button class="ceremony" onclick={() => ex.clearGraduated()} aria-label="Acknowledge orders">
     <div class="rite console-panel ticked">
-      <span class="readout">ember legion · muster</span>
+      <span class="readout">the kindle yard · graduation</span>
       <h2 class="brief-name">{SERGEANT}</h2>
-      <p class="rite-blurb">
-        "New blood. You're on the line now — the Weave is learned the hard way, by living through it.
-        Earn our trust and you'll be taught. Here's your first charge."
-      </p>
-      {#if firstOrder}
+      <p class="rite-blurb">{GRADUATION_SEND_OFF}</p>
+      {#if boarOrder}
         <div class="order-card">
-          <span class="order-title">{firstOrder.name}</span>
+          <span class="order-title">{boarOrder.name}</span>
           <span class="order-obj mono">
-            {firstOrder.objective.kind === 'kill' ? 'Fell' : 'Gather'} {firstOrder.objective.targetName} · {firstOrder.objective.count}
+            Fell {boarOrder.objective.targetName} · {boarOrder.objective.count}
           </span>
         </div>
       {/if}
-      <span class="rite-hint readout">click to review your orders</span>
+      <p class="rite-learn mono">the map and the field are open — the world is yours to hunt</p>
+      <span class="rite-hint readout">click to take the field</span>
     </div>
   </button>
 {/if}
@@ -305,6 +327,10 @@
     background: var(--signal-faint);
     border-color: var(--console-edge);
     box-shadow: inset 2px 0 0 var(--signal);
+  }
+  .dest.locked {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
   .dest-label {
     font-family: var(--font-display);
@@ -526,6 +552,27 @@
     gap: 20px;
     padding: 6px 0;
   }
+  /* the First Weaving: the room burns warmer, the sigil bigger */
+  .ceremony.weaving {
+    background: radial-gradient(60% 60% at 50% 45%, oklch(0.14 0.06 40 / 0.8), oklch(0.05 0.02 40 / 0.92));
+  }
+  .rite.grand {
+    border-color: oklch(0.72 0.19 45 / 0.7);
+    box-shadow: 0 0 110px oklch(0.72 0.19 45 / 0.4);
+  }
+  .ic.blaze {
+    width: 88px;
+    height: 88px;
+    box-shadow: 0 0 60px oklch(0.72 0.19 45 / 0.65);
+    animation: blaze-in 1.1s var(--ease-out-expo);
+  }
+  @keyframes blaze-in {
+    from {
+      transform: scale(0.2) rotate(-40deg);
+      opacity: 0;
+      filter: brightness(3);
+    }
+  }
   .glyph {
     display: flex;
     flex-direction: column;
@@ -619,7 +666,8 @@
     .carrier,
     .view,
     .rite,
-    .ic {
+    .ic,
+    .ic.blaze {
       animation: none;
     }
   }

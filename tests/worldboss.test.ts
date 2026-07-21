@@ -30,7 +30,7 @@ describe('world boss — the Rift Colossus', () => {
   it('death during an assault also banks the damage', () => {
     const sim = makeSim({ level: 1 })
     sim.assaultWorldBoss()
-    sim.autoBattle = true // auto never *starts* an assault, but fights the one we started
+    sim.autoDrive = true // auto never *starts* an assault, but fights the one we started
     const events: CombatEvent[] = []
     for (let i = 0; i < 6000; i++) {
       events.push(...sim.tick())

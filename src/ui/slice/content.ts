@@ -9,7 +9,7 @@
  *
  *  All of this is UI-side meta. The engine only learns which abilities are
  *  taught (via `sim.setTaught`). Everything else is presentation + pacing. */
-import type { AbilityId, CombatEvent, EnemyRank } from '../../engine'
+import type { AbilityId, ClassId, CombatEvent, EnemyRank } from '../../engine'
 
 export const FACTION = {
   id: 'ember-legion',
@@ -35,17 +35,19 @@ export interface GraceTier {
 }
 
 export const GRACE_TIERS: readonly GraceTier[] = [
-  { key: 'recruit',  name: 'Recruit',           at: 0,   teaches: ['fireball'],
-    blurb: 'A conscript is handed a spark and a name. Do not die with them.' },
-  { key: 'blooded',  name: 'Blooded',            at: 45,  teaches: ['detonate'],
+  { key: 'recruit',  name: 'Recruit',           at: 0,   teaches: [],
+    blurb: 'A staff, a bunk, and a name. Magic is earned here, not issued.' },
+  { key: 'blooded',  name: 'Blooded',            at: 45,  teaches: ['fireball'],
+    blurb: 'You proved your hands in the circle. Now they are given the spark.' },
+  { key: 'hardened', name: 'Hardened',           at: 140, teaches: ['detonate'],
     blurb: 'You have laid enough fire. Now you are shown how to set it off.' },
-  { key: 'hardened', name: 'Hardened',           at: 140, teaches: ['kindle'],
+  { key: 'trusted',  name: 'Trusted',            at: 300, teaches: ['kindle'],
     blurb: 'A faster hand for the ember — pressure without the wait.' },
-  { key: 'trusted',  name: 'Trusted',            at: 300, teaches: ['wildfire'],
+  { key: 'sworn',    name: 'Sworn of the Ember',  at: 520, teaches: ['wildfire'],
     blurb: 'The Legion trusts you to spread living fire across a whole line.' },
-  { key: 'sworn',    name: 'Sworn of the Ember',  at: 520, teaches: ['flashpoint'],
+  { key: 'ember-lord', name: 'Ember-Lord',        at: 780, teaches: ['flashpoint'],
     blurb: 'You take the oath. Now you tear your own moment out of the air.' },
-  { key: 'ember-lord', name: 'Ember-Lord',        at: 780, teaches: ['inferno'],
+  { key: 'pyre-sovereign', name: 'Pyre-Sovereign', at: 1080, teaches: ['inferno'],
     blurb: 'The whole fire answers when you call. Spend it all at once.' },
 ]
 
@@ -75,13 +77,17 @@ export const FRONTS: readonly Front[] = [
   { regionId: 'stormcrag', tierIndex: 2 },
   { regionId: 'ashen-wastes', tierIndex: 3 },
   { regionId: 'sundered-spire', tierIndex: 4 },
+  { regionId: 'emberwall', tierIndex: 6 },
+  { regionId: 'stormharrow', tierIndex: 6 },
+  { regionId: 'gravecall', tierIndex: 6 },
 ]
 
-/** The caster-sergeant who hands you your orders. */
+/** The caster-sergeant who runs the Kindle Yard and hands you your orders. */
 export const SERGEANT = 'Sergeant Vale'
 
-/** The first order every conscript is handed the moment they arrive. */
-export const FIRST_ORDER = 'q-hollow-cull'
+/** The first true order — handed out at graduation, in the oldest tradition
+ *  of every recruitment camp there has ever been: go kill six boars. */
+export const FIRST_ORDER = 'q-hollow-boars'
 
 /** The current Grace tier index for a given Standing. */
 export function tierIndexFor(standing: number): number {
@@ -162,3 +168,115 @@ export const TOTAL_FINDINGS = CODEX.reduce((s, o) => s + o.findings, 0)
 /** The starting identity for the slice — a War-Weaver of the Ember Legion.
  *  (No character-creation ceremony in the slice: one system, one life.) */
 export const SLICE_IDENTITY = { classId: 'arcanist', originId: 'ashmarch-survivor', signId: 'tower' } as const
+
+// ─────────────────────────── The opening sequence ───────────────────────────
+
+/** Cold calibration readouts the Threshold prints as it spins up — the short
+ *  animated intro before the lore rolls. */
+export const INTRO_LINES: readonly string[] = [
+  'Threshold reactor — spun up',
+  'Consciousness lattice — bound',
+  'Deep-time anchor — seeking',
+]
+
+/** The rolling lore, narrated by the Institute to a Fieldworker who has just
+ *  woken on the uplink. Recovers the fiction from the Fieldworker's first
+ *  second of consciousness through to "the uplink is yours." */
+export const LORE_LINES: readonly string[] = [
+  'Fieldworker. You are awake. Read while the anchor sets.',
+  'Magic was real, once — a force the old worlds ran on, and lost when those worlds fell out of reach.',
+  'We are the Institute. We cannot send a body into the deep past. We can send a mind.',
+  'The Threshold seats your consciousness inside a life the era will accept. The locals will see one of their own.',
+  'Your assignment is a world we name the Ember Legion — an army that fields war-mages on the open line.',
+  'You will wear a conscript’s life. You will earn the Legion’s trust, and trust is how the art is taught.',
+  'Every working you witness, you record. A full Codex, transmitted home, is one lost art recovered.',
+  'You are one Fieldworker among thousands. Learn to belong — so that you can learn to leave.',
+  'Anchor set. The uplink is yours.',
+]
+
+/** The first Codex quest — the Institute's standing directive, granted the
+ *  moment the opening sequence ends and shown as a received plaque. It tracks
+ *  the Recovery meta already modelled by the Expedition (findings → recovery). */
+export const CODEX_DIRECTIVE = {
+  code: 'CDX-001',
+  giver: 'The Institute',
+  title: 'Recover the War-Weaving',
+  objective: 'Observe every chapter of the art and transmit the Codex home.',
+  note: 'Your standing directive. Fill the Codex in the field; the Recovery advances with every finding you send back.',
+} as const
+
+// ─────────────────────────── The world-select station ───────────────────────────
+
+/** A world the Fieldworker might be projected into. One world == one magic
+ *  system == one calling. Only the open world can be entered in this slice;
+ *  the rest are rumoured, their anchors not yet triangulated. */
+export interface WorldOption {
+  code: string
+  /** the magic system recovered from the world */
+  system: string
+  /** the place, and its people */
+  world: string
+  /** how you are inserted and taught */
+  frame: string
+  /** one-line hook */
+  teaser: string
+  status: 'open' | 'locked'
+  /** the engine calling this world seats you as — null while locked */
+  classId: ClassId | null
+  /** the hue the console relights in for this world */
+  hue: number
+}
+
+export const WORLDS: readonly WorldOption[] = [
+  {
+    code: 'RA-01',
+    system: 'War-Weaving',
+    world: 'The Ember Legion',
+    frame: 'Conscript',
+    teaser: 'Battlefield evocation, learned on the line from a caster-sergeant, by surviving.',
+    status: 'open',
+    classId: SLICE_IDENTITY.classId,
+    hue: FACTION.hue,
+  },
+  {
+    code: 'RA-02',
+    system: 'Necrologue',
+    world: 'The Ossuary Reach',
+    frame: 'Initiate',
+    teaser: 'Forbidden death-accounting, traded in a grave-cult underground. Anchor not yet triangulated.',
+    status: 'locked',
+    classId: null,
+    hue: 300,
+  },
+  {
+    code: 'RA-03',
+    system: 'The Green Rite',
+    world: 'The Loamward Wood',
+    frame: 'Supplicant',
+    teaser: 'Druidic life-magic of a temple-folk. Signal too faint to hold a projection.',
+    status: 'locked',
+    classId: null,
+    hue: 140,
+  },
+  {
+    code: 'RA-██',
+    system: 'Horology',
+    world: '▓▓▓▓▓▓',
+    frame: '—',
+    teaser: 'Time-debt magic that resonates with the Threshold itself. Existence inferred, not confirmed.',
+    status: 'locked',
+    classId: null,
+    hue: 210,
+  },
+]
+
+// ─────────────────────────── First-world arrival ───────────────────────────
+
+/** The caster-sergeant's greeting at the camp gate — the drill instructor who
+ *  owns every conscript's first days before the game proper begins. */
+export const ARRIVAL = {
+  place: 'The Ember Legion · the Kindle Yard, recruitment camp',
+  instructor: SERGEANT,
+  greeting:
+    '“New blood. The anchor’s set and you’re standing in my yard now — good. See that staff in your hands? Wood. That’s all you rate until you’ve proven the hands holding it. Nobody in this Legion is handed the Weave; it is earned in the circle. Three of your fellow trainees are waiting there. Best them, and we’ll talk about fire.”',
+} as const

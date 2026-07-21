@@ -8,10 +8,18 @@ see `CLASSES.md`.*
 
 ## How combat works, whoever you are
 
-- **Fights are yours to start.** Press the sigil (or let auto-battle chain
-  fights) and a pack of one to three enemies spawns. When the last one falls,
+- **Fights are yours to start.** The field board turns up 3–4 sightings — size
+  them up, engage one (`Space`), and the pack spawns. When the last one falls,
   their corpses hold gold, materials and items — loot per card, or sweep the
-  field with `R`.
+  field with `R`. Clear it and the board rotates. (There is no auto-battle;
+  absence is respected, not simulated.)
+- **Your weapon swings itself.** The staff auto-attacks your target every
+  1.8 s (`2 + level + ⌊staff ilvl/2⌋` damage, +4 spread, power- and
+  crit-scaled). Casting holds the swing; a dormant pack holds it poised until
+  you loose the first blow.
+- **Focus (`Space`) is the timing read.** On a foe's wind-up: deflect the blow
+  and crack them **Exposed** (+30% taken, 3 s). Late in **your own** wind-up:
+  **Sharpen** the landing strike (+50%). Nothing open: a 1.5 s whiff lockout.
 - **The global cooldown is 1.2 s.** Most abilities trigger it. Pressing a
   button mid-cast or mid-GCD *queues* it — it fires the instant you're free.
 - **Casts resolve at the end.** Mana is spent when the spell lands, and a cast
@@ -30,35 +38,41 @@ see `CLASSES.md`.*
   first when your target dies.
 
 You earn **one talent point per level from level 2** (14 by the cap of 15).
-Each calling has its own six talents. A respec costs 50 gold.
+Each calling has six talents — the Arcanist carries a seventh. A respec costs
+50 gold.
 
 ---
 
-## Arcanist — *The Candle That Answers Back*
+## Arcanist — *The War-Weaver*
 
-**Role:** Spellweaver · **Mechanic: The Weave** — no resource bar, just a
-rotation that rewards good hands: keep the burn rolling, cast the big thing on
-cooldown, interrupt the caster before it finishes its sentence.
+**Role:** Pyromancer · **Mechanic: Smolder & Heat** — build lingering fire on
+the foe, ride your own rising momentum, and choose the moment to spend both.
+Taught by the Ember Legion one Grace tier at a time; a fresh conscript starts
+with the staff and Focus alone, and earns Fireball in the Kindle Yard.
 
-| Key | Ability | Lv | What it does |
+| Key | Ability | Taught at | What it does |
 |---|---|---|---|
-| 1 | **Fireball** | 1 | 16–24 fire, 2.2 s cast, 14 mana. The bread and butter. |
-| 2 | **Ignite** | 1 | Burn: 5 per second for 6 s. Instant, 8 s cooldown. Reapplying refreshes it. |
-| 3 | **Renew** | 2 | Heal 20–28, 1.8 s cast, 5 s cooldown. |
-| 4 | **Pyroblast** | 4 | 48–64 fire, 3.5 s cast, 12 s cooldown. Worth the wait. |
-| 5 | **Counterspell** | 6 | Interrupts your target's cast. Only while it's casting; **off the GCD** — usable mid-cast. 15 s cooldown. |
-| 6 | **Arcane Barrier** | 8 | Absorbs 25 + 5×level for 30 s. 20 s cooldown. |
-| 7 | **Combustion** | 11 | 12 s: fire +25%, crit +20%. 30 s cooldown. |
+| 1 | **Fireball** | Blooded (45) | 16–24 fire, 2.2 s cast, 14 mana. Lays 1 Smolder, banks 1 Heat. Splashes the pack at 5 Heat; at 10 the **Blaze** pierces the whole line, then Heat crashes to 0. |
+| 2 | **Detonate** | Hardened (140) | Instant, 3 s cooldown. Sets off every Smolder on the target — Fresh 6 / Heated 11 / Volatile 18 per stack. Banks 2 Heat. |
+| 3 | **Kindle** | Trusted (300) | Instant, 5 s cooldown. 1 Smolder (2 if Exposed), 1 Heat. |
+| 4 | **Wildfire** | Sworn (520) | Instant, 15 s cooldown. Seeds 2 Smolder on every foe; while learned, consuming Smolder spreads fire to the rest of the pack. |
+| 5 | **Flashpoint** | Ember-Lord (780) | Instant, 20 s cooldown. Spend all Heat: a guaranteed Opening, `max(3 s, Heat × 0.4 s)`. |
+| 6 | **Inferno** | Pyre-Sovereign (1080) | Instant, 25 s cooldown. Spend all Heat and every Smolder on the field in one bloom. |
 
-**Talents:** Improved Fireball (−0.1 s cast/rank), Searing Flames (+8%
-fire/rank), Critical Mass (+2% crit/rank), Fortitude (+6% health/rank),
-Meditation (+12% regen/rank), Swift Renewal (Renew −0.2 s and +8%
-healing/rank).
+**Heat** is +3% fire damage per point, bleeds 1 per idle 3 s (casting counts as
+feeding it), and always crashes to cold after the Blaze. **Smolder** is inert
+fuel until the **Lingering Flame** talent lights its per-second burn.
 
-**How it plays:** Ignite on cooldown, Pyroblast on cooldown, Fireball as
-filler. Save Combustion for elites or full-health targets; swing your target
-to any caster and Counterspell it. The skill is in never letting the cast bar
-sit idle.
+**Talents:** Improved Fireball (−0.1 s cast/rank), Quickened Flame (−0.1 s
+cast/rank), Searing Flames (+8% fire/rank), **Lingering Flame** (Smolder burns
+each second, ×rank, 3 ranks), Critical Mass (+2% crit/rank), Fortitude (+6%
+health/rank), Meditation (+12% regen/rank).
+
+**How it plays:** the staff swings underneath everything. Focus the foe's tell
+(deflect + Expose) or your own late wind-up (Sharpen). Fireball into Openings,
+stack Smolder, let it ripen to Volatile, Detonate at the peak — and keep the
+Heat fed, because the moment you stop weaving it starts leaving. Full detail:
+`COMBAT.md`.
 
 ---
 

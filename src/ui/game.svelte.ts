@@ -30,11 +30,20 @@ import {
   type SlotProfile,
 } from './profile'
 import { Sfx, type SfxName } from './sfx'
+import { currentDuel, type CampDuel } from './slice/camp'
 import { FIRST_ORDER, SERGEANT, SLICE_IDENTITY } from './slice/content'
 import { Expedition } from './slice/expedition.svelte'
+import {
+  activeQuestTargets,
+  offerSpec,
+  rerollBoard,
+  rollBoard,
+  selectOffer as boardSelect,
+  type FieldState,
+} from './slice/field'
 
 /** The slice's three destinations on the uplink console. */
-export type View = 'arena' | 'dossier' | 'codex'
+export type View = 'arena' | 'map' | 'dossier' | 'codex'
 
 export interface FloatText {
   id: number
@@ -113,6 +122,10 @@ export class Game implements FxHost {
   /** bump counters: a press the sim refused, per ability */
   denied: Record<AbilityId, number> = $state(byAbility(0))
   view: View = $state('arena')
+  /** The field board for the current front: the 3–4 sightings the player sizes
+   *  up and chooses between, re-rolled on each clear. Replaced wholesale like
+   *  the combat/progress snapshots. */
+  field: FieldState = $state.raw({ regionId: '', offers: [], selectedId: null, nextId: 1, rerolls: 0 })
   floats: FloatText[] = $state([])
   /** bump counters driving hit-recoil / heal-bloom choreography */
   impacts: Record<Side, Impact> = $state({
@@ -130,7 +143,6 @@ export class Game implements FxHost {
   /** the boss's name, while the challenge cinematic is on screen */
   bossIntro: string | null = $state(null)
   muted: boolean
-  auto: boolean
 
   readonly fx = new FxDirector()
 
@@ -143,6 +155,12 @@ export class Game implements FxHost {
   private bannerTimer: ReturnType<typeof setTimeout> | null = null
   private toastTimer: ReturnType<typeof setTimeout> | null = null
   private progressDirty = false
+  /** The rarity of the sighting currently being fought — so a clean clear can
+   *  pay its bonus and rotate the board. */
+  private engagedRarity: string | null = null
+  /** True while a Kindle Yard sparring duel is on the field — its clear
+   *  advances the camp script rather than rotating the board. */
+  private campDuelActive = false
 
   /** The active class's action bar, in kit order — hotkeys 1..n map onto it. */
   readonly kitIds: readonly AbilityId[]
@@ -172,21 +190,19 @@ export class Game implements FxHost {
     this.kitIds = abilityIdsFor(this.progress.classId)
     this.keyToAbility = new Map(this.kitIds.map((id) => [ABILITIES[id].key, id]))
     this.muted = $state(loadSettings(localStorage).muted)
-    this.auto = $state(this.sim.autoBattle)
+    // Roll the field board on the front the sim starts us on.
+    this.field = rollBoard(
+      this.progress.regionId,
+      Math.random,
+      this.progress.level,
+      activeQuestTargets(this.progress.quests),
+    )
   }
 
   start(): void {
     this.audio.muted = this.muted
     this.fx.bind(this)
     touchProfile(localStorage, this.slot)
-
-    // Arrival: the sergeant hands every conscript their first orders. Only the
-    // first time — a returning Persona already carries them.
-    if (!this.expedition.briefed) {
-      const granted = this.sim.acceptQuest(FIRST_ORDER)
-      this.expedition.markBriefed(granted)
-      if (granted) this.progressDirty = true
-    }
 
     this.loop = startLoop(
       () => this.step(),
@@ -279,24 +295,110 @@ export class Game implements FxHost {
     }
   }
 
-  /** Begin the next fight. */
+  /** Begin the next fight (a bare random roll — kept for callers that don't go
+   *  through the field board). */
   startFight(): void {
     if (this.sim.startFight()) this.publish()
   }
 
+  // ─────────────── the Kindle Yard: the camp's sparring circle ──────────────
+
+  /** The duel the circle offers next, or null once graduated. */
+  get campDuel(): CampDuel | null {
+    return currentDuel(this.expedition.camp)
+  }
+
+  /** Step into the circle: spawn the current sparring duel. Duels spawn
+   *  already engaged — both of you squared up, no dormant grace. */
+  engageCampDuel(): void {
+    if (this.combat.phase !== 'idle' || !this.combat.player.alive) return
+    const duel = this.campDuel
+    if (!duel) return
+    this.campDuelActive = true
+    if (this.sim.startFight({ enemyIds: [duel.opponentId], sparring: true, engaged: true })) {
+      this.audio.play('target')
+      this.publish()
+    } else {
+      this.campDuelActive = false
+    }
+  }
+
+  /** A camp duel was won: advance the script, pay boundary bonuses (the
+   *  proving's crossing is what teaches Fireball), and at graduation hand the
+   *  conscript the boar order and open the world. */
+  private onCampDuelCleared(): void {
+    this.campDuelActive = false
+    const taught = this.expedition.advanceCamp()
+    if (taught) {
+      this.expedition.applyTo(this.sim)
+      this.audio.play('level')
+    }
+    if (!this.expedition.inCamp) {
+      // Graduation: the first true order, in the oldest tradition there is.
+      if (this.sim.acceptQuest(FIRST_ORDER)) this.progressDirty = true
+      this.audio.play('epic')
+    }
+  }
+
+  // ─────────────── the field board: size up sightings, pick your fight ──────
+
+  /** Mark a sighting to engage. */
+  selectOffer(id: number): void {
+    this.field = boardSelect(this.field, id)
+    this.audio.play('target', 0.6)
+  }
+
+  /** Engage the marked sighting (Space / Enter / the Engage control). */
+  engageSelectedOffer(): void {
+    if (this.field.selectedId !== null) this.engageOffer(this.field.selectedId)
+  }
+
+  /** Commit to a sighting: spawn exactly that group and remember its rarity so a
+   *  clean clear can pay its bonus and rotate the board. */
+  engageOffer(id: number): void {
+    if (this.combat.phase !== 'idle' || !this.combat.player.alive) return
+    const o = this.field.offers.find((x) => x.id === id)
+    if (!o) return
+    if (this.sim.startFight(offerSpec(o))) {
+      this.engagedRarity = o.rarity
+      this.field = boardSelect(this.field, o.id)
+      if (o.rarity === 'apex') {
+        this.audio.play('boss')
+        this.showToast('Apex sighting', `${o.title} stands the field — a rare quarry.`)
+      } else if (o.rarity === 'rare') {
+        this.audio.play('epic', 0.6)
+      } else {
+        this.audio.play('target')
+      }
+      this.publish()
+    }
+  }
+
   /** Space / the heart of the wheel: whatever the moment calls for — the
-   *  summons in a lull, the sweep on a loot screen, and mid-fight the universal
-   *  Focus: read the foe's tell and crack it open. */
+   *  circle or the summons in a lull, the sweep on a loot screen, the loosed
+   *  first blow against a dormant pack, and mid-fight the universal Focus:
+   *  the timing read on any swing about to land, yours or theirs. */
   hubAction(): void {
     if (this.combat.phase === 'looting') {
       this.lootAll()
       return
     }
     if (this.combat.enemies.length === 0 && this.combat.player.alive) {
-      this.startFight()
+      // A lull: in camp, Space steps into the sparring circle; in the world it
+      // engages the marked sighting on the field board.
+      if (this.expedition.inCamp) this.engageCampDuel()
+      else this.engageSelectedOffer()
       return
     }
-    if (this.combat.player.alive) this.focus()
+    if (!this.combat.player.alive) return
+    // A dormant pack holds your strike poised at the top: Space looses it.
+    if (this.combat.phase === 'combat' && !this.combat.engaged) {
+      if (this.sim.provoke()) {
+        this.publish()
+        return
+      }
+    }
+    this.focus()
   }
 
   /** Collect one corpse's spoils. */
@@ -332,6 +434,8 @@ export class Game implements FxHost {
   }
 
   setView(view: View): void {
+    // The Map stays shut until the Kindle Yard graduates you.
+    if (view === 'map' && this.expedition.inCamp) return
     this.view = view
   }
 
@@ -368,12 +472,6 @@ export class Game implements FxHost {
     }
   }
 
-  toggleAuto(): void {
-    this.sim.autoBattle = !this.sim.autoBattle
-    this.auto = this.sim.autoBattle
-    this.publish()
-  }
-
   toggleMute(): void {
     this.muted = !this.muted
     this.audio.muted = this.muted
@@ -384,6 +482,14 @@ export class Game implements FxHost {
     if (this.sim.enterRegion(regionId)) {
       this.view = 'arena'
       this.publishAll()
+      // A new front is a new set of sightings — roll a fresh board.
+      this.field = rollBoard(
+        this.progress.regionId,
+        Math.random,
+        this.progress.level,
+        activeQuestTargets(this.progress.quests),
+      )
+      this.engagedRarity = null
     }
   }
 
@@ -540,8 +646,12 @@ export class Game implements FxHost {
       case 'enemyEnraged':
         this.bump('enemy', 1.6, false, event.iid)
         break
-      case 'enemyDied':
       case 'playerDied':
+        // A lost sparring bout doesn't advance the script — the circle waits.
+        this.campDuelActive = false
+        this.progressDirty = true
+        break
+      case 'enemyDied':
       case 'xpGained':
       case 'goldGained':
       case 'companionHired':
@@ -551,6 +661,35 @@ export class Game implements FxHost {
         this.progressDirty = true
         this.audio.play('loot')
         break
+      case 'encounterCleared': {
+        this.progressDirty = true
+        // A won sparring duel advances the camp script instead of the board.
+        if (this.campDuelActive) {
+          this.onCampDuelCleared()
+          break
+        }
+        // A rarer sighting pays a Standing bonus on a clean clear.
+        if (this.engagedRarity) {
+          const taught = this.expedition.awardClear(this.engagedRarity)
+          if (taught) {
+            this.expedition.applyTo(this.sim)
+            this.audio.play('level')
+          }
+          if (this.engagedRarity === 'apex')
+            this.showToast('Apex felled', 'A rare quarry down — the Legion logs it, bonus standing banked.')
+          else if (this.engagedRarity === 'rare')
+            this.showToast('Champion felled', 'Bonus standing banked.')
+        }
+        // The field rotates: a fresh roll of sightings for the next fight.
+        this.field = rerollBoard(
+          this.field,
+          Math.random,
+          this.progress.level,
+          activeQuestTargets(this.progress.quests),
+        )
+        this.engagedRarity = null
+        break
+      }
       case 'regionEntered':
         this.progressDirty = true
         break
@@ -614,7 +753,15 @@ export class Game implements FxHost {
         if (event.viaFocus) this.bloom++
         break
       case 'focusUsed':
-        this.audio.play(event.success ? 'barrier' : 'denied', event.success ? 0.7 : 1)
+        // The read deflects (a shield-ring of a sound); the Sharpen whets the
+        // landing blow; a whiff is refused out loud.
+        this.audio.play(
+          event.mode === 'read' ? 'barrier' : event.mode === 'sharpen' ? 'target' : 'denied',
+          event.mode === 'whiff' ? 1 : 0.7,
+        )
+        break
+      case 'strikeLanded':
+        if (event.sharpened) this.bloom++
         break
       case 'smolderDetonated':
         this.audio.play(event.band === 'volatile' ? 'crit' : 'hit', 0.7)
@@ -658,19 +805,22 @@ export class Game implements FxHost {
       this.cycleTarget()
       return
     }
-    if (e.key === 'a') {
-      this.toggleAuto()
-      return
-    }
     // R sweeps the loot screen, the way every loot-window hand learned it.
     if (e.key === 'r') {
       this.lootAll()
       return
     }
-    // Space presses the heart of the wheel: summon, sweep, or (one day) strike.
+    // Space presses the heart of the wheel: engage the marked sighting while
+    // exploring, or the read (Focus) mid-fight.
     if (e.key === ' ') {
       e.preventDefault()
       this.hubAction()
+      return
+    }
+    // Enter also commits to the marked sighting.
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      this.engageSelectedOffer()
       return
     }
     const id = this.keyToAbility.get(e.key)

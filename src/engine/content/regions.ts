@@ -42,6 +42,9 @@ export const REGIONS: readonly RegionDef[] = [
   region('stormcrag', 'medium', 7, 9, ['storm-quartz', 'drake-scale']),
   region('ashen-wastes', 'medium', 10, 12, ['cinder-ash', 'obsidian-glass']),
   region('sundered-spire', 'hard', 13, 15, ['void-shard', 'rift-essence']),
+  region('emberwall', 'hard', 16, 18, ['slag-glass', 'ember-rivet']),
+  region('stormharrow', 'hard', 19, 21, ['stormglass-core', 'drowned-brine']),
+  region('gravecall', 'hard', 22, 24, ['barrow-dust', 'gravecall-sigil']),
 ]
 
 export const DEFAULT_CONTENT: ContentPack = {

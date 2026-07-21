@@ -98,6 +98,7 @@ export type TalentId =
   // ── arcanist ──
   | 'impFireball'
   | 'searingFlames'
+  | 'lingeringFlame'
   | 'criticalMass'
   | 'fortitude'
   | 'meditation'
@@ -152,6 +153,7 @@ export type CardId = 'tower' | 'comet' | 'knives' | 'hearts' | 'moon' | 'coins'
 
 /** Class-specific talent dials, read by the sim where the mechanic lives. */
 export type ClassMod =
+  | 'smolderBurn'
   | 'ledgerCap'
   | 'echoDmgPct'
   | 'lastRitesHealPct'
@@ -181,8 +183,8 @@ export const LEVEL_CAP = 15
 export const INVENTORY_CAP = 24
 export const RESPEC_COST = 50
 
-/** How long auto-battle catches its breath in idle before starting the next
- *  fight (1 s at 20 tps). Manual play ignores it — click when ready. */
+/** How long the test-only auto-driver catches its breath in idle before
+ *  starting the next fight (1 s at 20 tps). Manual play ignores it. */
 export const AUTO_REST_TICKS = 20
 
 // ── class mechanic constants ──
@@ -436,6 +438,20 @@ export interface BuffSnapshot {
   amount?: number
 }
 
+/** The staff's basic attack, live: how far the wind-up has come, whether the
+ *  landing blow is Sharpened, and the damage range it would roll. Null when
+ *  nothing is being swung at (idle, looting, no target). */
+export interface StrikeSnapshot {
+  /** 0 at rest → 1 as the blow lands. */
+  progress: number
+  /** True once progress enters the Sharpen stretch (your own tell). */
+  windowOpen: boolean
+  /** A Focus read is banked: the next landing blow hits harder. */
+  sharpenReady: boolean
+  dmgMin: number
+  dmgMax: number
+}
+
 export interface PlayerSnapshot {
   hp: number
   maxHp: number
@@ -450,6 +466,8 @@ export interface PlayerSnapshot {
   focusCd: number
   /** True when Focus is off cooldown and ready to answer a tell. */
   focusReady: boolean
+  /** The staff's auto-swing, or null when nothing is being swung at. */
+  strike: StrikeSnapshot | null
   buffs: BuffSnapshot[]
   dot: DotSnapshot | null
 }
@@ -540,7 +558,6 @@ export interface CombatSnapshot {
   queued: AbilityId | null
   cooldowns: Record<AbilityId, number>
   gcdRemaining: number
-  autoBattle: boolean
   /** The class mechanic's live state, or null for resource-less callings. */
   resource: ClassResourceSnapshot | null
   /** A raised echo / afterimage fighting beside you, or null. */
@@ -635,5 +652,4 @@ export interface SaveData {
   companionId: string | null
   /** The Gravewright's banked pages — the one class resource that persists. */
   ledgerPages: number
-  autoBattle: boolean
 }

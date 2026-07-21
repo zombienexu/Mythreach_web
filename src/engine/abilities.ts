@@ -656,8 +656,20 @@ export const COMBUSTION_CRIT_BONUS = 20
 // on the foe), Heat (build power in yourself). Numbers are shared by the sim,
 // the UI gauges and the FX so nothing drifts.
 
-// ── Heat: accumulated fire in the caster, 0–10. Doesn't add flat damage — it
-//    changes what Fireball *does* as it climbs. Resets between fights. ──
+// ── The Strike: the staff's basic attack. Every conscript swings before they
+//    weave. Auto-swings at the target on its own clock; casting holds it. ──
+export const STRIKE_SWING_TICKS = 36 // 1.8 s
+/** Base strike damage: 2 + level + floor(staff ilvl / 2), a 4-point spread. */
+export const STRIKE_BASE = 2
+export const STRIKE_SPREAD = 4
+/** Your own wind-up is readable in its last stretch — the Sharpen opening. */
+export const STRIKE_TELL_FROM = 0.6
+/** A Sharpened strike (Focus read into your own wind-up) hits this much harder. */
+export const STRIKE_SHARPEN_PCT = 50
+
+// ── Heat: accumulated fire in the caster, 0–10. Momentum, not a bar: every
+//    point burns hotter, unfed Heat bleeds away, and a full boil spends
+//    itself. You never master the fire — you ride it. ──
 export const HEAT_MAX = 10
 /** 5–9 Heat: Fireball splashes and spreads a little burn. */
 export const HEAT_EMPOWERED_AT = 5
@@ -669,6 +681,10 @@ export const HEAT_PER_DETONATE = 2
 export const HEAT_PER_KINDLE = 1
 /** A Fireball loosed into an Opening runs hotter. */
 export const HEAT_OPENING_BONUS = 1
+/** Every point of Heat burns your fire this much hotter, percent. */
+export const HEAT_FIRE_PCT_PER_POINT = 3
+/** Unfed Heat bleeds: −1 point after this long without gaining any (3 s). */
+export const HEAT_DECAY_TICKS = 60
 /** Empowered Fireball's splash onto other foes, as a share of the main hit. */
 export const FIREBALL_SPLASH_PCT = 40
 
@@ -683,7 +699,9 @@ export const SMOLDER_HEATED_AT = 40
 export const SMOLDER_VOLATILE_AT = 100
 /** The lingering burn ticks this often (1 s). */
 export const SMOLDER_TICK_TICKS = 20
-/** Per-stack lingering burn each tick, by band (before power scaling). */
+/** Per-stack lingering burn each tick, by band, *per Lingering Flame rank*
+ *  (before power scaling). Untalented Smolder is inert pressure — fuel for
+ *  Detonate — and deals nothing on its own. */
 export const SMOLDER_BURN: Record<SmolderBand, number> = { fresh: 1, heated: 2, volatile: 3 }
 /** Per-stack Detonate payoff, by band (before power/crit scaling). */
 export const DETONATE_PER_STACK: Record<SmolderBand, number> = { fresh: 6, heated: 11, volatile: 18 }

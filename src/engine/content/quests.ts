@@ -6,6 +6,15 @@ import type { QuestDef } from '../types'
 const DEFS: QuestDef[] = [
   // ── Hollowroot Cavern (Lv 1–3) ──────────────────────────────────────
   {
+    id: 'q-hollow-boars',
+    name: 'Six Boars for the Cookfires',
+    giver: 'Sergeant Vale',
+    text: 'Every conscript’s first order since the Legion was young: the cookfires want boar, and the cavern mouth is thick with them. Bring me six. Yes, six. No, I don’t care that it’s a cliché — it works.',
+    regionId: 'hollowroot',
+    objective: { kind: 'kill', enemyId: 'mossback-boar', count: 6 },
+    reward: { xp: 100, gold: 25, gear: { ilvl: 2, minRarity: 'uncommon' } },
+  },
+  {
     id: 'q-hollow-fiber',
     name: 'Dye for the Guild',
     giver: 'Maro the Tinct-Seller',
@@ -147,6 +156,93 @@ const DEFS: QuestDef[] = [
     regionId: 'sundered-spire',
     objective: { kind: 'kill', enemyId: 'herald-of-malgrath', count: 2 },
     reward: { xp: 800, gold: 300, gear: { ilvl: 15, minRarity: 'epic' } },
+  },
+
+  // ── Emberwall Breach (Lv 16–18) ─────────────────────────────────────
+  {
+    id: 'q-ember-cull',
+    name: 'Take the Breach',
+    giver: 'Breachmaster Holt',
+    text: 'The wall is ours the moment nothing on it is breathing. Start subtracting.',
+    regionId: 'emberwall',
+    objective: { kind: 'kill', enemyId: null, count: 14 },
+    reward: { xp: 900, gold: 300, gear: { ilvl: 18, minRarity: 'rare' } },
+  },
+  {
+    id: 'q-ember-sappers',
+    name: 'Cool the Sappers',
+    giver: 'Sapper-Sergeant Ost',
+    text: 'Their sappers are melting my ladders faster than I can raise them. Cool them off — permanently.',
+    regionId: 'emberwall',
+    objective: { kind: 'kill', enemyId: 'molten-sapper', count: 6 },
+    reward: { xp: 950, gold: 280, gear: { ilvl: 18, minRarity: 'rare' } },
+  },
+  {
+    id: 'q-ember-rivets',
+    name: 'Rivets from the Ruin',
+    giver: 'Forgemistress Ida',
+    text: 'Bring me rivets off the breach — metal that has already survived a fire holds a rune that never breaks.',
+    regionId: 'emberwall',
+    objective: { kind: 'collect', materialId: 'ember-rivet', count: 8 },
+    reward: { xp: 1000, gold: 260, gear: null },
+  },
+
+  // ── Stormharrow Line (Lv 19–21) ─────────────────────────────────────
+  {
+    id: 'q-storm-cull',
+    name: 'Hold the Line',
+    giver: 'Line-Captain Reyes',
+    text: 'Hold the line means empty the line. Every reaver you drop, the sea takes back one of its own.',
+    regionId: 'stormharrow',
+    objective: { kind: 'kill', enemyId: null, count: 14 },
+    reward: { xp: 1100, gold: 360, gear: { ilvl: 21, minRarity: 'rare' } },
+  },
+  {
+    id: 'q-storm-callers',
+    name: 'Cut the Chant',
+    giver: 'Silencer Wick',
+    text: 'Their adepts are calling the storm down on my crews. Cut the chant, cut the lightning.',
+    regionId: 'stormharrow',
+    objective: { kind: 'kill', enemyId: 'stormcaller-adept', count: 6 },
+    reward: { xp: 1150, gold: 340, gear: { ilvl: 21, minRarity: 'epic' } },
+  },
+  {
+    id: 'q-storm-core',
+    name: 'The Storm, Bottled',
+    giver: 'Runesmith Bekka',
+    text: 'A stormglass core will hold a war-rune the way nothing dry ever could. Bring me the storm, bottled.',
+    regionId: 'stormharrow',
+    objective: { kind: 'collect', materialId: 'stormglass-core', count: 8 },
+    reward: { xp: 1200, gold: 320, gear: null },
+  },
+
+  // ── Gravecall Barrows (Lv 22–24) ────────────────────────────────────
+  {
+    id: 'q-grave-cull',
+    name: 'Un-draft the Dead',
+    giver: 'Exorcist Piel',
+    text: 'The barrows are conscripting the dead faster than they die twice. Un-draft them.',
+    regionId: 'gravecall',
+    objective: { kind: 'kill', enemyId: null, count: 14 },
+    reward: { xp: 1300, gold: 420, gear: { ilvl: 24, minRarity: 'epic' } },
+  },
+  {
+    id: 'q-grave-plague',
+    name: 'Burn the Carriers',
+    giver: 'Plague-Warden Suel',
+    text: 'Their carriers spread a rot my healers cannot out-pray. Burn the carriers before they reach the camp.',
+    regionId: 'gravecall',
+    objective: { kind: 'kill', enemyId: 'plaguebound-carrier', count: 6 },
+    reward: { xp: 1350, gold: 400, gear: { ilvl: 24, minRarity: 'epic' } },
+  },
+  {
+    id: 'q-grave-sigils',
+    name: 'Pages of the Dead',
+    giver: 'The Institute',
+    text: 'Every sigil is a page of the death-accounting we came here unable to read. Collect them; the Codex is watching.',
+    regionId: 'gravecall',
+    objective: { kind: 'collect', materialId: 'gravecall-sigil', count: 8 },
+    reward: { xp: 1400, gold: 380, gear: null },
   },
 ]
 

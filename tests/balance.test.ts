@@ -9,10 +9,11 @@ import { LEVEL_CAP, TICKS_PER_SECOND } from '../src/engine/types'
  *  shipped content must stay inside now that combat is endless. */
 function playEndless(seed: number, maxHours: number) {
   const sim = new GameSim({ rng: mulberry32(seed) })
-  sim.autoBattle = true
+  sim.autoDrive = true
   const maxTicks = maxHours * 3600 * TICKS_PER_SECOND
   const talentOrder: TalentId[] = [
     'searingFlames',
+    'lingeringFlame',
     'criticalMass',
     'impFireball',
     'fortitude',
@@ -86,7 +87,7 @@ describe('progression balance envelope', () => {
 
   it('early game is gentle: the first few levels come fast and cheap', () => {
     const sim = new GameSim({ rng: mulberry32(77) })
-    sim.autoBattle = true
+    sim.autoDrive = true
     let deaths = 0
     let reached5 = -1
     for (let tick = 0; tick < 1 * 3600 * TICKS_PER_SECOND && reached5 < 0; tick++) {

@@ -100,7 +100,7 @@
         <circle class="ring-xp" cx="60" cy="60" r="55" pathLength="100" style:stroke-dasharray="{xpFrac * 100} 100" />
       </svg>
 
-      <div class="orb"><HeroPortrait {classId} /></div>
+      <div class="orb"><HeroPortrait {classId} heat={player.heat} /></div>
 
       {#if player.shield > 0}<span class="shell" aria-hidden="true"></span>{/if}
 

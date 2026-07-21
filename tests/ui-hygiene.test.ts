@@ -37,8 +37,8 @@ describe('the meta loop is wired into the event drain', () => {
     expect(game).toContain('this.expedition.applyTo(this.sim)')
   })
 
-  it('the slice has exactly three destinations', () => {
-    expect(game).toContain("export type View = 'arena' | 'dossier' | 'codex'")
+  it('the slice has exactly four destinations', () => {
+    expect(game).toContain("export type View = 'arena' | 'map' | 'dossier' | 'codex'")
   })
 })
 

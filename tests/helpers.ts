@@ -111,7 +111,6 @@ export function blankSave(over: Partial<SaveData> = {}): SaveData {
     worldBossHp: 40_000,
     companionId: null,
     ledgerPages: 0,
-    autoBattle: false,
     ...over,
   }
 }
@@ -134,7 +133,6 @@ export function v1Save(over: Record<string, unknown> = {}): Record<string, unkno
     bossesDefeated: [],
     achievements: [],
     lifetime: { kills: 0, deaths: 0, goldEarned: 0, interrupts: 0, epicsFound: 0, bossKills: 0 },
-    autoBattle: false,
     muted: false,
     completed: false,
     ...over,

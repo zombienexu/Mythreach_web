@@ -5,15 +5,19 @@
   import EnemyFigure from '../../components/EnemyFigure.svelte'
   import FloatLayer from '../../components/FloatLayer.svelte'
   import PlayerHud from '../../components/PlayerHud.svelte'
+  import FieldBoard from '../../components/FieldBoard.svelte'
   import { ABILITIES } from '../../../engine'
   import { ticksToSeconds } from '../../format'
   import type { Game, Impact } from '../../game.svelte'
+  import CampBoard from '../CampBoard.svelte'
   import { FACTION } from '../content'
   import WeaveHeat from '../WeaveHeat.svelte'
 
   let { game }: { game: Game } = $props()
 
   const region = $derived(game.progress.regions.find((r) => r.current))
+  const inCamp = $derived(game.expedition.inCamp)
+  const strike = $derived(game.combat.player.strike)
   const looting = $derived(game.combat.phase === 'looting')
   const shown = $derived(game.combat.enemies)
 
@@ -55,7 +59,13 @@
   <!-- the page catches the fire: an orange wash that deepens with Heat -->
   <div class="heat-veil" aria-hidden="true"></div>
 
-  {#if region}
+  {#if inCamp}
+    <header class="front-head">
+      <span class="readout deploy">recruitment camp · training grounds</span>
+      <h2 class="front-name">The Kindle Yard</h2>
+      <span class="front-sub">where the Legion finds out what you are</span>
+    </header>
+  {:else if region}
     <header class="front-head">
       <span class="readout deploy">deployment · {region.tier} front · lv {region.minLevel}–{region.maxLevel}</span>
       <h2 class="front-name">{region.name}</h2>
@@ -109,11 +119,21 @@
           {/each}
         </div>
       </div>
+    {:else if inCamp && game.campDuel}
+      <CampBoard
+        duel={game.campDuel}
+        stepsDone={game.expedition.camp}
+        onengage={() => game.engageCampDuel()}
+      />
     {:else}
-      <div class="lull">
-        <span class="lull-word">{region?.intro ?? 'The line holds. For now.'}</span>
-        <span class="lull-hint">press <kbd>Space</kbd> to engage — or the <kbd>Engage</kbd> deck</span>
-      </div>
+      <FieldBoard
+        offers={game.field.offers}
+        selectedId={game.field.selectedId}
+        rerolls={game.field.rerolls}
+        intro={region?.intro}
+        onselect={(id) => game.selectOffer(id)}
+        onengage={(id) => game.engageOffer(id)}
+      />
     {/if}
   </div>
 
@@ -165,9 +185,27 @@
               <span class="cast-track"><span class="cast-fill" style:width="{cast.progress * 100}%"></span></span>
               <span class="cast-time num">{ticksToSeconds(cast.remainingTicks)}s</span>
             </div>
+          {:else if strike}
+            <!-- the staff's basic attack: the wind-up bar, with the Sharpen
+                 window burning in its last stretch. Space inside it whets the
+                 landing blow; the whole bar goes gold once a Sharpen is banked. -->
+            <div class="strike" class:armed={strike.sharpenReady} class:open={strike.windowOpen}>
+              <span class="strike-name">Staff</span>
+              <span class="strike-track">
+                <span class="strike-window" aria-hidden="true"></span>
+                <span class="strike-fill" style:width="{strike.progress * 100}%"></span>
+              </span>
+              <span class="strike-tag mono">
+                {#if strike.sharpenReady}sharpened{:else if strike.windowOpen}Space ▸ sharpen{:else}{strike.dmgMin}–{strike.dmgMax}{/if}
+              </span>
+            </div>
           {/if}
           {#if game.progress.classId === 'arcanist'}
-            <WeaveHeat heat={game.combat.player.heat} />
+            <!-- no gauge before the First Weaving: a staff-only recruit has no
+                 fire to ride, and the empty bar would spoil the reveal -->
+            {#if game.taught.includes('fireball')}
+              <WeaveHeat heat={game.combat.player.heat} />
+            {/if}
           {:else}
             <ClassResource resource={game.combat.resource} echo={game.combat.echo} classId={game.progress.classId} />
           {/if}
@@ -372,32 +410,6 @@
     background: oklch(0.72 0.19 45 / 0.08);
   }
 
-  .lull {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    text-align: center;
-  }
-  .lull-word {
-    font-family: var(--font-display);
-    font-size: 18px;
-    font-style: italic;
-    letter-spacing: 0.04em;
-    color: var(--text-dim);
-    max-width: 520px;
-  }
-  .lull-word::first-letter {
-    font-size: 1.5em;
-    color: var(--ember-glow);
-  }
-  .lull-hint {
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--text-dim);
-    opacity: 0.75;
-  }
-  .lull-hint kbd,
   .helm-hint kbd {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -504,6 +516,71 @@
   .helm-hint {
     font-size: 11px;
     color: var(--text-dim);
+  }
+
+  /* the staff's wind-up: same station as the cast bar, humbler dress —
+     wood-and-gilt, with the Sharpen window burning in the last stretch */
+  .strike {
+    --wood: oklch(0.78 0.09 85);
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 6px 14px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, oklch(0.17 0.03 300 / 0.6), oklch(0.11 0.035 305 / 0.7));
+    border: 1px solid color-mix(in oklch, var(--wood) 32%, oklch(0.85 0.03 260 / 0.16));
+  }
+  .strike.open {
+    border-color: color-mix(in oklch, var(--wood) 65%, transparent);
+    box-shadow: 0 0 14px -6px var(--wood);
+  }
+  .strike.armed {
+    border-color: var(--ember-glow);
+    box-shadow: 0 0 18px -6px oklch(0.72 0.19 45 / 0.8);
+  }
+  .strike-name {
+    font-family: var(--font-display);
+    font-size: 12.5px;
+    color: var(--wood);
+    white-space: nowrap;
+  }
+  .strike-track {
+    position: relative;
+    flex: 1;
+    min-width: 140px;
+    height: 6px;
+    border-radius: 99px;
+    background: oklch(0.85 0.03 260 / 0.12);
+    overflow: hidden;
+  }
+  .strike-window {
+    position: absolute;
+    inset: 0 0 0 60%;
+    background: color-mix(in oklch, var(--wood) 30%, transparent);
+  }
+  .strike-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+    background: var(--wood);
+    box-shadow: 0 0 9px -1px var(--wood);
+    transition: width 60ms linear;
+  }
+  .strike.armed .strike-fill {
+    background: var(--ember-glow);
+    box-shadow: 0 0 10px -1px var(--ember-glow);
+  }
+  .strike-tag {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    min-width: 74px;
+    text-align: right;
+  }
+  .strike.open .strike-tag {
+    color: var(--wood);
+  }
+  .strike.armed .strike-tag {
+    color: var(--ember-glow);
   }
 
   @media (max-width: 1000px) {

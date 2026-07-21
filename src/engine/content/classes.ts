@@ -36,7 +36,7 @@ export const CLASS_KITS: Record<ClassId, ClassKit> = {
     name: 'Arcanist',
     role: 'Pyromancer',
     abilities: ['fireball', 'detonate', 'kindle', 'wildfire', 'flashpoint', 'inferno'],
-    talents: ['impFireball', 'searingFlames', 'criticalMass', 'fortitude', 'meditation', 'swiftRenewal'],
+    talents: ['impFireball', 'searingFlames', 'lingeringFlame', 'criticalMass', 'fortitude', 'meditation', 'swiftRenewal'],
     resource: 'none',
     mechanic: 'Smolder & Heat',
   },

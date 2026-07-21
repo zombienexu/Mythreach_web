@@ -62,11 +62,31 @@ describe('heat evolves the fireball', () => {
     expect(splashed).toBe(true)
   })
 
-  it('Heat caps at 10 and never overflows', () => {
+  it('Heat climbs to 10, and the Blaze at the boil crashes it back to cold', () => {
     const sim = makeSim({ content: testContent({ hp: 100_000 }) })
     advanceToSpawn(sim)
-    for (let i = 0; i < 14; i++) fireball(sim)
-    expect(sim.combatSnapshot().player.heat).toBe(10)
+    // Chain-cast to the boil: ten Fireballs bank ten Heat (casting keeps the
+    // decay clock parked).
+    let peak = 0
+    for (let i = 0; i < 10; i++) {
+      fireball(sim)
+      peak = Math.max(peak, sim.combatSnapshot().player.heat)
+    }
+    expect(peak).toBe(10)
+    // The eleventh is the Blaze: it fires from the overheat band, and then the
+    // fire slips your grip — Heat is cold again, never mastered.
+    fireball(sim)
+    expect(sim.combatSnapshot().player.heat).toBeLessThanOrEqual(1)
+  })
+
+  it('unfed Heat bleeds away on the decay clock', () => {
+    const sim = makeSim({ content: testContent({ hp: 100_000 }) })
+    advanceToSpawn(sim)
+    fireball(sim)
+    fireball(sim)
+    expect(sim.combatSnapshot().player.heat).toBe(2)
+    advance(sim, 130) // two full decay intervals with idle hands
+    expect(sim.combatSnapshot().player.heat).toBe(0)
   })
 })
 

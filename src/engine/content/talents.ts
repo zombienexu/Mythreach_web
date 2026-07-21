@@ -41,6 +41,15 @@ export const TALENTS: Record<TalentId, TalentDef> = {
     description: 'Your fire spells burn 8% hotter per rank.',
     effects: [{ kind: 'school', school: 'fire', pctPerRank: 8 }],
   },
+  lingeringFlame: {
+    id: 'lingeringFlame',
+    name: 'Lingering Flame',
+    maxRanks: 3,
+    perRank: '+1× Smolder burn',
+    description:
+      'Your Smolder smoulders in truth: each stack burns the foe every second, fiercer as it ages, and each rank stokes the burn again. Untrained, the fire only waits to be spent.',
+    effects: [{ kind: 'mod', mod: 'smolderBurn', perRank: 1 }],
+  },
   criticalMass: {
     id: 'criticalMass',
     name: 'Critical Mass',

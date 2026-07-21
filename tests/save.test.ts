@@ -8,7 +8,7 @@ describe('serialize / deserialize', () => {
   it('round-trips progression exactly', () => {
     const content = testContent({ hp: 1, xp: 30, dropPct: 50 })
     const sim = makeSim({ content })
-    sim.autoBattle = true
+    sim.autoDrive = true
     advance(sim, 3000)
     const before = sim.progressSnapshot()
     const save = sim.serialize()
@@ -25,7 +25,6 @@ describe('serialize / deserialize', () => {
     expect(after.achievements.sort()).toEqual(before.achievements.sort())
     expect(after.lifetime).toEqual(before.lifetime)
     expect(after.regionId).toBe(before.regionId)
-    expect(restored.autoBattle).toBe(true)
   })
 
   it('comes back at full strength, idle and ready to fight', () => {
@@ -124,7 +123,7 @@ describe('serialize / deserialize', () => {
 describe('auto-battle on real content', () => {
   it('a fresh level-1 hero survives and progresses in the Verdant Reach', () => {
     const sim = new GameSim({ rng: mulberry32(42) })
-    sim.autoBattle = true
+    sim.autoDrive = true
     let kills = 0
     let deaths = 0
     for (let i = 0; i < 24_000; i++) {

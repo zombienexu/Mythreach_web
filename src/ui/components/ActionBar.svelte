@@ -212,7 +212,7 @@
         disabled={hubDisabled}
         onclick={() => onhub?.()}
         aria-label={hubLabel}
-        title={hub === 'summon' ? 'Engage the next foes (Space)' : hub === 'collect' ? 'Collect every spoil (Space or R)' : hub === 'focus' ? 'Focus — read the foe and crack it open (Space)' : 'Fallen — waiting to revive'}
+        title={hub === 'summon' ? 'Engage the marked sighting (Space)' : hub === 'collect' ? 'Collect every spoil (Space or R)' : hub === 'focus' ? 'Focus — read the foe and crack it open (Space)' : 'Fallen — waiting to revive'}
       >
         {#if hub === 'summon'}
           <svg class="hub-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6 L14.3 9.7 L21.4 12 L14.3 14.3 L12 21.4 L9.7 14.3 L2.6 12 L9.7 9.7 Z" fill="currentColor" /></svg>

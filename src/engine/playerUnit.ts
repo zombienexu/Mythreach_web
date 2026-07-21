@@ -1,7 +1,15 @@
 import { ABILITY_IDS } from './abilities'
 import { Combatant } from './combatant'
 import type { Dot } from './dot'
-import type { AbilityId, BuffId, BuffSnapshot, CardId, DerivedStats, PlayerSnapshot } from './types'
+import type {
+  AbilityId,
+  BuffId,
+  BuffSnapshot,
+  CardId,
+  DerivedStats,
+  PlayerSnapshot,
+  StrikeSnapshot,
+} from './types'
 
 /** Derived from ABILITY_IDS, never hand-listed: a new ability must not be able
  *  to ship with a missing cooldown slot. */
@@ -44,10 +52,20 @@ export class PlayerUnit {
   regenElapsed = 0
   respawnIn = 0
 
+  // ── the staff's basic attack ──
+  /** Ticks into the current wind-up. Advances only with a live target and no
+   *  cast in flight; the landing blow resets it. */
+  strikeElapsed = 0
+  /** A Focus read banked into your own wind-up: the next landing blow is
+   *  Sharpened. Consumed when the strike lands. */
+  sharpenReady = false
+
   // ── class mechanic state ──
-  /** Arcanist Heat: accumulated fire, 0–10. Doesn't add flat damage — it
-   *  changes what Fireball does as it climbs. Combat-transient (never persisted). */
+  /** Arcanist Heat: accumulated fire, 0–10. Momentum — every point burns
+   *  hotter, unfed Heat bleeds away. Combat-transient (never persisted). */
   heat = 0
+  /** Ticks since Heat was last fed — drives the unfed-Heat decay. */
+  heatIdle = 0
   /** Focus (universal read-the-foe action): remaining cooldown ticks. */
   focusCd = 0
   /** Gravewright: banked ledger pages (the one resource that persists). */
@@ -102,7 +120,10 @@ export class PlayerUnit {
     this.cast = null
     this.queued = null
     this.gcd = 0
+    this.strikeElapsed = 0
+    this.sharpenReady = false
     this.heat = 0
+    this.heatIdle = 0
     this.focusCd = 0
     this.shield = null
     this.combustion = 0
@@ -116,7 +137,7 @@ export class PlayerUnit {
     this.charges = 0
   }
 
-  snapshot(stats: DerivedStats): PlayerSnapshot {
+  snapshot(stats: DerivedStats, strike: StrikeSnapshot | null): PlayerSnapshot {
     const buffs: BuffSnapshot[] = []
     if (this.shield) buffs.push({ id: 'barrier', remainingTicks: this.shield.remaining, amount: this.shield.amount })
     if (this.combustion > 0) buffs.push({ id: 'combustion', remainingTicks: this.combustion })
@@ -134,6 +155,7 @@ export class PlayerUnit {
       heat: this.heat,
       focusCd: this.focusCd,
       focusReady: this.focusCd === 0 && this.alive,
+      strike,
       buffs,
       dot:
         this.venom && this.venom.active

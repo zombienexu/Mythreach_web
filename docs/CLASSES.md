@@ -8,21 +8,26 @@ is the how; `tests/classes.test.ts` is the proof.
 Shared spine (all classes): 20 ticks/s, GCD 1.2 s, mana + regen, level cap
 15, one talent point per level from 2, gear with power/stamina/spirit/crit.
 Each kit gets 6–7 abilities (a level-1 opener through a level-11 capstone)
-and exactly six talents. Every class must pass the same balance smoke test:
-a fresh level-1 hero on auto-battle survives and progresses in the starting
-region.
+and six talents (the Arcanist carries a seventh — Lingering Flame). Every
+hero also auto-swings their weapon (the Strike) and owns the universal Focus
+timing read. Every class must pass the same balance smoke test: a fresh
+level-1 hero on the test-only auto-driver survives and progresses in the
+starting region.
 
 ---
 
-## Arcanist — the classicist
+## Arcanist — the pressure-builder
 
-*For the player who wants the fantasy that made them love the genre: cast
-bars, crisp rotations, a big red button.*
+*For the player who wants to read a fight and choose a moment — and for whom
+fire should feel like something alive that they are barely holding.*
 
-Unchanged — it is the control group the other five are balanced against.
-The Weave is not a resource; it is the rotation itself: Ignite rolling,
-Pyroblast on cooldown, Fireball as filler, Combustion when it matters,
-Counterspell as the skill moment.
+The War-Weaver of the slice. Three interlocking systems: **Openings** (the
+Focus timing read, on their swings and yours), **Smolder** (aging fuel on the
+foe — inert until the Lingering Flame talent, then a burn), and **Heat**
+(riding momentum: +3% fire per point, bleeds unfed, and the overheat Blaze
+always spends itself back to cold). The class thesis is spoken by its drill
+sergeant: nobody masters the Weave — you ride it. Full detail in
+`docs/COMBAT.md`.
 
 ## Gravewright — the collector
 
@@ -150,6 +155,6 @@ Cartomancer under House Rules is a crit machine. That's the point: 6 × 4 × 4
 - Capstones (level 11, 30 s cooldown) are each worth roughly 3–4 filler
   casts when their condition is met — full ledger, high debt, grown briar,
   full charges, a duel-worthy target.
-- The per-class auto-battle rotations in `sim.ts` are the executable
-  statement of each kit's intended priority; the balance smoke test runs all
-  six for 20 simulated minutes at level 1.
+- The per-class rotations of the test-only auto-driver in `sim.ts` are the
+  executable statement of each kit's intended priority; the balance smoke
+  test runs all six for 20 simulated minutes at level 1.

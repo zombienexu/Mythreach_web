@@ -8,6 +8,7 @@
 import type { AbilityId, CombatEvent, GameSim } from '../../engine'
 import type { Storagelike } from '../persistence'
 import { expeditionKeyFor, type SlotId } from '../profile'
+import { CAMP_DUELS, bonusForStep, inCamp } from './camp'
 import {
   CODEX,
   GRACE_TIERS,
@@ -25,6 +26,8 @@ interface ExpeditionSave {
   progress: Record<string, number>
   transmitted: string[]
   briefed?: boolean
+  /** Kindle Yard steps completed (absent on pre-camp saves). */
+  camp?: number
 }
 
 export class Expedition {
@@ -35,16 +38,20 @@ export class Expedition {
   /** objective ids whose findings are already banked home */
   transmitted: string[] = $state([])
 
+  /** Kindle Yard steps completed (persisted). At CAMP_DUELS.length the
+   *  conscript has graduated and the world proper is open. */
+  camp = $state(0)
+
   /** bumps every time Standing is earned — drives the telemetry pulse */
   standingPulse = $state(0)
   /** newly taught abilities awaiting a teaching ceremony, or null */
   justTaught: AbilityId[] | null = $state(null)
   /** set once when the last chapter transmits — the art is recovered */
   justRecovered = $state(false)
-  /** the conscript has been handed their first orders (persisted) */
+  /** the conscript has arrived and been mustered (persisted) */
   briefed = $state(false)
-  /** show the one-time arrival briefing from the sergeant */
-  justBriefed = $state(false)
+  /** set once, the moment the final duel graduates the conscript */
+  justGraduated = $state(false)
 
   private readonly ctx: CodexCtx = { enraged: new Set() }
   private prevTier = 0
@@ -86,15 +93,32 @@ export class Expedition {
     return this.tierIndex >= tierIndex
   }
 
-  /** Mark the arrival briefing done and raise its one-time card. */
-  markBriefed(showCard: boolean): void {
+  /** True while the conscript is still training in the Kindle Yard — the Map
+   *  and the field board stay shut until graduation. */
+  get inCamp(): boolean {
+    return inCamp(this.camp)
+  }
+
+  /** A camp duel was won: advance the script and pay any boundary bonus (the
+   *  proving crossing Blooded is what teaches Fireball). Returns any freshly
+   *  taught abilities so the caller can re-arm the sim. */
+  advanceCamp(): AbilityId[] | null {
+    if (!this.inCamp) return null
+    this.camp++
+    if (this.camp >= CAMP_DUELS.length) this.justGraduated = true
+    const taught = this.gainStanding(bonusForStep(this.camp))
+    this.save()
+    return taught
+  }
+  clearGraduated(): void {
+    this.justGraduated = false
+  }
+
+  /** Mark the arrival muster done. */
+  markBriefed(): void {
     if (this.briefed) return
     this.briefed = true
-    if (showCard) this.justBriefed = true
     this.save()
-  }
-  clearBriefing(): void {
-    this.justBriefed = false
   }
 
   countOf(id: string): number {
@@ -151,22 +175,39 @@ export class Expedition {
     }
     if (e.kind === 'questTurnedIn') gained += STANDING_PER_CHARGE
 
+    return gained > 0 ? this.gainStanding(gained) : null
+  }
+
+  /** Add Standing and, if it crosses one or more Grace thresholds, teach the
+   *  War-Weaving between them and return it (so the caller can re-arm the sim).
+   *  The single place Standing ever grows — kills, turn-ins, and rare-clear
+   *  bonuses all funnel through here. */
+  private gainStanding(amount: number): AbilityId[] | null {
+    if (amount <= 0) return null
+    this.standing += amount
+    this.standingPulse++
     let taught: AbilityId[] | null = null
-    if (gained > 0) {
-      this.standing += gained
-      this.standingPulse++
-      const t = tierIndexFor(this.standing)
-      if (t > this.prevTier) {
-        // one or more tiers crossed at once — teach everything between
-        const fresh: AbilityId[] = []
-        for (let i = this.prevTier + 1; i <= t; i++) fresh.push(...GRACE_TIERS[i]!.teaches)
-        this.prevTier = t
-        this.justTaught = fresh
-        taught = fresh
-      }
-      this.save()
+    const t = tierIndexFor(this.standing)
+    if (t > this.prevTier) {
+      // one or more tiers crossed at once — teach everything between
+      const fresh: AbilityId[] = []
+      for (let i = this.prevTier + 1; i <= t; i++) fresh.push(...GRACE_TIERS[i]!.teaches)
+      this.prevTier = t
+      this.justTaught = fresh
+      taught = fresh
     }
+    this.save()
     return taught
+  }
+
+  /** Bonus Standing for felling a rarer sighting — a champion or the apex. */
+  clearBonus(rarity: string): number {
+    return rarity === 'apex' ? 60 : rarity === 'rare' ? 20 : 0
+  }
+
+  /** Bank a rare/apex clear's bonus Standing. Returns any freshly taught abilities. */
+  awardClear(rarity: string): AbilityId[] | null {
+    return this.gainStanding(this.clearBonus(rarity))
   }
 
   /** Bank a completed chapter's findings home. */
@@ -199,6 +240,7 @@ export class Expedition {
         progress: { ...this.progress },
         transmitted: [...this.transmitted],
         briefed: this.briefed,
+        camp: this.camp,
       }
       this.storage.setItem(this.key, JSON.stringify(data))
     } catch {
@@ -215,6 +257,15 @@ export class Expedition {
       this.progress = { ...(data.progress ?? {}) }
       this.transmitted = [...(data.transmitted ?? [])]
       this.briefed = data.briefed === true
+      // Camp migration: a save that predates the Kindle Yard was trained under
+      // the old law — treat it as graduated, and floor its Standing at Blooded
+      // so nobody who could already cast Fireball wakes up unable to.
+      if (data.camp === undefined) {
+        this.camp = this.briefed ? CAMP_DUELS.length : 0
+        if (this.briefed && this.standing < GRACE_TIERS[1]!.at) this.standing = GRACE_TIERS[1]!.at
+      } else {
+        this.camp = Math.max(0, Math.min(data.camp, CAMP_DUELS.length))
+      }
     } catch {
       // corrupt — start the expedition fresh
     }

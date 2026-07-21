@@ -1,24 +1,23 @@
 <script lang="ts">
   import Background from '../components/Background.svelte'
-  import Filigree from '../components/Filigree.svelte'
   import { CLASS_BY_ID, forgeName, validName } from '../content/identity'
-  import type { SlotId, SlotProfile } from '../profile'
+  import type { SlotId } from '../profile'
   import { SLICE_IDENTITY } from '../slice/content'
-  import ClassEmblem from './ClassEmblem.svelte'
 
   let {
     slot,
     onback,
-    onbegin,
+    onname,
   }: {
     slot: SlotId
     onback: () => void
-    /** The name is set — write the profile and cross the Threshold. */
-    onbegin: (profile: SlotProfile) => void
+    /** The name is set — the calling is chosen later, at the world station. */
+    onname: (name: string) => void
   } = $props()
 
-  // The slice is one system, one life: a War-Weaver of the Ember Legion. Creation
-  // names the conscript; the calling itself is fixed.
+  // The world (and thus the calling) is chosen later, at the Projection Station.
+  // Creation only names the conscript; the warm gilt hue still belongs to the
+  // one recovered art.
   const cls = CLASS_BY_ID[SLICE_IDENTITY.classId]
 
   let name = $state(forgeName())
@@ -26,15 +25,7 @@
 
   function begin(): void {
     if (!nameOk) return
-    const now = Date.now()
-    onbegin({
-      name: name.trim(),
-      classId: SLICE_IDENTITY.classId,
-      originId: SLICE_IDENTITY.originId,
-      signId: SLICE_IDENTITY.signId,
-      createdAt: now,
-      playedAt: now,
-    })
+    onname(name.trim())
   }
 </script>
 
@@ -67,31 +58,20 @@
     {/if}
   </section>
 
-  <!-- The Calling (fixed) -->
-  <section class="chapter" aria-label="Calling">
-    <h2 class="rule">The Calling</h2>
-    <article class="detail glass" style:--ch={cls.hue}>
-      <Filigree inset={6} size={18} />
-      <div class="d-head">
-        <span class="emblem"><ClassEmblem classId={cls.id} /></span>
-        <div class="d-title">
-          <h3>War-Weaver</h3>
-          <p class="epithet">of the Ember Legion — a Conscript on the line</p>
-        </div>
-        <span class="fixed-badge">Only art recovered</span>
-      </div>
-      <p class="lore">
-        Battlefield evocation, learned from a caster-sergeant by surviving. The other systems are
-        still redacted; this is the one the Threshold can reach.
-      </p>
-    </article>
+  <!-- The Fieldworker -->
+  <section class="chapter" aria-label="Fieldworker">
+    <h2 class="rule">The Fieldworker</h2>
+    <p class="lore">
+      The Institute logs one more mind for projection. Your art — the world you will live to learn
+      it in — is chosen at the Projection Station, once the Threshold has you.
+    </p>
   </section>
 
   <footer class="foot">
     {#if !nameOk}
-      <p class="foot-note">The orders are waiting on a name.</p>
+      <p class="foot-note">The Threshold is waiting on a name.</p>
     {:else}
-      <p class="foot-note">{name.trim()}, War-Weaver of the Ember Legion.</p>
+      <p class="foot-note">{name.trim()}, logged for projection.</p>
     {/if}
     <button class="seal begin" disabled={!nameOk} onclick={begin}>Cross the Threshold</button>
   </footer>
@@ -196,55 +176,7 @@
     color: oklch(0.72 0.12 25);
   }
 
-  /* ---- calling plate ------------------------------------------------- */
-  .detail {
-    padding: 20px 22px;
-    display: flex;
-    flex-direction: column;
-    gap: 13px;
-  }
-
-  .d-head {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-wrap: wrap;
-  }
-
-  .emblem {
-    width: 44px;
-    height: 44px;
-    flex-shrink: 0;
-  }
-
-  .d-title {
-    flex: 1;
-  }
-
-  .d-title h3 {
-    font-size: 22px;
-    color: oklch(0.85 0.09 var(--ch));
-  }
-
-  .epithet {
-    margin: 1px 0 0;
-    font-family: var(--font-display);
-    font-style: italic;
-    font-size: 13px;
-    color: var(--text-dim);
-  }
-
-  .fixed-badge {
-    font-size: 10.5px;
-    font-weight: 640;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    border-radius: 99px;
-    border: 1px solid oklch(0.75 0.12 160 / 0.5);
-    color: oklch(0.78 0.13 160);
-  }
-
+  /* ---- fieldworker copy ---------------------------------------------- */
   .lore {
     margin: 0;
     font-size: 14px;

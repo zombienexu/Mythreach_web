@@ -23,7 +23,9 @@ describe('kit registration', () => {
     for (const classId of CLASS_IDS) {
       const kit = CLASS_KITS[classId]
       expect(kit.abilities.length).toBeGreaterThanOrEqual(6)
-      expect(kit.talents.length).toBe(6)
+      // The arcanist carries a seventh talent: Lingering Flame, the Smolder
+      // burn moved out of the level-1 kit and into the tree.
+      expect(kit.talents.length).toBe(classId === 'arcanist' ? 7 : 6)
       for (const t of kit.talents) expect(TALENTS[t], `${classId} missing talent ${t}`).toBeDefined()
       // At most one unlock per level, and the capstone lands at 11.
       const unlocks = kit.abilities.map((id) => ABILITIES[id].unlockLevel)
@@ -492,7 +494,7 @@ describe('every calling can play the real game', () => {
   for (const classId of CLASS_IDS) {
     it(`a level-1 ${classId} survives and progresses in the Verdant Reach`, () => {
       const sim = new GameSim({ rng: mulberry32(42), identity: identity(classId) })
-      sim.autoBattle = true
+      sim.autoDrive = true
       let kills = 0
       let deaths = 0
       for (let i = 0; i < 24_000; i++) {

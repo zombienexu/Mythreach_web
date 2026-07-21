@@ -5,16 +5,28 @@ import { QUESTS } from '../src/engine/content/quests'
 import { REGIONS } from '../src/engine/content/regions'
 
 describe('region content', () => {
-  it('there are five regions in difficulty order', () => {
-    expect(REGIONS).toHaveLength(5)
+  it('there are eight regions in difficulty order', () => {
+    expect(REGIONS).toHaveLength(8)
     expect(REGIONS.map((r) => r.id)).toEqual([
       'hollowroot',
       'duskmire',
       'stormcrag',
       'ashen-wastes',
       'sundered-spire',
+      'emberwall',
+      'stormharrow',
+      'gravecall',
     ])
-    expect(REGIONS.map((r) => r.tier)).toEqual(['low', 'low', 'medium', 'medium', 'hard'])
+    expect(REGIONS.map((r) => r.tier)).toEqual([
+      'low',
+      'low',
+      'medium',
+      'medium',
+      'hard',
+      'hard',
+      'hard',
+      'hard',
+    ])
   })
 
   it('each region has a non-empty encounter table', () => {
@@ -47,22 +59,24 @@ describe('region content', () => {
     expect(new Set(all).size).toBe(all.length)
   })
 
-  it('level bands are ascending, contiguous, and cover 1–15', () => {
+  it('level bands are ascending, contiguous, and cover 1–24', () => {
     for (let i = 0; i < REGIONS.length; i++) {
       const r = REGIONS[i]!
       expect(r.minLevel).toBeLessThanOrEqual(r.maxLevel)
       if (i > 0) expect(r.minLevel).toBe(REGIONS[i - 1]!.maxLevel + 1)
     }
     expect(REGIONS[0]!.minLevel).toBe(1)
-    expect(REGIONS[REGIONS.length - 1]!.maxLevel).toBe(15)
+    expect(REGIONS[REGIONS.length - 1]!.maxLevel).toBe(24)
   })
 })
 
 describe('quest catalog', () => {
-  it('has unique ids and three quests per region', () => {
+  it('has unique ids and three quests per region (four in Hollowroot — the boar order)', () => {
     expect(new Set(QUESTS.map((q) => q.id)).size).toBe(QUESTS.length)
     for (const r of REGIONS) {
-      expect(QUESTS.filter((q) => q.regionId === r.id), r.id).toHaveLength(3)
+      expect(QUESTS.filter((q) => q.regionId === r.id), r.id).toHaveLength(
+        r.id === 'hollowroot' ? 4 : 3,
+      )
     }
   })
 

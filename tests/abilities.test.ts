@@ -86,13 +86,16 @@ describe('casting and the GCD', () => {
   })
 
   it('a cast fizzles (and refunds mana) when the target dies mid-cast', () => {
-    // L10 Gravechill ticks 5 × 7; a 25-HP foe dies on its 5th burn (+100).
-    const sim = makeSim({ level: 10, seed: 5, identity: gw, content: testContent({ hp: 25 }) })
+    // A 30-HP foe: Gravechill burns 5 at +20/+40/+60 and the bare-hand strike
+    // lands 15–20 at +36, so death is pinned inside [+40, +60] — after the
+    // gravebolt cast starts at +37 (strikes hold while casting), before it
+    // would resolve at +77. The kill mid-cast is what fizzles it.
+    const sim = makeSim({ level: 10, seed: 5, identity: gw, content: testContent({ hp: 30 }) })
     advanceToSpawn(sim)
     sim.useAbility('gravechill')
-    advance(sim, 75) // burns at +20/+40/+60 → 10 HP, still alive
+    advance(sim, 37) // one burn (+20) and one strike (+36) — alive on ≤ 25 damage
     const manaBefore = sim.combatSnapshot().player.mana
-    sim.useAbility('gravebolt') // 40-tick cast resolves at +115, after the kill at +100
+    sim.useAbility('gravebolt') // 40-tick cast; the burns kill before it lands
     const events = advance(sim, 60)
     expect(eventsOf(events, 'enemyDied')).toHaveLength(1)
     expect(eventsOf(events, 'castFizzled')).toHaveLength(1)
